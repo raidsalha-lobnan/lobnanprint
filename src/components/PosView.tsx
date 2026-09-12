@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'; // Trigger Sync
 import { useAccounting } from '../context/AccountingContext';
 import { InventoryItem, PaymentMethod, Invoice, Party } from '../types';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
