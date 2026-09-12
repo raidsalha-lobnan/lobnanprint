@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+/* ==========================================================
+   Full Field Highlighting when Cursor/Focus is Placed
+   تعليم الخانة بالكامل أينما يوضع المؤشر
+   ========================================================== */
+
+/* Enlarge numbers globally across the app without breaking layout */
+input[type="number"], 
+.font-mono.font-black,
+.font-mono.font-bold {
+  font-size: 16px !important;
+  letter-spacing: -0.5px; /* compress slightly so it doesn't overflow */
+}
+
+/* Ensure padding inside number inputs is minimal so the larger numbers fit */
+input[type="number"] {
+  padding-left: 2px !important;
+  padding-right: 2px !important;
+  -moz-appearance: textfield; /* Firefox */
+}
+
+/* Hide spin buttons to maximize space for larger numbers */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Active / Focused Input, Select, and Textarea */
+input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="color"]):focus,
+textarea:focus,
+select:focus {
+  background-color: #fffbeb !important; /* Luminous active field background (warm amber/yellow) */
+  border-color: #2563eb !important;     /* High-contrast precision blue border */
+  box-shadow: 0 0 0 2.5px rgba(37, 99, 235, 0.45), inset 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+  outline: none !important;
+  color: #0f172a !important;
+}
+
+/* Entire Table Cell containing the active cursor/input */
+td:has(input:focus),
+td:has(select:focus),
+td:has(textarea:focus) {
+  background-color: #fef9c3 !important; /* Prominently highlight the entire table cell */
+  outline: 2px solid #2563eb !important;
+  outline-offset: -2px;
+  z-index: 10;
+  position: relative;
+}
+
+/* Table row containing the active cursor */
+tr:has(input:focus),
+tr:has(select:focus),
+tr:has(textarea:focus) {
+  background-color: #fefce8 !important; /* Subtle tint for the active row */
+}
+
+/* Text Selection: High visibility selection color across all fields */
+::selection {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+}
+input::selection,
+textarea::selection {
+  background-color: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+
+/* Fix for Html5Qrcode video scaling issues */
+#pos-inline-camera-viewport video,
+#app-barcode-scanner-viewport video {
+  object-fit: cover !important;
+  width: 100% !important;
+  height: auto !important;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+  body {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  
+  /* Print Area Isolation Hack */
+  body.printing-mode * {
+    visibility: hidden;
+  }
+  body.printing-mode .print-area,
+  body.printing-mode .print-area * {
+    visibility: visible;
+  }
+  body.printing-mode .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+}
+

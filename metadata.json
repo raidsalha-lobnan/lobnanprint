@@ -1,0 +1,10 @@
+{
+  "name": "Remix Copy of Copy of Remix Remix نظام محاسبي متكامل الأيهم",
+  "description": "برنامج محاسبي وإداري شامل ومتكامل للمطابع والمكتبات والقرطاسية، يشمل نقاط البيع السريعة، تتبع أوامر الطباعة والتصنيع، المخزون، الحسابات العامة وشجرة الحسابات، قيود اليومية، والقوائم المالية والضريبية.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
