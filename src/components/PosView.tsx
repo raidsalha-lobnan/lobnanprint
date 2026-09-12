@@ -439,6 +439,16 @@ export const PosView: React.FC = () => {
 
   const [quickBarcodeVal, setQuickBarcodeVal] = useState<string>('');
   const [isInlineCameraOpen, setIsInlineCameraOpen] = useState<boolean>(false);
+  const [barcodeNotFoundAlert, setBarcodeNotFoundAlert] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (barcodeNotFoundAlert) {
+      const timer = setTimeout(() => {
+        setBarcodeNotFoundAlert(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [barcodeNotFoundAlert]);
 
   // Invoice Workflow Status (حالة فاتورة الكاشير: جديدة، قيد التصميم، قيد التنفيذ، جاهزة للتسليم، مسلمة)
   const [invoiceWorkflowStatus, setInvoiceWorkflowStatus] = useState<PosInvoiceWorkflowStatus>('new');
@@ -452,6 +462,7 @@ export const PosView: React.FC = () => {
   // Refs for auto-focusing inputs and 5-second inactivity timer
   const barcodeInputRef = useRef<HTMLInputElement | null>(null);
   const quantityInputRef = useRef<HTMLInputElement | null>(null);
+  const customerInputRef = useRef<HTMLInputElement | null>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // POS Buttons & UI Customization State
@@ -549,16 +560,22 @@ export const PosView: React.FC = () => {
   const handleExecuteButtonAction = (button: PosCustomButton) => {
     switch (button.actionType) {
       case 'save_invoice':
-        handleSaveInvoice('none');
+        handleSaveInvoice('none', true);
         break;
       case 'save_and_print':
-        handleSaveInvoice('prompt');
+        handleSaveInvoice('prompt', true);
+        break;
+      case 'save_and_print_a4_custom':
+        handleSaveInvoice('a4-custom-direct', true);
         break;
       case 'quick_pay_cash':
         handleQuickPayCash('none');
         break;
       case 'pay_cash_and_print':
         handleQuickPayCash('prompt');
+        break;
+      case 'pay_cash_and_print_a4_custom':
+        handleQuickPayCash('a4-custom-direct');
         break;
       case 'quick_pay_card':
         handleQuickPayCard('prompt');
@@ -732,6 +749,16 @@ export const PosView: React.FC = () => {
   const parsedPaidAmount = Number((cashPaidBase + bankPaidBase).toFixed(2));
   const calculatedRemaining = Math.max(0, Number((calculatedTotalAmount - parsedPaidAmount).toFixed(2)));
 
+  const currentPaymentStatus = computeInvoicePaymentStatus({
+    totalAmount: calculatedTotalAmount,
+    paidAmount: parsedPaidAmount,
+    remainingAmount: calculatedRemaining,
+    cashPaidAmount: cashPaidBase,
+    bankPaidAmount: bankPaidBase,
+    paymentMethod: parsedPaidAmount <= 0 ? 'credit' : (bankPaidBase > 0 ? 'card' : 'cash'),
+  });
+  const currentPaymentStatusMeta = getInvoicePaymentStatusMeta(currentPaymentStatus);
+
   // Track latest state in a ref for safe auto-hold when cashier leaves, switches screens or closes tab
   const latestPosStateRef = useRef({
     tableLines,
@@ -802,21 +829,61 @@ export const PosView: React.FC = () => {
     };
   }, [autoHoldIfItemsPresent]);
 
-  // Quick Action Helpers
+  // Quick Action Helpers - زر كامل يضع قيمة المتبقي مع الاحتفاظ بأي قيمة دفع أخرى موجودة
   const handleQuickFullCash = () => {
-    const rate = cashExchangeRate > 0 ? cashExchangeRate : 1.0;
-    const req = Number((calculatedTotalAmount / rate).toFixed(2));
-    setCashAmountInput(String(req));
-    setBankAmountInput('0');
-    setPaymentMethod('cash');
+    // 1. حساب المبلغ المدفوع بالبنك حالياً بالعملة الأساسية (الشيكل)
+    const currentBankAmount = parseFloat(bankAmountInput) || 0;
+    const bRate = bankExchangeRate > 0 ? bankExchangeRate : 1.0;
+    const currentBankPaidBase = Number((currentBankAmount * bRate).toFixed(2));
+
+    // 2. حساب المبلغ المتبقي بعد خصم أي مدفوعات بنكية سابقة
+    const remainingBase = Math.max(0, Number((calculatedTotalAmount - currentBankPaidBase).toFixed(2)));
+
+    // 3. تحويل المبلغ المتبقي لعملة الدفع النقدي المختارة
+    const cRate = cashExchangeRate > 0 ? cashExchangeRate : 1.0;
+    const reqCash = Number((remainingBase / cRate).toFixed(2));
+
+    // 4. تعيين المتبقي في خانة الدفع النقدي مع الاحتفاظ بالدفع البنكي كما هو دون تصفيره
+    setCashAmountInput(String(reqCash));
+
+    // 5. تحديد طريقة الدفع المناسبة
+    if (currentBankAmount > 0 && reqCash > 0) {
+      setPaymentMethod('split');
+    } else if (reqCash > 0) {
+      setPaymentMethod('cash');
+    } else if (currentBankAmount > 0) {
+      setPaymentMethod('card');
+    } else {
+      setPaymentMethod('cash');
+    }
   };
 
   const handleQuickFullBank = () => {
-    const rate = bankExchangeRate > 0 ? bankExchangeRate : 1.0;
-    const req = Number((calculatedTotalAmount / rate).toFixed(2));
-    setBankAmountInput(String(req));
-    setCashAmountInput('0');
-    setPaymentMethod('card');
+    // 1. حساب المبلغ المدفوع نقداً حالياً بالعملة الأساسية (الشيكل)
+    const currentCashAmount = parseFloat(cashAmountInput) || 0;
+    const cRate = cashExchangeRate > 0 ? cashExchangeRate : 1.0;
+    const currentCashPaidBase = Number((currentCashAmount * cRate).toFixed(2));
+
+    // 2. حساب المبلغ المتبقي بعد خصم أي مدفوعات نقدية سابقة
+    const remainingBase = Math.max(0, Number((calculatedTotalAmount - currentCashPaidBase).toFixed(2)));
+
+    // 3. تحويل المبلغ المتبقي لعملة الدفع البنكي المختارة
+    const bRate = bankExchangeRate > 0 ? bankExchangeRate : 1.0;
+    const reqBank = Number((remainingBase / bRate).toFixed(2));
+
+    // 4. تعيين المتبقي في خانة الدفع البنكي مع الاحتفاظ بالدفع النقدي كما هو دون تصفيره
+    setBankAmountInput(String(reqBank));
+
+    // 5. تحديد طريقة الدفع المناسبة
+    if (currentCashAmount > 0 && reqBank > 0) {
+      setPaymentMethod('split');
+    } else if (reqBank > 0) {
+      setPaymentMethod('card');
+    } else if (currentCashAmount > 0) {
+      setPaymentMethod('cash');
+    } else {
+      setPaymentMethod('card');
+    }
   };
 
   const handleQuickCredit = () => {
@@ -957,7 +1024,7 @@ export const PosView: React.FC = () => {
     });
   }, [inventory, pricingTier, calculateLineValues, getItemPriceForCustomer]);
 
-  // 5-second Inactivity timer: automatically returns focus to barcode input
+  // 10-second Inactivity timer: automatically returns focus to barcode input when in Barcode Hand Mode
   const resetInactivityTimer = useCallback(() => {
     if (!isBarcodeHandMode) return;
     if (inactivityTimerRef.current) {
@@ -968,16 +1035,35 @@ export const PosView: React.FC = () => {
         barcodeInputRef.current.focus();
         barcodeInputRef.current.select();
       }
-    }, 5000);
+    }, 10000); // 10 seconds of no mouse or keyboard movement
   }, [isBarcodeHandMode]);
 
+  // Track mouse and keyboard activity when Barcode Hand Mode is active
   useEffect(() => {
+    if (!isBarcodeHandMode) {
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current);
+      }
+      return;
+    }
+
+    const handleUserActivity = () => {
+      resetInactivityTimer();
+    };
+
+    window.addEventListener('mousemove', handleUserActivity, { passive: true });
+    window.addEventListener('keydown', handleUserActivity, { passive: true });
+    window.addEventListener('pointerdown', handleUserActivity, { passive: true });
+
     return () => {
+      window.removeEventListener('mousemove', handleUserActivity);
+      window.removeEventListener('keydown', handleUserActivity);
+      window.removeEventListener('pointerdown', handleUserActivity);
       if (inactivityTimerRef.current) {
         clearTimeout(inactivityTimerRef.current);
       }
     };
-  }, []);
+  }, [isBarcodeHandMode, resetInactivityTimer]);
 
   // Toggle Barcode Hand Mode
   const toggleBarcodeHandMode = (val: boolean) => {
@@ -1175,20 +1261,24 @@ export const PosView: React.FC = () => {
     if (!cleanCode) return;
     const item = inventory.find(i => matchItemByBarcode(i, cleanCode));
     if (item) {
+      setBarcodeNotFoundAlert(null);
       handleAddItemToTable(item);
-      // Auto transition cursor to Quantity field
-      setTimeout(() => {
-        if (quantityInputRef.current) {
-          quantityInputRef.current.focus();
-          quantityInputRef.current.select();
-        }
-        resetInactivityTimer();
-      }, 70);
+      // Auto transition cursor to Quantity field ONLY when Barcode Hand Mode is active
+      if (isBarcodeHandMode) {
+        setTimeout(() => {
+          if (quantityInputRef.current) {
+            quantityInputRef.current.focus();
+            quantityInputRef.current.select();
+          }
+          resetInactivityTimer();
+        }, 80);
+      }
     } else {
       posSound.error();
-      alert(`الصنف بالباركود [${cleanCode}] غير مسجل في المخزون`);
+      setBarcodeNotFoundAlert(cleanCode);
+      alert(`الصنف غير موجود\nالباركود: [${cleanCode}]`);
     }
-  }, [inventory, handleAddItemToTable, resetInactivityTimer]);
+  }, [inventory, handleAddItemToTable, isBarcodeHandMode, resetInactivityTimer]);
 
   // Barcode Lookup in row (supports primary & multi-barcodes)
   const handleBarcodeChangeInRow = (id: string, code: string) => {
@@ -1255,6 +1345,10 @@ export const PosView: React.FC = () => {
           resetInactivityTimer();
         }, 70);
       }
+    } else {
+      posSound.error();
+      setBarcodeNotFoundAlert(code);
+      alert(`الصنف غير موجود\nالباركود: [${code}]`);
     }
   };
 
@@ -1269,7 +1363,7 @@ export const PosView: React.FC = () => {
   });
 
   // Save Invoice Action
-  const handleSaveInvoice = (printMode: 'none' | 'prompt' | 'thermal-direct' | 'a4-direct' = 'none') => {
+  const handleSaveInvoice = (printMode: 'none' | 'prompt' | 'thermal-direct' | 'a4-direct' | 'a4-custom-direct' = 'none', isExplicitSave: boolean = false) => {
     if (tableLines.length === 0 || calculatedTotalAmount <= 0) {
       alert('الرجاء إدراج أصناف في الفاتورة قبل الحفظ.');
       return;
@@ -1287,7 +1381,15 @@ export const PosView: React.FC = () => {
 
     const hasSubCustomerName = !!(subCustomerName?.trim() || customCustomerText?.trim());
 
-    if (isCashCustomer && !hasSubCustomerName && calculatedRemaining > 0.05) {
+    if (isExplicitSave && isCashCustomer && !hasSubCustomerName) {
+      posSound.error();
+      alert(
+        'تنبيه نظامي: لا يمكن الحفظ المباشر إذا كان العميل نقدي ولا يوجد اسم للعميل الفرعي.\nيرجى تسديد المبلغ أو تحديد اسم العميل الفرعي.'
+      );
+      return;
+    }
+
+    if (!isExplicitSave && isCashCustomer && !hasSubCustomerName && calculatedRemaining > 0.05) {
       posSound.error();
       alert(
         'تنبيه نظامي: الزبون نقدي عام ولا يوجد اسم زبون فرعي.\nلا يمكن حفظ الفاتورة كـ (آجل) غير مدفوعة بالكامل.\nيرجى تسديد كامل المبلغ أو تحديد اسم زبون فرعي / اختيار عميل مسجل في النظام.'
@@ -1441,6 +1543,8 @@ export const PosView: React.FC = () => {
         setDirectPrintOptions({ format: 'thermal', autoPrint: true });
       } else if (printMode === 'a4-direct') {
         setDirectPrintOptions({ format: 'a4', autoPrint: true });
+      } else if (printMode === 'a4-custom-direct') {
+        setDirectPrintOptions({ format: 'a4-custom', autoPrint: true });
       } else {
         setDirectPrintOptions(null);
       }
@@ -1500,7 +1604,7 @@ export const PosView: React.FC = () => {
   };
 
   // Direct Pay Cash (زر دفع يتم احتساب الفاتورة كمدفوعة وبالعملة الرئيسية للبرنامج والصندوق الرئيسي وهو الشيكل)
-  const handleQuickPayCash = (printMode: 'none' | 'prompt' | 'thermal-direct' | 'a4-direct' = 'none') => {
+  const handleQuickPayCash = (printMode: 'none' | 'prompt' | 'thermal-direct' | 'a4-direct' | 'a4-custom-direct' = 'none') => {
     const validLines = tableLines.filter(
       l => (l.itemName && l.itemName.trim() !== '') || l.unitPrice > 0 || l.total > 0
     );
@@ -1532,7 +1636,7 @@ export const PosView: React.FC = () => {
   };
 
   // Direct Pay Visa / Card
-  const handleQuickPayCard = (printMode: 'none' | 'prompt' | 'thermal-direct' | 'a4-direct' = 'prompt') => {
+  const handleQuickPayCard = (printMode: 'none' | 'prompt' | 'thermal-direct' | 'a4-direct' | 'a4-custom-direct' = 'prompt') => {
     setPaymentMethod('card');
     const rate = bankExchangeRate > 0 ? bankExchangeRate : 1.0;
     const req = Number((calculatedTotalAmount / rate).toFixed(2));
@@ -1546,6 +1650,12 @@ export const PosView: React.FC = () => {
   // Hold Invoice (F9)
   const handleHoldInvoice = () => {
     if (tableLines.length === 0) return;
+    
+    if (heldInvoices.length >= 50) {
+      posSound.error();
+      alert('تم الوصول للحد الأقصى للفواتير المعلقة (50 فاتورة). يرجى استئناف أو حذف بعض الفواتير المعلقة.');
+      return;
+    }
 
     const newHeld: HeldInvoiceData = {
       id: 'held-' + Date.now(),
@@ -1704,6 +1814,23 @@ export const PosView: React.FC = () => {
     loadInvoiceToScreen(invoicesForDate[invoicesForDate.length - 1]);
   };
 
+  // Focus customer input and clear entered customer name (Space key shortcut)
+  const handleFocusAndClearCustomer = useCallback(() => {
+    setSelectedCustomerId('');
+    setCustomerName('');
+    setCustomerCode('');
+    setSubCustomerId('');
+    setSubCustomerName('');
+    setSubCustomerPhone('');
+    setCustomCustomerText('');
+    setTimeout(() => {
+      if (customerInputRef.current) {
+        customerInputRef.current.focus();
+        customerInputRef.current.select();
+      }
+    }, 20);
+  }, []);
+
   // Clear / Void Invoice (إلغاء)
   const handleClearInvoice = () => {
     if (confirm(editingPosInvoiceId ? 'هل ترغب في إلغاء التعديل والعودة إلى الكشف؟' : 'هل ترغب في تفريغ بيانات الفاتورة والبدء بفاتورة جديدة؟')) {
@@ -1730,6 +1857,13 @@ export const PosView: React.FC = () => {
       setInvoiceNotes('');
       setCashAmountInput('0');
       setBankAmountInput('0');
+      setSelectedCustomerId('');
+      setCustomerName('عميل كاشير نقدي');
+      setCustomerCode('');
+      setSubCustomerId('');
+      setSubCustomerName('');
+      setSubCustomerPhone('');
+      setCustomCustomerText('');
       posSound.beep();
     }
   };
@@ -1747,6 +1881,32 @@ export const PosView: React.FC = () => {
         return;
       }
 
+      // Space key shortcut: Focus customer input and clear entered customer name
+      if (e.key === ' ' || e.code === 'Space') {
+        const target = e.target as HTMLElement | null;
+        const isTypingText =
+          target &&
+          (target.tagName === 'TEXTAREA' ||
+            (target.tagName === 'INPUT' &&
+              (target as HTMLInputElement).type === 'text' &&
+              target !== customerInputRef.current &&
+              target !== barcodeInputRef.current &&
+              !(target as HTMLInputElement).readOnly));
+
+        if (!isTypingText) {
+          if (target === customerInputRef.current) {
+            if (customerName === 'عميل كاشير نقدي' || customerName === 'عميل نقدي' || selectedCustomerId) {
+              e.preventDefault();
+              handleFocusAndClearCustomer();
+            }
+          } else {
+            e.preventDefault();
+            handleFocusAndClearCustomer();
+          }
+          return;
+        }
+      }
+
       if (e.key === 'F2') {
         e.preventDefault();
         handleAddNewRow();
@@ -1758,13 +1918,13 @@ export const PosView: React.FC = () => {
         handleQuickPayCash('thermal-direct');
       } else if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
         e.preventDefault();
-        handleSaveInvoice('none');
+        handleSaveInvoice('none', true);
       } else if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
         e.preventDefault();
-        handleSaveInvoice('thermal-direct');
+        handleSaveInvoice('a4-direct', true); // User said: وطباعة الفاتورة مباشرة دون شاشات منبثقة بحجم A4
       } else if (e.altKey && (e.key === 'c' || e.key === 'C')) {
         e.preventDefault();
-        handleSaveInvoice('prompt');
+        handleSaveInvoice('prompt', true); // User said: وطباعة الفاتورة بشاشة الاختيار حراري أو A4
       } else if (e.key === 'F9') {
         e.preventDefault();
         handleHoldInvoice();
@@ -1772,10 +1932,40 @@ export const PosView: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [posButtons, handleSaveInvoice, handleHoldInvoice, handleExecuteButtonAction, handleAddNewRow, handleQuickPayCash]);
+  }, [posButtons, handleSaveInvoice, handleHoldInvoice, handleExecuteButtonAction, handleAddNewRow, handleQuickPayCash, handleFocusAndClearCustomer, customerName, selectedCustomerId]);
 
   return (
     <div className="flex flex-col h-full w-full bg-[#dbe4ef] text-slate-800 text-xs font-sans select-none relative overflow-hidden" dir="rtl">
+      {/* كاميرا الباركود العائمة (PiP) */}
+      <PosInlineBarcodeScanner
+        isActive={isInlineCameraOpen}
+        inventory={inventory}
+        onScan={(code) => {
+          handleBarcodeScanned(code);
+        }}
+        onClose={() => setIsInlineCameraOpen(false)}
+        onOpenFullModal={() => {
+          setIsInlineCameraOpen(false);
+          setIsCameraScannerOpen(true);
+        }}
+      />
+      {/* تنبيه: الصنف غير موجود */}
+      {barcodeNotFoundAlert && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 bg-rose-600 text-white px-5 py-2.5 rounded-xl shadow-2xl flex items-center gap-3 border-2 border-rose-300 animate-bounce">
+          <AlertCircle className="w-6 h-6 text-white shrink-0" />
+          <div className="text-right">
+            <div className="font-black text-sm">الصنف غير موجود</div>
+            <div className="text-xs text-rose-100 font-mono font-bold">الباركود: [{barcodeNotFoundAlert}]</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setBarcodeNotFoundAlert(null)}
+            className="mr-2 bg-white/20 hover:bg-white/30 text-white text-xs px-2 py-1 rounded cursor-pointer font-bold"
+          >
+            إغلاق
+          </button>
+        </div>
+      )}
       {/* ========================================================= */}
       {/* 1. TOP TOOLBAR (شريط الأدوات العلوي) */}
       {/* ========================================================= */}
@@ -2031,43 +2221,43 @@ export const PosView: React.FC = () => {
           )}
           {/* Main Top Header System Strip (أعلى شاشة الكاشير): الفرع | المستخدم | رقم الفاتورة | التاريخ | حالة الفاتورة */}
           <div className="bg-white/90 border border-slate-300 rounded-lg p-2 mb-2 shadow-2xs w-full overflow-hidden">
-            <div className="flex flex-nowrap items-center justify-between gap-2 text-xs w-full overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+            <div className="flex flex-nowrap items-center justify-between gap-2.5 text-sm w-full overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
               
               {/* 1. رقم الفاتورة (تسلسلي موحد غير مكرر لكل حالات الفاتورة) */}
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded px-2.5 py-1 shrink-0">
-                <span className="font-bold text-slate-700 shrink-0">رقم الفاتورة:</span>
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-3 py-1 shrink-0">
+                <span className="font-bold text-slate-700 text-[14px] shrink-0">رقم الفاتورة:</span>
                 <div
-                  className={`bg-blue-600 text-white font-mono font-black text-xs px-2.5 py-0.5 rounded shadow-2xs flex items-center gap-1`}
+                  className={`bg-blue-600 text-white font-mono font-black text-[14px] px-2.5 py-0.5 rounded shadow-2xs flex items-center gap-1`}
                   title="رقم الفاتورة تلقائي يفرزه البرنامج بشكل تسلسلي ولا يتكرر لكل حالات الفاتورة"
                 >
-                  <Lock className={`w-3 h-3 text-blue-200`} />
+                  <Lock className={`w-3.5 h-3.5 text-blue-200`} />
                   <span>#{invoiceSeqNumber.padStart(4, '0')}</span>
                 </div>
               </div>
 
               {/* 4. التاريخ (تلقائياً وقت الجهاز المعتمد) */}
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded px-2.5 py-1 shrink-0">
-                <Calendar className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                <span className="font-bold text-slate-700 shrink-0">التاريخ:</span>
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-3 py-1 shrink-0">
+                <Calendar className="w-4 h-4 text-emerald-700 shrink-0" />
+                <span className="font-bold text-slate-700 text-[14px] shrink-0">التاريخ:</span>
                 <input
                   type="date"
                   value={invoiceDate}
                   onChange={e => setInvoiceDate(e.target.value)}
-                  className="bg-transparent border-none font-mono text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                  className="bg-transparent border-none font-mono text-[14px] font-bold text-slate-800 focus:outline-none cursor-pointer"
                   title="تلقائياً يتم استخدام وقت الكمبيوتر أو الهاتف أو التابلت المعتمد"
                 />
               </div>
 
               {/* 5. حالة الفاتورة (قائمة منسدلة معتمدة وموحدة) */}
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded px-2.5 py-1 shrink-0">
-                <span className="font-bold text-slate-700 shrink-0">حالة الفاتورة:</span>
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-3 py-1 shrink-0">
+                <span className="font-bold text-slate-700 text-[14px] shrink-0">حالة الفاتورة:</span>
                 <select
                   value={invoiceWorkflowStatus}
                   onChange={e => {
                     setInvoiceWorkflowStatus(e.target.value as PosInvoiceWorkflowStatus);
                     posSound.click();
                   }}
-                  className={`text-xs font-black px-2 py-0.5 rounded border cursor-pointer focus:outline-none ${
+                  className={`text-[14px] font-black px-2.5 py-0.5 rounded border cursor-pointer focus:outline-none ${
                     getInvoiceWorkflowStatusMeta(invoiceWorkflowStatus).bgColor
                   } ${getInvoiceWorkflowStatusMeta(invoiceWorkflowStatus).color} ${getInvoiceWorkflowStatusMeta(invoiceWorkflowStatus).borderColor}`}
                   title={getInvoiceWorkflowStatusMeta(invoiceWorkflowStatus).description}
@@ -2079,46 +2269,20 @@ export const PosView: React.FC = () => {
                   ))}
                 </select>
                 {invoiceWorkflowStatus === 'quotation' && (
-                  <span className="text-[10px] bg-amber-100 text-amber-900 font-bold px-1.5 py-0.5 rounded border border-amber-300">
+                  <span className="text-xs bg-amber-100 text-amber-900 font-bold px-2 py-0.5 rounded border border-amber-300">
                     عرض سعر (غير محاسبي)
                   </span>
                 )}
               </div>
 
-              {/* 5.1 حالة الدفع التلقائية (منفصلة تماماً عن حالة الفاتورة) */}
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded px-2.5 py-1 shrink-0" title="حالة سداد الفاتورة المعتمدة">
-                <span className="font-bold text-slate-700 shrink-0">حالة الدفع:</span>
-                {(() => {
-                  const isQuot = invoiceWorkflowStatus === 'quotation';
-                  const effCash = isQuot ? 0 : numCashAmount;
-                  const effBank = isQuot ? 0 : numBankAmount;
-                  const effPaid = effCash + effBank;
-                  const effRemain = Math.max(0, calculatedTotalAmount - effPaid);
-                  const pStatus = isQuot ? 'unpaid' : computeInvoicePaymentStatus({
-                    paymentMethod,
-                    totalAmount: calculatedTotalAmount,
-                    paidAmount: effPaid,
-                    remainingAmount: effRemain,
-                    cashPaidAmount: effCash,
-                    bankPaidAmount: effBank
-                  });
-                  const pMeta = getInvoicePaymentStatusMeta(pStatus);
-                  return (
-                    <span className={`text-xs font-black px-2 py-0.5 rounded border ${pMeta.bgColor} ${pMeta.color} ${pMeta.borderColor}`}>
-                      {isQuot ? 'غير مطلوب (عرض سعر)' : pMeta.label}
-                    </span>
-                  );
-                })()}
-              </div>
-
               {/* 6. المخزن */}
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded px-2.5 py-1 shrink-0">
-                <Package className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                <span className="font-bold text-slate-700 shrink-0">المخزن:</span>
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-3 py-1 shrink-0">
+                <Package className="w-4 h-4 text-amber-700 shrink-0" />
+                <span className="font-bold text-slate-700 text-[14px] shrink-0">المخزن:</span>
                 <select
                   value={warehouse}
                   onChange={e => setWarehouse(e.target.value)}
-                  className="bg-transparent border-none text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                  className="bg-transparent border-none text-[14px] font-bold text-slate-800 focus:outline-none cursor-pointer"
                   title="اختر المستودع"
                 >
                   {warehouses && warehouses.length > 0 ? (
@@ -2137,13 +2301,13 @@ export const PosView: React.FC = () => {
               </div>
 
               {/* 7. سعر البيع */}
-              <div className={`flex items-center gap-1.5 border rounded px-2.5 py-1 shrink-0 ${
+              <div className={`flex items-center gap-1.5 border rounded-lg px-3 py-1 shrink-0 ${
                 userPricePolicy.allowedTier !== 'all' 
                   ? 'bg-amber-50/60 border-amber-300' 
                   : 'bg-slate-50 border-slate-300'
               }`}>
-                <Tag className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                <span className="font-bold text-slate-700 shrink-0">سعر البيع:</span>
+                <Tag className="w-4 h-4 text-emerald-700 shrink-0" />
+                <span className="font-bold text-slate-700 text-[14px] shrink-0">سعر البيع:</span>
                 <select
                   value={pricingTier}
                   disabled={userPricePolicy.allowedTier !== 'all'}
@@ -2152,21 +2316,21 @@ export const PosView: React.FC = () => {
                     setPricingTier(newTier);
                     setTableLines(prev => applyCustomerPricingToLines(selectedCustomerObj, prev, newTier));
                   }}
-                  className="bg-transparent border-none text-xs font-bold text-emerald-900 focus:outline-none cursor-pointer disabled:opacity-85 disabled:cursor-not-allowed"
+                  className="bg-transparent border-none text-[14px] font-bold text-emerald-900 focus:outline-none cursor-pointer disabled:opacity-85 disabled:cursor-not-allowed"
                   title={userPricePolicy.allowedTier !== 'all' ? `محدد ومقيد لصلاحية المستخدم (${userPricePolicy.allowedTier})` : 'فئة سعر البيع المعتمدة بالفاتورة'}
                 >
                   {(userPricePolicy.allowedTier === 'all' || userPricePolicy.allowedTier === 'price1') && (
-                    <option value="retail">سعر بيع 1 (قطاعي)</option>
+                    <option value="retail">سعر بيع</option>
                   )}
                   {(userPricePolicy.allowedTier === 'all' || userPricePolicy.allowedTier === 'price2') && (
-                    <option value="wholesale">سعر بيع 2 (جملة)</option>
+                    <option value="wholesale">سعر بيع 1</option>
                   )}
                   {(userPricePolicy.allowedTier === 'all' || userPricePolicy.allowedTier === 'price3') && (
-                    <option value="special">سعر بيع 3 (خاص)</option>
+                    <option value="special">سعر بيع 2</option>
                   )}
                 </select>
                 {userPricePolicy.allowedTier !== 'all' && (
-                  <Lock className="w-3 h-3 text-amber-600 shrink-0" title="تم قفل فئة السعر وفق صلاحيات المستخدم" />
+                  <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" title="تم قفل فئة السعر وفق صلاحيات المستخدم" />
                 )}
               </div>
 
@@ -2174,10 +2338,10 @@ export const PosView: React.FC = () => {
           </div>
 
         {/* Customer, Sub-Customer, Balance & Order Options - ALL IN ONE SINGLE ROW */}
-        <div className="bg-white/80 px-3 py-2 rounded-xl border border-slate-300 flex items-center gap-4 flex-wrap text-xs shadow-sm">
+        <div className="bg-white/80 px-3 py-2 rounded-xl border border-slate-300 flex items-center gap-4 flex-wrap text-sm shadow-sm">
           {/* 1. قائمة منسدلة لاختيار الطرف (عميل - مورد - موظف) */}
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className="font-bold text-slate-700 text-[13px] shrink-0">الطرف:</span>
+            <span className="font-bold text-slate-700 text-[14px] shrink-0">الطرف:</span>
             <select
               value={posTargetType}
               onChange={e => {
@@ -2187,7 +2351,7 @@ export const PosView: React.FC = () => {
                 setCustomerCode('');
                 setCustomerName(newType === 'customer' ? 'عميل كاشير نقدي' : '');
               }}
-              className="bg-blue-50/80 hover:bg-blue-100 border border-blue-300 text-blue-900 rounded-lg px-2.5 py-1.5 text-xs font-bold focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-xs transition-colors outline-none"
+              className="bg-blue-50/80 hover:bg-blue-100 border border-blue-300 text-blue-900 rounded-lg px-2.5 py-1.5 text-[14px] font-bold focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-xs transition-colors outline-none"
             >
               <option value="customer">عميل</option>
               <option value="supplier">مورد</option>
@@ -2204,6 +2368,8 @@ export const PosView: React.FC = () => {
                 value={customerName}
                 entityType={posTargetType}
                 showCode={false}
+                inputRef={customerInputRef}
+                inputClassName="text-[14px] font-bold h-9"
                 placeholder={
                   posTargetType === 'customer'
                     ? 'اكتب اسم العميل للبحث...'
@@ -2312,7 +2478,7 @@ export const PosView: React.FC = () => {
 
           {/* 3. العميل الفرعي */}
           <div className="flex items-center gap-2 min-w-[240px] max-w-[350px] flex-1">
-            <span className="font-bold text-slate-700 text-[13px] shrink-0">الفرعي:</span>
+            <span className="font-bold text-slate-700 text-[14px] shrink-0">الفرعي:</span>
             <div className="flex-1 min-w-0 flex items-center gap-2">
               <SubCustomerField
                 compact={false}
@@ -2400,11 +2566,11 @@ export const PosView: React.FC = () => {
           </div>
 
           {/* 4. الرصيد المستحق */}
-          <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 px-2 py-0.5 rounded shrink-0 shadow-2xs">
-            <span className="text-[11px] text-red-600 font-bold shrink-0">
+          <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 px-2.5 py-1 rounded-lg shrink-0 shadow-2xs">
+            <span className="text-[14px] text-red-600 font-bold shrink-0">
               {subCustomerId ? 'رصيد الفرعي:' : 'الرصيد المستحق:'}
             </span>
-            <span className="font-mono font-black text-red-600 text-xs sm:text-sm">
+            <span className="font-mono font-black text-red-600 text-[14px] sm:text-base">
               {((subCustomerId ? parties.find(p => p.id === subCustomerId)?.balance : currentCustomer?.balance) ?? currentCustomer?.balance ?? 380).toFixed(2)} ₪
             </span>
             {subCustomerId && (
@@ -2414,44 +2580,22 @@ export const PosView: React.FC = () => {
                   const sub = parties.find(p => p.id === subCustomerId);
                   if (sub) setSelectedPartyForStatement(sub);
                 }}
-                className="text-[10px] bg-red-600 hover:bg-red-700 text-white px-1.5 py-0.2 rounded font-bold cursor-pointer transition-colors"
+                className="text-xs bg-red-600 hover:bg-red-700 text-white px-2 py-0.5 rounded font-bold cursor-pointer transition-colors"
                 title="كشف حساب الزبون الفرعي"
               >
                 كشف
               </button>
             )}
           </div>
-
-          {/* 5. تجميع الكميات */}
-          <label className="flex items-center gap-1.5 cursor-pointer shrink-0 text-[11px] text-slate-700 font-bold bg-slate-50 hover:bg-slate-100 px-2 py-0.5 rounded border border-slate-200 select-none shadow-2xs transition-colors">
-            <input
-              type="checkbox"
-              checked={aggregateDuplicateItems}
-              onChange={e => setAggregateDuplicateItems(e.target.checked)}
-              className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer"
-            />
-            <span>تجميع الكميات</span>
-          </label>
-
-          {/* 6. استخدام اخر سعر */}
-          <label className="flex items-center gap-1.5 cursor-pointer shrink-0 text-[11px] text-slate-700 font-bold bg-slate-50 hover:bg-slate-100 px-2 py-0.5 rounded border border-slate-200 select-none shadow-2xs transition-colors">
-            <input
-              type="checkbox"
-              checked={useLastCustomerPrice}
-              onChange={e => setUseLastCustomerPrice(e.target.checked)}
-              className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer"
-            />
-            <span>استخدام آخر سعر</span>
-          </label>
         </div>
 
-        {/* Sub-tools Toolbar Row: ملاحظات الفاتورة | خدمة التوصيل | يد الباركود | سطر الباركود | كاميرا الباركود | الأسعار الخاصة */}
+        {/* Sub-tools Toolbar Row: ملاحظات الفاتورة | خدمة التوصيل | يد الباركود | سطر الباركود | كاميرا الباركود | تجميع الكميات | آخر سعر | الأسعار الخاصة */}
         {posLayoutConfig.showExtraHeaderOptions && (
-          <div className="mt-1.5 pt-1 border-t border-slate-300/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="mt-1.5 pt-1 border-t border-slate-300/80 flex flex-wrap items-center justify-between gap-2 text-sm">
             <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
               {/* خانة ملاحظات الفاتورة ككل (تظهر في كشف حساب العميل) */}
               <div
-                className="flex items-center gap-2 bg-white border border-slate-300 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-400 rounded-xl px-3 py-1.5 transition-all shadow-sm flex-1 min-w-[280px] max-w-lg"
+                className="flex items-center gap-2 bg-white border border-slate-300 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-400 rounded-xl px-3 py-1.5 transition-all shadow-sm flex-1 min-w-[320px] lg:min-w-[420px] max-w-3xl"
                 title="ملاحظة عامة خاصة بالفاتورة ككل وتظهر في كشف حساب العميل"
               >
                 <FileText className="w-4 h-4 text-blue-600 shrink-0" />
@@ -2460,13 +2604,13 @@ export const PosView: React.FC = () => {
                   value={invoiceNotes}
                   onChange={e => setInvoiceNotes(e.target.value)}
                   placeholder="ملاحظات الفاتورة (تظهر في كشف الحساب)..."
-                  className="w-full text-[13px] text-slate-800 placeholder:text-slate-400 focus:outline-hidden bg-transparent font-medium h-7"
+                  className="w-full text-[14px] text-slate-800 placeholder:text-slate-400 focus:outline-hidden bg-transparent font-medium h-7"
                 />
                 {invoiceNotes && (
                   <button
                     type="button"
                     onClick={() => setInvoiceNotes('')}
-                    className="text-slate-400 hover:text-rose-600 text-[13px] font-bold px-1.5 cursor-pointer shrink-0 transition-colors"
+                    className="text-slate-400 hover:text-rose-600 text-[14px] font-bold px-1.5 cursor-pointer shrink-0 transition-colors"
                     title="مسح الملاحظة"
                   >
                     ✕
@@ -2478,7 +2622,7 @@ export const PosView: React.FC = () => {
               <button
                 type="button"
                 onClick={handleAddDeliveryServiceLine}
-                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold cursor-pointer shadow-xs flex items-center gap-1.5 transition-colors shrink-0"
+                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[14px] cursor-pointer shadow-xs flex items-center gap-1.5 transition-colors shrink-0"
                 title="إضافة خدمة توصيل تلقائياً كصنف في الفاتورة لتحديد الملاحظات والسعر"
               >
                 <Truck className="w-4 h-4 text-emerald-100" />
@@ -2487,26 +2631,25 @@ export const PosView: React.FC = () => {
 
               <span className="w-px h-5 bg-slate-300 mx-0.5 shrink-0 hidden sm:block" />
 
-              {/* يد الباركود السريع */}
+              {/* يد الباركود السريع - رمز فقط بدون نص */}
               <button
                 type="button"
                 onClick={() => toggleBarcodeHandMode(!isBarcodeHandMode)}
-                className={`px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border shrink-0 ${
+                className={`p-2 rounded-lg border flex items-center justify-center cursor-pointer transition-all shrink-0 ${
                   isBarcodeHandMode
-                    ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-400'
-                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                    ? 'bg-emerald-600 text-white border-emerald-700 shadow-inner ring-2 ring-emerald-300'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100 hover:border-emerald-400 shadow-2xs'
                 }`}
-                title="تفعيل نمط يد الباركود: يوجه التركيز دائماً للباركود ثم الكمية تلقائياً ويستجيب لقارئ الباركود USB"
+                title={isBarcodeHandMode ? 'يد الباركود: مفعل (انقر للتعطيل)' : 'يد الباركود: انتقال تلقائي للكمية ثم العودة للباركود'}
               >
-                <Scan className="w-3.5 h-3.5" />
-                <span>يد الباركود</span>
+                <Barcode className={`w-5 h-5 ${isBarcodeHandMode ? 'text-white animate-pulse' : 'text-slate-700'}`} />
                 {isBarcodeHandMode && (
-                  <span className="w-2 h-2 rounded-full bg-emerald-200 animate-pulse"></span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-200 animate-ping mr-1"></span>
                 )}
               </button>
 
-              {/* سطر الباركود - تصغير خانة الباركود */}
-              <div className="relative w-28 sm:w-32 shrink-0">
+              {/* سطر الباركود - خانة الباركود (تم تكبيرها بالعرض) */}
+              <div className="relative w-44 sm:w-56 shrink-0">
                 <input
                   ref={barcodeInputRef}
                   type="text"
@@ -2523,37 +2666,69 @@ export const PosView: React.FC = () => {
                     }
                   }}
                   placeholder="باركود..."
-                  className="w-full pl-6 pr-2 py-1 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono shadow-inner text-center font-bold"
+                  className="w-full pl-8 pr-2.5 py-1 text-[14px] bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono shadow-inner text-center font-bold"
                   title="اكتب أو امسح الباركود ثم اضغط Enter"
                 />
-                <Scan className="w-3.5 h-3.5 text-slate-400 absolute left-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (barcodeInputRef.current) {
+                      barcodeInputRef.current.focus();
+                      barcodeInputRef.current.select();
+                    }
+                  }}
+                  className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-blue-600 p-0.5 cursor-pointer"
+                  title="رمز الباركود - انقر للتركيز"
+                >
+                  <Barcode className="w-4 h-4" />
+                </button>
               </div>
 
-              {/* كاميرا الباركود */}
+              {/* كاميرا الباركود (فقط لوقو كاميرا) */}
               <button
                 type="button"
                 onClick={() => setIsInlineCameraOpen(prev => !prev)}
-                className={`px-2 py-1 rounded-lg border text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all shrink-0 ${
+                className={`p-2 rounded-lg border flex items-center justify-center cursor-pointer transition-all shrink-0 ${
                   isInlineCameraOpen
                     ? 'bg-blue-600 text-white border-blue-700 shadow-inner ring-2 ring-blue-300'
                     : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100 hover:border-blue-400 shadow-2xs'
                 }`}
-                title="تشغيل / إيقاف كاميرا الهاتف أو الحاسوب لمسح الباركود مباشرة"
+                title={isInlineCameraOpen ? 'إيقاف كاميرا الباركود' : 'تشغيل كاميرا الباركود'}
               >
-                <Camera className={`w-3.5 h-3.5 ${isInlineCameraOpen ? 'text-emerald-300 animate-pulse' : 'text-blue-600'}`} />
-                <span>{isInlineCameraOpen ? 'إيقاف الكاميرا' : 'كاميرا الباركود'}</span>
-                {isInlineCameraOpen && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />}
+                <Camera className={`w-5 h-5 ${isInlineCameraOpen ? 'text-emerald-300 animate-pulse' : 'text-blue-600'}`} />
+                {isInlineCameraOpen && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-1" />}
               </button>
+
+              {/* إنزال خياري تجميع الكميات واستخدام آخر سعر بجانب كاميرا الباركود بخط 14 */}
+              <label className="flex items-center gap-1.5 cursor-pointer shrink-0 text-[14px] text-slate-700 font-bold bg-white hover:bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-300 select-none shadow-2xs transition-colors">
+                <input
+                  type="checkbox"
+                  checked={aggregateDuplicateItems}
+                  onChange={e => setAggregateDuplicateItems(e.target.checked)}
+                  className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                />
+                <span>تجميع الكميات</span>
+              </label>
+
+              <label className="flex items-center gap-1.5 cursor-pointer shrink-0 text-[14px] text-slate-700 font-bold bg-white hover:bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-300 select-none shadow-2xs transition-colors">
+                <input
+                  type="checkbox"
+                  checked={useLastCustomerPrice}
+                  onChange={e => setUseLastCustomerPrice(e.target.checked)}
+                  className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                />
+                <span>استخدام آخر سعر</span>
+              </label>
 
               {/* Special Prices Button for current customer */}
               {selectedCustomerId && selectedCustomerId !== 'pt-cust-1' && (
                 <button
                   type="button"
                   onClick={() => setIsSpecialPricesModalOpen(true)}
-                  className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 rounded-lg font-bold cursor-pointer shadow-2xs flex items-center gap-1 shrink-0"
+                  className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 rounded-lg font-bold text-[14px] cursor-pointer shadow-2xs flex items-center gap-1 shrink-0"
                   title="تحديد أو تعديل الأسعار الخاصة لهذا العميل"
                 >
-                  <DollarSign className="w-3.5 h-3.5 text-amber-700" />
+                  <DollarSign className="w-4 h-4 text-amber-700" />
                   <span>الأسعار الخاصة</span>
                 </button>
               )}
@@ -2582,24 +2757,6 @@ export const PosView: React.FC = () => {
               {/* 3B. CENTER ITEMS TABLE (جدول أصناف الفاتورة بالمطابع) */}
               {/* ========================================================= */}
               <div className="flex-1 min-h-0 flex flex-col bg-white overflow-hidden border border-slate-300 rounded-xl shadow-2xs">
-          {/* Inline Barcode Camera Scanner */}
-          {isInlineCameraOpen && (
-            <PosInlineBarcodeScanner
-              isActive={true}
-              onScan={(code) => {
-                handleBarcodeScanned(code);
-              }}
-              onDetected={(code) => {
-                handleBarcodeScanned(code);
-              }}
-              onClose={() => setIsInlineCameraOpen(false)}
-              onOpenFullModal={() => {
-                setIsInlineCameraOpen(false);
-                setIsCameraScannerOpen(true);
-              }}
-            />
-          )}
-
           {/* The Data Table */}
           <div className="flex-1 overflow-x-auto overflow-y-auto min-h-0 w-full">
             <table className="w-full text-right border-collapse text-xs min-w-[980px] lg:min-w-full">
@@ -2931,6 +3088,18 @@ export const PosView: React.FC = () => {
                                   handleUpdateLine(line.id, 'quantity', parseFloat(e.target.value) || 0);
                                   resetInactivityTimer();
                                 }}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    if (inactivityTimerRef.current) {
+                                      clearTimeout(inactivityTimerRef.current);
+                                    }
+                                    if (barcodeInputRef.current) {
+                                      barcodeInputRef.current.focus();
+                                      barcodeInputRef.current.select();
+                                    }
+                                  }
+                                }}
                                 className="w-full px-1 py-1 text-center bg-blue-50/80 border border-blue-200 hover:border-blue-400 focus:border-blue-600 focus:bg-white rounded font-mono text-xs font-black text-blue-900"
                                 title={`حساب الأبعاد: ${line.length} × ${line.width} × ${line.count || 1} = ${line.quantity}`}
                               />
@@ -2951,6 +3120,9 @@ export const PosView: React.FC = () => {
                               onKeyDown={e => {
                                 if (e.key === 'Enter') {
                                   e.preventDefault();
+                                  if (inactivityTimerRef.current) {
+                                    clearTimeout(inactivityTimerRef.current);
+                                  }
                                   if (barcodeInputRef.current) {
                                     barcodeInputRef.current.focus();
                                     barcodeInputRef.current.select();
@@ -3222,6 +3394,18 @@ export const PosView: React.FC = () => {
                     </span>
                   )}
                 </div>
+
+                {/* 9. حالة الدفع (تم رفعها للسطر الأعلى بجانب المتبقي) */}
+                <div
+                  className="bg-white/95 text-slate-800 px-2.5 py-1 rounded-lg border border-slate-300 shadow-2xs flex items-center gap-1.5 shrink-0"
+                  title="حالة دفع الفاتورة الحالية"
+                >
+                  <span className="text-[10px] text-slate-600 font-sans font-bold">حالة الدفع:</span>
+                  <div className={`px-2 py-0.5 rounded-lg text-[11px] font-bold border flex items-center gap-1 ${currentPaymentStatusMeta.badgeBg} ${currentPaymentStatusMeta.badgeText} ${currentPaymentStatusMeta.badgeBorder}`}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                    <span>{currentPaymentStatusMeta.label}</span>
+                  </div>
+                </div>
               </div>
 
               {/* Right: Keyboard Shortcuts & Hide Button */}
@@ -3255,37 +3439,40 @@ export const PosView: React.FC = () => {
 
 
       {/* Quick Shortcuts Bar (Customizable Buttons) */}
-      {posLayoutConfig.showQuickShortcutsBar && (posButtons.some(b => b.location === 'quick_grid' && b.isVisible) || isLiveCustomizing) && (
-        <div className="bg-[#cfe0f2] px-3 py-1.5 border-t border-slate-300 flex items-center gap-1.5 flex-wrap">
-          <span className="text-[11px] font-bold text-slate-700 shrink-0 ml-1">اختصارات سريعة:</span>
-          {posButtons
-            .filter(b => b.location === 'quick_grid' && b.isVisible)
-            .sort((a, b) => a.order - b.order)
-            .map((btn, idx, arr) => (
-              <PosCustomButtonRenderer
-                key={btn.id}
-                button={btn}
-                isEditMode={isLiveCustomizing}
-                onExecuteAction={handleExecuteButtonAction}
-                onMoveRight={() => handleMoveButtonInLive(btn.id, 'right')}
-                onMoveLeft={() => handleMoveButtonInLive(btn.id, 'left')}
-                onEdit={() => setIsButtonCustomizerOpen(true)}
-                onDelete={() => handleDeleteButtonInLive(btn.id)}
-                canMoveRight={idx > 0}
-                canMoveLeft={idx < arr.length - 1}
-              />
-            ))}
+      {posLayoutConfig.showQuickShortcutsBar && (
+        <div className="bg-[#cfe0f2] px-3 py-1.5 border-t border-slate-300 flex items-center justify-between gap-3 flex-wrap shadow-xs">
+          {/* الاختصارات السريعة */}
+          <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+            <span className="text-[14px] font-bold text-slate-700 shrink-0 ml-1">اختصارات سريعة:</span>
+            {posButtons
+              .filter(b => b.location === 'quick_grid' && b.isVisible)
+              .sort((a, b) => a.order - b.order)
+              .map((btn, idx, arr) => (
+                <PosCustomButtonRenderer
+                  key={btn.id}
+                  button={btn}
+                  isEditMode={isLiveCustomizing}
+                  onExecuteAction={handleExecuteButtonAction}
+                  onMoveRight={() => handleMoveButtonInLive(btn.id, 'right')}
+                  onMoveLeft={() => handleMoveButtonInLive(btn.id, 'left')}
+                  onEdit={() => setIsButtonCustomizerOpen(true)}
+                  onDelete={() => handleDeleteButtonInLive(btn.id)}
+                  canMoveRight={idx > 0}
+                  canMoveLeft={idx < arr.length - 1}
+                />
+              ))}
 
-          {isLiveCustomizing && (
-            <button
-              type="button"
-              onClick={() => setIsButtonCustomizerOpen(true)}
-              className="px-2.5 py-1 bg-amber-300 hover:bg-amber-400 text-amber-950 font-bold rounded-xl text-xs border border-dashed border-amber-600 flex items-center gap-1 cursor-pointer"
-            >
-              <Plus className="w-3 h-3" />
-              <span>+ زر اختصار</span>
-            </button>
-          )}
+            {isLiveCustomizing && (
+              <button
+                type="button"
+                onClick={() => setIsButtonCustomizerOpen(true)}
+                className="px-2.5 py-1 bg-amber-300 hover:bg-amber-400 text-amber-950 font-bold rounded-xl text-xs border border-dashed border-amber-600 flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="w-3 h-3" />
+                <span>+ زر اختصار</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -3893,9 +4080,12 @@ export const PosView: React.FC = () => {
         onScanBarcode={barcode => {
           const item = (inventory || []).find(i => matchItemByBarcode(i, barcode));
           if (item) {
+            setBarcodeNotFoundAlert(null);
             handleAddItemToTable(item);
           } else {
-            alert(`الباركود ${barcode} غير مسجل في المخزون`);
+            posSound.error();
+            setBarcodeNotFoundAlert(barcode);
+            alert(`الصنف غير موجود\nالباركود: [${barcode}]`);
           }
         }}
       />

@@ -47,7 +47,9 @@ import {
   AllowedPriceTierScope,
   LineAttachment,
   InvoiceTechnicalNote,
-  DebtClearingRecord
+  DebtClearingRecord,
+  DatabaseZeroingOptions,
+  ZeroingExecutionResult
 } from '../types';
 import {
   initialSettings,
@@ -350,8 +352,8 @@ interface AccountingContextType {
   setEditingPosInvoiceId: (id: string | null) => void;
   selectedInvoiceForPrint: Invoice | null;
   setSelectedInvoiceForPrint: (inv: Invoice | null) => void;
-  directPrintOptions: { format: 'thermal' | 'a4', autoPrint: boolean } | null;
-  setDirectPrintOptions: (options: { format: 'thermal' | 'a4', autoPrint: boolean } | null) => void;
+  directPrintOptions: { format: 'thermal' | 'a4' | 'a4-custom', autoPrint: boolean } | null;
+  setDirectPrintOptions: (options: { format: 'thermal' | 'a4' | 'a4-custom', autoPrint: boolean } | null) => void;
   selectedInvoiceForLifecycle: Invoice | null;
   setSelectedInvoiceForLifecycle: (inv: Invoice | null) => void;
   selectedJobForPrint: PrintJobOrder | null;
@@ -420,9 +422,11 @@ interface AccountingContextType {
   };
 
   // Data management
+  lastBackupInfo: { timestamp: string; filename: string } | null;
   exportDataJSON: () => void;
   importDataJSON: (jsonString: string) => boolean;
   resetAllData: () => void;
+  performDatabaseZeroing: (options: DatabaseZeroingOptions) => ZeroingExecutionResult;
   
   // Quick stats
   stats: {
@@ -752,7 +756,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [activeTab, setActiveTab] = useState<string>('home');
   const [editingPosInvoiceId, setEditingPosInvoiceId] = useState<string | null>(null);
   const [selectedInvoiceForPrint, setSelectedInvoiceForPrint] = useState<Invoice | null>(null);
-  const [directPrintOptions, setDirectPrintOptions] = useState<{ format: 'thermal' | 'a4', autoPrint: boolean } | null>(null);
+  const [directPrintOptions, setDirectPrintOptions] = useState<{ format: 'thermal' | 'a4' | 'a4-custom', autoPrint: boolean } | null>(null);
   const [selectedInvoiceForLifecycle, setSelectedInvoiceForLifecycle] = useState<Invoice | null>(null);
   const [selectedJobForPrint, setSelectedJobForPrint] = useState<PrintJobOrder | null>(null);
   const [selectedVoucherForPrint, setSelectedVoucherForPrint] = useState<PaymentVoucher | null>(null);
@@ -5113,6 +5117,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setSalesReturns(prev => prev.filter(r => r.id !== id));
   };
 
+  const [lastBackupInfo, setLastBackupInfo] = useState<{ timestamp: string; filename: string } | null>(() => {
+    try {
+      const saved = localStorage.getItem(`${STORAGE_KEY}_last_backup_info`);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
   const exportDataJSON = () => {
     const fullBackup = {
       settings,
@@ -5132,15 +5145,327 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       purchaseReturns,
       salesReturns,
       vouchers,
-      exportedAt: new Date().toISOString()
+      treasuries,
+      companies,
+      branches,
+      warehouses,
+      warehouseOperations,
+      roles,
+      users,
+      exportedAt: new Date().toISOString(),
+      exportedBy: currentUser?.fullName || currentUser?.username || 'مدير النظام'
     };
     const blob = new Blob([JSON.stringify(fullBackup, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
+    const nowIso = new Date().toISOString();
+    const datePart = nowIso.split('T')[0];
+    const timePart = nowIso.split('T')[1].replace(/[:.]/g, '-').slice(0, 8);
+    const filename = `backup_alnoor_press_${datePart}_${timePart}.json`;
     const a = document.createElement('a');
     a.href = url;
-    a.download = `backup_alnoor_press_${new Date().toISOString().split('T')[0]}.json`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+
+    const backupRecord = {
+      timestamp: nowIso,
+      filename
+    };
+    setLastBackupInfo(backupRecord);
+    try {
+      localStorage.setItem(`${STORAGE_KEY}_last_backup_info`, JSON.stringify(backupRecord));
+    } catch (e) {
+      console.warn('Could not save last_backup_info to localStorage', e);
+    }
+  };
+
+  const performDatabaseZeroing = (options: DatabaseZeroingOptions): ZeroingExecutionResult => {
+    // 1. Restriction to System Admin only ("التصفير مقيد بمدير النظام فقط")
+    const isSystemAdmin =
+      currentUser?.roleId === 'role-admin' ||
+      currentUser?.roleName === 'مدير النظام' ||
+      currentUser?.username === 'admin' ||
+      (currentUser?.email && auth.currentUser?.email === currentUser.email);
+
+    if (!isSystemAdmin) {
+      return {
+        success: false,
+        message: 'عفواً، عملية تصفير قاعدة البيانات مقيدة بصلاحية مدير النظام فقط!',
+        summary: {
+          deletedInvoices: 0,
+          deletedPurchases: 0,
+          deletedSalesReturns: 0,
+          deletedPurchaseReturns: 0,
+          deletedVouchers: 0,
+          deletedJournalEntries: 0,
+          deletedPrintOrders: 0,
+          deletedStockMovements: 0,
+          deletedWarehouseOperations: 0,
+          deletedPayrollRecords: 0,
+          deletedManualParties: 0,
+          zeroedPartyBalances: 0,
+          zeroedInventoryStocks: 0,
+          deletedManualItems: 0,
+          deletedManualWarehouses: 0,
+          zeroedTreasuries: 0,
+          deletedManualTreasuries: 0,
+          zeroedAccounts: 0
+        },
+        executedAt: new Date().toISOString(),
+        executedBy: currentUser?.fullName || currentUser?.username || 'مستخدم'
+      };
+    }
+
+    const isTargetDate = (dateStr?: string) => {
+      if (options.scope === 'all') return true;
+      if (!dateStr) return true;
+      const clean = dateStr.split('T')[0];
+      return clean <= options.cutoffDate;
+    };
+
+    const summary = {
+      deletedInvoices: 0,
+      deletedPurchases: 0,
+      deletedSalesReturns: 0,
+      deletedPurchaseReturns: 0,
+      deletedVouchers: 0,
+      deletedJournalEntries: 0,
+      deletedPrintOrders: 0,
+      deletedStockMovements: 0,
+      deletedWarehouseOperations: 0,
+      deletedPayrollRecords: 0,
+      deletedManualParties: 0,
+      zeroedPartyBalances: 0,
+      zeroedInventoryStocks: 0,
+      deletedManualItems: 0,
+      deletedManualWarehouses: 0,
+      zeroedTreasuries: 0,
+      deletedManualTreasuries: 0,
+      zeroedAccounts: 0
+    };
+
+    // 1. Invoices (فواتير المبيعات ونقاط البيع)
+    if (options.resetInvoices) {
+      setInvoices(prev => {
+        const toKeep = prev.filter(inv => !isTargetDate(inv.date));
+        summary.deletedInvoices = prev.length - toKeep.length;
+        return toKeep;
+      });
+    }
+
+    // 2. Purchases (فواتير المشتريات)
+    if (options.resetPurchases) {
+      setPurchases(prev => {
+        const toKeep = prev.filter(pur => !isTargetDate(pur.date));
+        summary.deletedPurchases = prev.length - toKeep.length;
+        return toKeep;
+      });
+    }
+
+    // 3. Sales Returns (مردودات المبيعات)
+    if (options.resetSalesReturns) {
+      setSalesReturns(prev => {
+        const toKeep = prev.filter(r => !isTargetDate(r.date));
+        summary.deletedSalesReturns = prev.length - toKeep.length;
+        return toKeep;
+      });
+    }
+
+    // 4. Purchase Returns (مردودات المشتريات)
+    if (options.resetPurchaseReturns) {
+      setPurchaseReturns(prev => {
+        const toKeep = prev.filter(r => !isTargetDate(r.date));
+        summary.deletedPurchaseReturns = prev.length - toKeep.length;
+        return toKeep;
+      });
+    }
+
+    // 5. Vouchers (سندات القبض والصرف)
+    if (options.resetVouchers) {
+      setVouchers(prev => {
+        const toKeep = prev.filter(v => !isTargetDate(v.date));
+        summary.deletedVouchers = prev.length - toKeep.length;
+        return toKeep;
+      });
+    }
+
+    // 6. Journal Entries (قيود اليومية)
+    if (options.resetJournalEntries) {
+      setJournalEntries(prev => {
+        const toKeep = prev.filter(je => !isTargetDate(je.date));
+        summary.deletedJournalEntries = prev.length - toKeep.length;
+        return toKeep;
+      });
+    }
+
+    // 7. Print Orders (أوامر تشغيل المطبعة والورشة)
+    if (options.resetPrintOrders) {
+      setPrintOrders(prev => {
+        const toKeep = prev.filter(po => !isTargetDate(po.createdAt || po.deliveryDate));
+        summary.deletedPrintOrders = prev.length - toKeep.length;
+        return toKeep;
+      });
+    }
+
+    // 8. Stock Movements (حركات المخزون والمناقلات)
+    if (options.resetStockMovements) {
+      setStockMovements(prev => {
+        const toKeep = prev.filter(sm => !isTargetDate(sm.date));
+        summary.deletedStockMovements = prev.length - toKeep.length;
+        return toKeep;
+      });
+    }
+
+    // 9. Warehouse Operations (عمليات المستودعات)
+    if (options.resetWarehouseOperations) {
+      setWarehouseOperations(prev => {
+        const toKeep = prev.filter(wo => !isTargetDate(wo.date));
+        summary.deletedWarehouseOperations = prev.length - toKeep.length;
+        return toKeep;
+      });
+    }
+
+    // 10. Payroll & Advances (مسيرات الرواتب والسلف والخصومات)
+    if (options.resetPayroll) {
+      setPayrollSheets(prev => {
+        const toKeep = prev.filter(ps => !isTargetDate(ps.createdAt));
+        summary.deletedPayrollRecords += prev.length - toKeep.length;
+        return toKeep;
+      });
+      setEmployeeAdvances(prev => {
+        const toKeep = prev.filter(ea => !isTargetDate(ea.date));
+        summary.deletedPayrollRecords += prev.length - toKeep.length;
+        return toKeep;
+      });
+      setEmployeeDeductions(prev => {
+        const toKeep = prev.filter(ed => !isTargetDate(ed.date));
+        summary.deletedPayrollRecords += prev.length - toKeep.length;
+        return toKeep;
+      });
+      setEmployeeIncentives(prev => {
+        const toKeep = prev.filter(ei => !isTargetDate(ei.date));
+        summary.deletedPayrollRecords += prev.length - toKeep.length;
+        return toKeep;
+      });
+    }
+
+    // 11. Parties (العملاء والموردين)
+    const initialPartiesMap = new Set(initialParties.map(p => p.id));
+    setParties(prev => {
+      let result = prev;
+      if (options.resetManualParties) {
+        const kept = prev.filter(p => {
+          const isManual = !initialPartiesMap.has(p.id);
+          const partyDate = p.openingBalanceDate || (p as any).createdAt;
+          if (isManual && isTargetDate(partyDate)) {
+            summary.deletedManualParties++;
+            return false;
+          }
+          return true;
+        });
+        result = kept;
+      }
+
+      if (options.zeroPartyBalances) {
+        result = result.map(p => {
+          if (p.balance !== 0) summary.zeroedPartyBalances++;
+          return { ...p, balance: 0, openingBalance: 0 };
+        });
+      }
+      return result;
+    });
+
+    // 12. Inventory (المخازن والأصناف)
+    const initialInvMap = new Set(initialInventory.map(i => i.id));
+    setInventory(prev => {
+      let result = prev;
+      if (options.resetManualInventoryItems) {
+        const kept = prev.filter(item => {
+          const isManual = !initialInvMap.has(item.id);
+          const itemDate = item.lastMovementDate || (item as any).createdAt;
+          if (isManual && isTargetDate(itemDate)) {
+            summary.deletedManualItems++;
+            return false;
+          }
+          return true;
+        });
+        result = kept;
+      }
+
+      if (options.zeroInventoryStock) {
+        result = result.map(item => {
+          if (item.stockQuantity !== 0) summary.zeroedInventoryStocks++;
+          return {
+            ...item,
+            stockQuantity: 0,
+            warehouseStocks: {}
+          };
+        });
+      }
+      return result;
+    });
+
+    // 13. Warehouses (المستودعات الإضافية المضافة يدوياً)
+    const defaultWhMap = new Set(DEFAULT_WAREHOUSES.map(w => w.id));
+    if (options.resetManualWarehouses) {
+      setWarehouses(prev => {
+        const kept = prev.filter(w => {
+          const isManual = !defaultWhMap.has(w.id);
+          if (isManual && isTargetDate(w.createdAt)) {
+            summary.deletedManualWarehouses++;
+            return false;
+          }
+          return true;
+        });
+        return kept;
+      });
+    }
+
+    // 14. Treasuries (الصناديق والخزنات)
+    const initialTreasuryMap = new Set(initialTreasuries.map(t => t.id));
+    setTreasuries(prev => {
+      let result = prev;
+      if (options.resetManualTreasuries) {
+        const kept = prev.filter(t => {
+          const isManual = !initialTreasuryMap.has(t.id);
+          if (isManual && isTargetDate(t.createdAt)) {
+            summary.deletedManualTreasuries++;
+            return false;
+          }
+          return true;
+        });
+        result = kept;
+      }
+
+      if (options.zeroTreasuryBalances) {
+        result = result.map(t => {
+          summary.zeroedTreasuries++;
+          return {
+            ...t,
+            balance: 0,
+            currencyBalances: { ILS: 0, USD: 0, JOD: 0 },
+            transactions: []
+          };
+        });
+      }
+      return result;
+    });
+
+    // 15. Accounts (شجرة الحسابات)
+    if (options.zeroAccountBalances) {
+      setAccounts(prev => {
+        summary.zeroedAccounts = prev.length;
+        return prev.map(a => ({ ...a, balance: 0 }));
+      });
+    }
+
+    return {
+      success: true,
+      message: 'تم تصفير قاعدة البيانات بنجاح وفق المعايير والخيارات المحددة.',
+      summary,
+      executedAt: new Date().toISOString(),
+      executedBy: currentUser?.fullName || currentUser?.username || 'مدير النظام'
+    };
   };
 
   const importDataJSON = (jsonString: string): boolean => {
@@ -5382,9 +5707,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setSelectedInvoiceForLifecycle,
         selectedJobForPrint,
         setSelectedJobForPrint,
+        lastBackupInfo,
         exportDataJSON,
         importDataJSON,
         resetAllData,
+        performDatabaseZeroing,
         companies,
         activeCompanyId,
         setActiveCompanyId,

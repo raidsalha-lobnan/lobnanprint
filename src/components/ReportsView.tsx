@@ -2744,7 +2744,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* FINANCIAL STATEMENTS: Income Statement */}
       {/* ========================================================================= */}
       {activeReport === 'income' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 max-w-3xl mx-auto space-y-4">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 w-full max-w-5xl mx-auto space-y-4">
           <div className="text-center border-b pb-4">
             <h3 className="text-base font-bold text-slate-900">{settings.businessName}</h3>
             <h4 className="text-xs font-bold text-blue-700 mt-0.5">قائمة الدخل والأرباح والخسائر (Income Statement)</h4>
@@ -2836,7 +2836,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* FINANCIAL STATEMENTS: Balance Sheet */}
       {/* ========================================================================= */}
       {activeReport === 'balance_sheet' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 max-w-3xl mx-auto space-y-4">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 w-full max-w-5xl mx-auto space-y-4">
           <div className="text-center border-b pb-4">
             <h3 className="text-base font-bold text-slate-900">{settings.businessName}</h3>
             <h4 className="text-xs font-bold text-blue-700 mt-0.5">الميزانية العمومية (Balance Sheet)</h4>
@@ -2927,7 +2927,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* FINANCIAL STATEMENTS: VAT Return */}
       {/* ========================================================================= */}
       {activeReport === 'vat' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 max-w-3xl mx-auto space-y-4">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 w-full max-w-5xl mx-auto space-y-4">
           <div className="text-center border-b pb-4">
             <h3 className="text-base font-bold text-slate-900">{settings.businessName}</h3>
             <h4 className="text-xs font-bold text-blue-700 mt-0.5">إقرار ضريبة القيمة المضافة المعتمد</h4>

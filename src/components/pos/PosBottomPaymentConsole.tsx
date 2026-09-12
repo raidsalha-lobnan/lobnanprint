@@ -201,6 +201,31 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
   const totalInInvoiceCurrency =
     currentInvRate > 0 ? Number((calculatedTotalAmount / currentInvRate).toFixed(2)) : calculatedTotalAmount;
 
+  // زر كامل: يضع قيمة المتبقي مع الاحتفاظ بالمدفوعات الأخرى
+  const handleInternalFullCash = () => {
+    if (onQuickFullCash) {
+      onQuickFullCash();
+      return;
+    }
+    const currentBankPaid = (parseFloat(bankAmount) || 0) * (bankExchangeRate > 0 ? bankExchangeRate : 1.0);
+    const remainingBase = Math.max(0, Number((calculatedTotalAmount - currentBankPaid).toFixed(2)));
+    const cRate = cashExchangeRate > 0 ? cashExchangeRate : 1.0;
+    const reqCash = Number((remainingBase / cRate).toFixed(2));
+    onChangeCashAmount(String(reqCash));
+  };
+
+  const handleInternalFullBank = () => {
+    if (onQuickFullBank) {
+      onQuickFullBank();
+      return;
+    }
+    const currentCashPaid = (parseFloat(cashAmount) || 0) * (cashExchangeRate > 0 ? cashExchangeRate : 1.0);
+    const remainingBase = Math.max(0, Number((calculatedTotalAmount - currentCashPaid).toFixed(2)));
+    const bRate = bankExchangeRate > 0 ? bankExchangeRate : 1.0;
+    const reqBank = Number((remainingBase / bRate).toFixed(2));
+    onChangeBankAmount(String(reqBank));
+  };
+
   return (
     <div
       className={`relative bg-[#122b49] p-2 rounded-xl border border-blue-700/60 shadow-md flex flex-col gap-1.5 text-xs text-white ${
@@ -364,16 +389,14 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
               className="w-20 sm:w-24 bg-white text-slate-900 font-mono font-black px-1.5 py-0.5 rounded text-xs text-left border border-slate-300 focus:ring-1 focus:ring-emerald-400"
               title="المبلغ المدفوع نقداً"
             />
-            {onQuickFullCash && (
-              <button
-                type="button"
-                onClick={onQuickFullCash}
-                className="px-1.5 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] rounded shrink-0 cursor-pointer shadow-2xs whitespace-nowrap active:scale-95 transition-all"
-                title="تسديد كامل المبلغ المتبقي نقداً"
-              >
-                كامل
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleInternalFullCash}
+              className="px-1.5 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] rounded shrink-0 cursor-pointer shadow-2xs whitespace-nowrap active:scale-95 transition-all"
+              title="وضع قيمة المبلغ المتبقي نقداً مع الاحتفاظ بأي قيمة دفع أخرى موجودة"
+            >
+              كامل
+            </button>
           </div>
 
           {/* العملة */}
@@ -453,16 +476,14 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
               className="w-20 sm:w-24 bg-white text-slate-900 font-mono font-black px-1.5 py-0.5 rounded text-xs text-left border border-slate-300 focus:ring-1 focus:ring-blue-400"
               title="المبلغ المدفوع بنكياً / شبكة"
             />
-            {onQuickFullBank && (
-              <button
-                type="button"
-                onClick={onQuickFullBank}
-                className="px-1.5 py-0.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] rounded shrink-0 cursor-pointer shadow-2xs whitespace-nowrap active:scale-95 transition-all"
-                title="تسديد كامل المبلغ المتبقي عبر البنك / مدى"
-              >
-                كامل
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleInternalFullBank}
+              className="px-1.5 py-0.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] rounded shrink-0 cursor-pointer shadow-2xs whitespace-nowrap active:scale-95 transition-all"
+              title="وضع قيمة المبلغ المتبقي بنكياً مع الاحتفاظ بأي قيمة دفع أخرى موجودة"
+            >
+              كامل
+            </button>
           </div>
 
           {/* عملة الدفع */}

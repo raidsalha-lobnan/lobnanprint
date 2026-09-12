@@ -468,7 +468,7 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
                         </div>
                         {pricingTier === 'wholesale' && (
                           <div className="text-[9px] text-emerald-600 font-bold">
-                            سعر جملة
+                            سعر بيع 1
                           </div>
                         )}
                       </div>

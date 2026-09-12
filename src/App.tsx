@@ -285,7 +285,9 @@ const MainLayout: React.FC = () => {
 
 export default function App() {
   const [firebaseUser, setFirebaseUser] = React.useState<User | null>(null);
-  const [localUserId, setLocalUserId] = React.useState<string | null>(localStorage.getItem('alnoor_press_accounting_v1_current_user_id'));
+  const [localUserId, setLocalUserId] = React.useState<string | null>(() => {
+    return localStorage.getItem('alnoor_press_accounting_v1_current_user_id') || 'usr-1';
+  });
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
@@ -297,34 +299,6 @@ export default function App() {
   }, []);
 
   const isAuth = !!firebaseUser || !!localUserId;
-
-  React.useEffect(() => {
-    if (!isAuth) return;
-
-    const sessionDocId = firebaseUser?.email ? firebaseUser.email.toLowerCase() : localUserId;
-    if (!sessionDocId) return;
-
-    const unsub = onSnapshot(doc(db, 'userSessions', sessionDocId), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        const activeLocalSession = localStorage.getItem('active_session_id');
-        
-        // If there's an active session in Firestore and it doesn't match this device's session
-        if (data.sessionId && activeLocalSession && data.sessionId !== activeLocalSession) {
-          alert('عذراً، تم تسجيل الدخول إلى هذا الحساب من جهاز آخر. سيتم تسجيل خروجك الآن لضمان أمان حسابك.');
-          if (firebaseUser) {
-            import('./firebase').then(({ auth }) => auth.signOut());
-          }
-          localStorage.removeItem('alnoor_press_accounting_v1_current_user_id');
-          localStorage.removeItem('active_session_id');
-          setLocalUserId(null);
-          setFirebaseUser(null);
-        }
-      }
-    });
-
-    return () => unsub();
-  }, [isAuth, firebaseUser, localUserId]);
 
   if (loading) {
     return (

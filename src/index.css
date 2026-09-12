@@ -1,6 +1,89 @@
 @import "tailwindcss";
 
 /* ==========================================================
+   Global Typography: IBM Plex Sans Arabic SemiBold (600)
+   استخدام خط IBM Plex Sans Arabic بوزن SemiBold في كافة شاشات البرنامج
+   وعدم نزول حجم الخط عن 14 بكسل في أي عنصر أو شاشة
+   ========================================================== */
+
+/* 1. Force IBM Plex Sans Arabic on all text elements */
+*, *::before, *::after {
+  font-family: 'IBM Plex Sans Arabic', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+html, body {
+  font-family: 'IBM Plex Sans Arabic', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  font-weight: 600 !important;
+  font-size: 14px !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Ensure form controls, buttons, labels, and text nodes default to SemiBold (600) */
+button,
+input,
+select,
+textarea,
+label,
+table,
+td,
+th,
+p,
+span,
+div,
+a,
+li {
+  font-family: 'IBM Plex Sans Arabic', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  font-weight: 600;
+}
+
+/* Standardize weights: normal/medium/semibold are all at least SemiBold (600) */
+.font-normal,
+.font-medium,
+.font-semibold {
+  font-weight: 600 !important;
+}
+
+/* Maintain high-contrast bold for headlines and emphasized values */
+.font-bold,
+.font-extrabold,
+.font-black {
+  font-weight: 700 !important;
+}
+
+/* ==========================================================
+   Global Minimum Font Size Rule: No Font Less Than 14px
+   قاعدة عدم نزول الخط عن 14 بكسل في كافة الشاشات
+   ========================================================== */
+
+/* Elevate all sub-14px utility classes to minimum 14px */
+.text-xs,
+.text-sm,
+[class*="text-[7px]"],
+[class*="text-[8px]"],
+[class*="text-[9px]"],
+[class*="text-[10px]"],
+[class*="text-[11px]"],
+[class*="text-[12px]"],
+[class*="text-[13px]"] {
+  font-size: 14px !important;
+  line-height: 1.45 !important;
+}
+
+/* Ensure form controls, buttons, table cells, and badges never drop below 14px */
+input:not([type="number"]),
+select,
+textarea,
+button,
+label,
+td,
+th,
+small,
+caption {
+  font-size: 14px;
+}
+
+/* ==========================================================
    Full Field Highlighting when Cursor/Focus is Placed
    تعليم الخانة بالكامل أينما يوضع المؤشر
    ========================================================== */
@@ -67,12 +150,114 @@ textarea::selection {
   color: #ffffff !important;
 }
 
-/* Fix for Html5Qrcode video scaling issues */
+/* Full-Frame Camera Viewport Styling (eliminates square bounds, ensures direct full video display) */
+#pos-inline-camera-viewport,
+#app-barcode-scanner-viewport {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 190px !important;
+  position: relative !important;
+  background: #000000 !important;
+}
+
 #pos-inline-camera-viewport video,
 #app-barcode-scanner-viewport video {
   object-fit: cover !important;
   width: 100% !important;
-  height: auto !important;
+  height: 100% !important;
+  min-height: 190px !important;
+  max-height: 420px !important;
+  display: block !important;
+}
+
+/* Hide any html5-qrcode shaded region or square bounding box */
+#pos-inline-camera-viewport #qr-shaded-region,
+#app-barcode-scanner-viewport #qr-shaded-region,
+#pos-inline-camera-viewport svg,
+#app-barcode-scanner-viewport svg {
+  display: none !important;
+}
+
+/* Full-width laser scanner beam animation */
+@keyframes scan-laser {
+  0% {
+    top: 8%;
+    opacity: 0.85;
+  }
+  50% {
+    top: 88%;
+    opacity: 1;
+  }
+  100% {
+    top: 8%;
+    opacity: 0.85;
+  }
+}
+
+.animate-scan-laser {
+  animation: scan-laser 2s ease-in-out infinite;
+}
+
+/* ==========================================================
+   Expand All Popups and Modals to 80% of Display Viewport from All Sides
+   توسيع الشاشات والشاشات المنبثقة بنسبة 80% من شاشة العرض من كل الجوانب
+   لتكون أوضح للإضافة مع ترك هوامش متناسقة من كل الاتجاهات
+   ========================================================== */
+
+@media screen and (min-width: 640px) {
+  /* Modal dialog cards inside overlays expand to 80vw and 86vh max with auto margins */
+  .fixed.inset-0:not(.print-mode):not([class*="print:static"]) > div:not(.absolute):not(.fixed):not([data-no-modal-expand]),
+  .fixed.inset-0:not(.print-mode):not([class*="print:static"]) > form:not(.absolute):not(.fixed):not([data-no-modal-expand]),
+  [role="dialog"]:not([data-no-modal-expand]),
+  .modal-80vw {
+    width: 80vw !important;
+    max-width: 80vw !important;
+    min-width: 80vw !important;
+    max-height: 86vh !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    margin-top: auto !important;
+    margin-bottom: auto !important;
+    box-sizing: border-box !important;
+  }
+
+  /* When modal contains forms or scrollable sections, guarantee generous height */
+  .fixed.inset-0:not(.print-mode) > div:not(.absolute):not(.fixed):not([data-no-modal-expand]) > form,
+  .fixed.inset-0:not(.print-mode) > div:not(.absolute):not(.fixed):not([data-no-modal-expand]) .overflow-y-auto,
+  .modal-80vw > form,
+  .modal-80vw .overflow-y-auto {
+    max-height: calc(86vh - 75px);
+  }
+}
+
+@media screen and (max-width: 639px) {
+  /* Responsive fallback on small handheld devices */
+  .fixed.inset-0:not(.print-mode):not([class*="print:static"]) > div:not(.absolute):not(.fixed):not([data-no-modal-expand]),
+  .fixed.inset-0:not(.print-mode):not([class*="print:static"]) > form:not(.absolute):not(.fixed):not([data-no-modal-expand]),
+  [role="dialog"]:not([data-no-modal-expand]),
+  .modal-80vw {
+    width: 95vw !important;
+    max-width: 95vw !important;
+    min-width: 95vw !important;
+    max-height: 92vh !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    margin-top: auto !important;
+    margin-bottom: auto !important;
+  }
+}
+
+@media print {
+  .fixed.inset-0 > div,
+  .fixed.inset-0 > form,
+  .modal-80vw {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
 }
 
 @media print {

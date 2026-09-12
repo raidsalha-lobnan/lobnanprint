@@ -766,3 +766,64 @@ export interface DebtClearingRecord {
 
 // Multi-Company, Multi-Branch, Users & Granular Permissions System
 export * from './companyBranchUser';
+
+// Database Zeroing & Clean Start (تصفير قاعدة البيانات لبدء التشغيل الفعلي)
+export interface DatabaseZeroingOptions {
+  cutoffDate: string; // YYYY-MM-DD
+  scope: 'up_to_date' | 'all'; // تصفير حتى هذا التاريخ فقط أو تصفير شامل
+
+  // 1. العمليات والحركات المالية والتجارية
+  resetInvoices: boolean;           // فواتير المبيعات ونقاط البيع
+  resetPurchases: boolean;          // فواتير المشتريات ومشتريات الخامات
+  resetSalesReturns: boolean;       // مردودات المبيعات
+  resetPurchaseReturns: boolean;    // مردودات المشتريات
+  resetVouchers: boolean;           // سندات القبض والصرف
+  resetJournalEntries: boolean;     // قيود اليومية وحركات الحسابات
+  resetPrintOrders: boolean;        // أوامر تشغيل المطبعة والورشة
+  resetStockMovements: boolean;      // حركات المخزون والمناقلات
+  resetWarehouseOperations: boolean;// عمليات المستودعات
+  resetPayroll: boolean;            // مسيرات الرواتب وسلف ومكافآت وخصومات الموظفين
+
+  // 2. العملاء والموردين والأطراف
+  resetManualParties: boolean;      // حذف العملاء والموردين المضافين يدوياً
+  zeroPartyBalances: boolean;       // تصفير أرصدة الذمم والمديونيات لجميع العملاء والموردين (0.00 ₪)
+
+  // 3. المخازن والأصناف والمستودعات
+  zeroInventoryStock: boolean;      // تصفير كميات وأرصدة المخزون لجميع الأصناف (0 لبدء جرد فعلي)
+  resetManualInventoryItems: boolean;// حذف الأصناف والمنتجات والخامات المضافة يدوياً
+  resetManualWarehouses: boolean;   // حذف المستودعات الإضافية المضافة يدوياً
+
+  // 4. الصناديق والخزنات والحسابات البنكية
+  zeroTreasuryBalances: boolean;    // تصفير أرصدة وحركات الصناديق والخزنات لتصبح 0.00 ₪
+  resetManualTreasuries: boolean;   // حذف الصناديق والحسابات البنكية المضافة يدوياً
+
+  // 5. شجرة الحسابات والدليل المحاسبي
+  zeroAccountBalances: boolean;     // تصفير أرصدة حسابات الدليل المحاسبي لتبدأ من 0.00 ₪
+}
+
+export interface ZeroingExecutionResult {
+  success: boolean;
+  message: string;
+  summary: {
+    deletedInvoices: number;
+    deletedPurchases: number;
+    deletedSalesReturns: number;
+    deletedPurchaseReturns: number;
+    deletedVouchers: number;
+    deletedJournalEntries: number;
+    deletedPrintOrders: number;
+    deletedStockMovements: number;
+    deletedWarehouseOperations: number;
+    deletedPayrollRecords: number;
+    deletedManualParties: number;
+    zeroedPartyBalances: number;
+    zeroedInventoryStocks: number;
+    deletedManualItems: number;
+    deletedManualWarehouses: number;
+    zeroedTreasuries: number;
+    deletedManualTreasuries: number;
+    zeroedAccounts: number;
+  };
+  executedAt: string;
+  executedBy: string;
+}

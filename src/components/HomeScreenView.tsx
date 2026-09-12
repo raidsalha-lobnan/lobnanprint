@@ -350,7 +350,7 @@ export const HomeScreenView: React.FC = () => {
   const recentPrintJobs = (printOrders || []).slice(0, 3);
 
   return (
-    <div className="space-y-4 pb-12 max-w-7xl mx-auto px-2 sm:px-4">
+    <div className="space-y-4 pb-12 w-full px-2 sm:px-4">
       {/* Top Welcome & Context Hero */}
       <div className="bg-gradient-to-r from-[#0f172a] via-[#1e293b] to-[#0f172a] text-white rounded-2xl p-4 sm:p-6 shadow-md border border-slate-700/80 relative overflow-hidden">
         {/* Background Subtle Accent */}

@@ -1039,10 +1039,10 @@ export const UsersPermissionsView: React.FC = () => {
                       onChange={(e) => setUserForm({ ...userForm, allowedPriceTier: e.target.value as AllowedPriceTierScope })}
                       className="w-full px-3 py-2 text-xs border border-amber-300 rounded-lg bg-white font-semibold text-slate-800 focus:ring-1 focus:ring-amber-500"
                     >
-                      <option value="all">كافة الفئات (سعر 1، سعر 2، سعر 3)</option>
-                      <option value="price1">سعر بيع (1) فقط - قطاعي</option>
-                      <option value="price2">سعر بيع 2 فقط - جملة</option>
-                      <option value="price3">سعر بيع 3 فقط - خاص</option>
+                      <option value="all">كافة الفئات (سعر بيع، سعر بيع 1، سعر بيع 2)</option>
+                      <option value="price1">سعر بيع فقط</option>
+                      <option value="price2">سعر بيع 1 فقط</option>
+                      <option value="price3">سعر بيع 2 فقط</option>
                     </select>
                     <p className="text-[10px] text-slate-500 mt-1">
                       يحدد فئات التسعير المتاحة للمستخدم عند إصدار الفاتورة بالكاشير.

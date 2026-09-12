@@ -3,8 +3,10 @@ import { LucideIcon } from 'lucide-react';
 export type PosButtonActionType =
   | 'save_invoice'           // F5 حفظ الفاتورة
   | 'save_and_print'         // F10 حفظ وطباعة
+  | 'save_and_print_a4_custom'// حفظ وطباعة A4 تصميم 2
   | 'quick_pay_cash'         // دفع نقدي
   | 'pay_cash_and_print'     // دفع نقدي وطباعة
+  | 'pay_cash_and_print_a4_custom'// دفع نقدي وطباعة A4 تصميم 2
   | 'quick_pay_card'         // دفع فيزا / بطاقة
   | 'hold_invoice'           // F9 تعليق الفاتورة
   | 'clear_invoice'          // إلغاء الفاتورة والبدء بجديدة

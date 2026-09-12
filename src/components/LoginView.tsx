@@ -1,20 +1,32 @@
 import React, { useState } from 'react';
 import { auth } from '../firebase';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
-import { Lock, Mail, KeyRound, ArrowRight, UserPlus, LogIn, AlertCircle } from 'lucide-react';
+import { Lock, Mail, KeyRound, ArrowRight, UserPlus, LogIn, AlertCircle, ShieldCheck, Check } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, setDoc } from 'firebase/firestore';
+import { DEFAULT_SYSTEM_USERS } from '../data/defaultCompanyBranchUserData';
 
 export const LoginView: React.FC<{ onLocalLogin?: (id: string) => void }> = ({ onLocalLogin }) => {
   const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('raid.salha@gmail.com');
+  const [password, setPassword] = useState('123456');
   const [error, setError] = useState('');
   const [errorCode, setErrorCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [resetSent, setResetSent] = useState(false);
 
-  
+  const directAdminLogin = () => {
+    const adminUser = DEFAULT_SYSTEM_USERS[0];
+    const sessionId = Date.now().toString(36) + Math.random().toString(36).substring(2);
+    localStorage.setItem('active_session_id', sessionId);
+    localStorage.setItem('alnoor_press_accounting_v1_current_user_id', adminUser.id);
+    if (onLocalLogin) {
+      onLocalLogin(adminUser.id);
+    } else {
+      window.location.reload();
+    }
+  };
+
   const handleGoogleSignIn = async () => {
     setError('');
     setErrorCode('');
@@ -25,7 +37,9 @@ export const LoginView: React.FC<{ onLocalLogin?: (id: string) => void }> = ({ o
       if (res.user && res.user.email) {
         const sessionId = Date.now().toString(36) + Math.random().toString(36).substring(2);
         localStorage.setItem('active_session_id', sessionId);
-        await setDoc(doc(db, 'userSessions', res.user.email.toLowerCase()), { sessionId, timestamp: Date.now() });
+        try {
+          await setDoc(doc(db, 'userSessions', res.user.email.toLowerCase()), { sessionId, timestamp: Date.now() });
+        } catch(e) {}
       }
     } catch (err: any) {
       console.error(err);
@@ -40,12 +54,16 @@ export const LoginView: React.FC<{ onLocalLogin?: (id: string) => void }> = ({ o
     e.preventDefault();
     setError('');
     
-    // Fetch local users
+    // Fetch local users or fallback to default system users
     const localData = localStorage.getItem('alnoor_press_accounting_v1_users');
-    let users = [];
+    let users = DEFAULT_SYSTEM_USERS;
     try {
-      users = localData ? JSON.parse(localData) : [];
-    } catch(e) {}
+      if (localData) {
+        users = JSON.parse(localData);
+      }
+    } catch(e) {
+      users = DEFAULT_SYSTEM_USERS;
+    }
     
     const user = users.find((u: any) => (u.email === email || u.username === email) && u.password === password);
     if (user) {
@@ -159,6 +177,21 @@ export const LoginView: React.FC<{ onLocalLogin?: (id: string) => void }> = ({ o
 
         
         
+        {/* Instant Preview Login Button */}
+        <div className="mb-6">
+          <button
+            type="button"
+            onClick={directAdminLogin}
+            className="w-full py-3 bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer border border-blue-400/30"
+          >
+            <ShieldCheck className="w-5 h-5 text-amber-300" />
+            <span>دخول فوري كمدير النظام (أ. رائد صالحة)</span>
+          </button>
+          <p className="text-center text-[11px] text-slate-400 mt-1.5">
+            للمعاينة المباشرة وتجربة كافة الشاشات والصلاحيات بنقرة واحدة
+          </p>
+        </div>
+
         <form onSubmit={handleLocalSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-bold text-slate-700 mb-1">اسم المستخدم / البريد الإلكتروني</label>

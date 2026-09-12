@@ -43,6 +43,8 @@ export interface AutocompleteComboboxProps {
   inputClassName?: string;
   showCode?: boolean;
   autoFocus?: boolean;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
+  id?: string;
 }
 
 // Arabic & English text normalization helper
@@ -101,7 +103,9 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
   className = '',
   inputClassName = '',
   showCode = true,
-  autoFocus = false
+  autoFocus = false,
+  inputRef: externalInputRef,
+  id
 }) => {
   const { addParty, addInventoryItem, addEmployee } = useAccounting();
 
@@ -111,7 +115,8 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
   const [coords, setCoords] = useState<{ top: number; left: number; width: number; showAbove: boolean } | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const internalInputRef = useRef<HTMLInputElement | null>(null);
+  const activeInputRef = externalInputRef || internalInputRef;
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
   // Sync internal inputText when value or selectedId changes
@@ -215,8 +220,8 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
 
   // Update floating dropdown position
   const updatePosition = useCallback(() => {
-    if (!inputRef.current) return;
-    const rect = inputRef.current.getBoundingClientRect();
+    if (!activeInputRef.current) return;
+    const rect = activeInputRef.current.getBoundingClientRect();
     const spaceBelow = window.innerHeight - rect.bottom;
     const estimatedHeight = 280;
     const showAbove = spaceBelow < estimatedHeight && rect.top > estimatedHeight;
@@ -398,6 +403,16 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
       }
     } else if (e.key === 'Escape') {
       setIsOpen(false);
+    } else if (e.key === ' ' || e.code === 'Space') {
+      // If default customer name is present, clear it on Space so cashier can type fresh name directly
+      if (inputText === 'عميل كاشير نقدي' || inputText === 'عميل نقدي') {
+        e.preventDefault();
+        setInputText('');
+        if (onChangeText) onChangeText('');
+        onSelect({ id: '', name: '' });
+        setIsOpen(true);
+        updatePosition();
+      }
     }
   };
 
@@ -407,7 +422,7 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
     if (onChangeText) onChangeText('');
     onSelect({ id: '', name: '' });
     setIsOpen(true);
-    if (inputRef.current) inputRef.current.focus();
+    if (activeInputRef.current) activeInputRef.current.focus();
   };
 
   const IconComponent = entityMeta.icon;
@@ -421,7 +436,8 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
         </div>
 
         <input
-          ref={inputRef}
+          ref={activeInputRef}
+          id={id}
           type="text"
           value={inputText}
           disabled={disabled}
@@ -463,7 +479,7 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
             onClick={() => {
               if (!disabled) {
                 setIsOpen(prev => !prev);
-                if (inputRef.current) inputRef.current.focus();
+                if (activeInputRef.current) activeInputRef.current.focus();
               }
             }}
             className="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 cursor-pointer"

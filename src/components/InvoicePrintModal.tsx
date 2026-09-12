@@ -5,7 +5,7 @@ import { PrintHeader, ThermalReceiptHeader } from './common/PrintHeader';
 
 export const InvoicePrintModal: React.FC = () => {
   const { selectedInvoiceForPrint, setSelectedInvoiceForPrint, directPrintOptions, setDirectPrintOptions, settings } = useAccounting();
-  const [printFormat, setPrintFormat] = useState<'a4' | 'thermal'>('thermal'); // Default to thermal for faster POS
+  const [printFormat, setPrintFormat] = useState<'a4' | 'a4-custom' | 'thermal'>('thermal'); // Default to thermal for faster POS
 
   useEffect(() => {
     if (directPrintOptions) {
@@ -47,6 +47,14 @@ export const InvoicePrintModal: React.FC = () => {
                 }`}
               >
                 فاتورة ضريبية A4
+              </button>
+              <button
+                onClick={() => setPrintFormat('a4-custom')}
+                className={`px-3 py-1 rounded-md font-semibold cursor-pointer ${
+                  printFormat === 'a4-custom' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                }`}
+              >
+                فاتورة A4 (تصميم 2)
               </button>
               <button
                 onClick={() => setPrintFormat('thermal')}
@@ -245,6 +253,172 @@ export const InvoicePrintModal: React.FC = () => {
             <div className="text-center pt-6 border-t border-slate-200 text-[11px] text-slate-500">
               <p>{settings.invoiceFooter}</p>
               <p className="mt-1 font-mono text-[10px] text-slate-400">شكراً لتعاملكم مع {settings.businessName}</p>
+            </div>
+          </div>
+        ) : printFormat === 'a4-custom' ? (
+          /* A4 Custom Print Format */
+          <div className="p-8 text-slate-800 text-sm font-sans print:p-0" dir="rtl">
+            <div className="border-[3px] border-[#2b3a67] p-1 pb-2 min-h-[1050px] flex flex-col relative">
+              <div className="border-[2px] border-[#2b3a67] flex-1 flex flex-col p-4 space-y-6">
+                
+                {/* Header Row */}
+                <div className="flex items-center justify-between mt-2">
+                  <div className="border border-[#2b3a67] rounded-md px-4 py-2 w-64 text-right flex items-center justify-between bg-[#f0f4f8]">
+                    <span className="font-bold text-[#2b3a67]">رقم الفاتورة :</span>
+                    <span className="font-mono text-base border-b border-dashed border-slate-400 min-w-[100px] text-center inline-block">{inv.invoiceNumber}</span>
+                  </div>
+                  
+                  <div className="bg-[#2b3a67] text-white px-16 py-3 rounded-xl shadow-sm text-center">
+                    <h1 className="text-3xl font-black">فاتورة مبيعات</h1>
+                  </div>
+
+                  <div className="border border-[#2b3a67] rounded-md px-4 py-2 w-64 text-right flex items-center justify-between bg-[#f0f4f8]">
+                    <span className="font-bold text-[#2b3a67]">التاريخ :</span>
+                    <span className="font-mono text-base border-b border-dashed border-slate-400 min-w-[100px] text-center inline-block">{inv.date}</span>
+                  </div>
+                </div>
+
+                {/* Info Sections Row */}
+                <div className="grid grid-cols-2 gap-8">
+                  {/* Seller Info */}
+                  <div className="border border-[#2b3a67] rounded-lg flex flex-col overflow-hidden">
+                    <div className="bg-[#d2e0ee] text-[#2b3a67] font-bold text-center py-2 border-b border-[#2b3a67] text-lg">
+                      بيانات البائع
+                    </div>
+                    <div className="p-4 space-y-4">
+                      <div className="flex items-center">
+                        <span className="font-bold text-[#2b3a67] w-28 text-base">اسم المنشأة :</span>
+                        <span className="flex-1 border-b border-dashed border-slate-400 min-w-0 font-bold px-2">{settings.businessName}</span>
+                      </div>
+                      <div className="flex items-center">
+                        <span className="font-bold text-[#2b3a67] w-28 text-base">رقم الهاتف :</span>
+                        <span className="flex-1 border-b border-dashed border-slate-400 min-w-0 px-2 font-mono font-bold">{settings.phone || '—'}</span>
+                      </div>
+                      <div className="flex items-center">
+                        <span className="font-bold text-[#2b3a67] w-28 text-base">العنوان :</span>
+                        <span className="flex-1 border-b border-dashed border-slate-400 min-w-0 px-2 font-bold">{settings.address || '—'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Customer Info */}
+                  <div className="border border-[#2b3a67] rounded-lg flex flex-col overflow-hidden">
+                    <div className="bg-[#d2e0ee] text-[#2b3a67] font-bold text-center py-2 border-b border-[#2b3a67] text-lg">
+                      بيانات العميل
+                    </div>
+                    <div className="p-4 space-y-4">
+                      <div className="flex items-center">
+                        <span className="font-bold text-[#2b3a67] w-28 text-base">اسم العميل :</span>
+                        <span className="flex-1 border-b border-dashed border-slate-400 min-w-0 font-bold px-2">{inv.customerName}</span>
+                      </div>
+                      <div className="flex items-center">
+                        <span className="font-bold text-[#2b3a67] w-28 text-base">رقم الهاتف :</span>
+                        <span className="flex-1 border-b border-dashed border-slate-400 min-w-0 px-2 font-mono font-bold">
+                          {'—'}
+                        </span>
+                      </div>
+                      <div className="flex items-center">
+                        <span className="font-bold text-[#2b3a67] w-28 text-base">العنوان :</span>
+                        <span className="flex-1 border-b border-dashed border-slate-400 min-w-0 px-2 font-bold">
+                          {'—'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div className="flex-1 flex flex-col">
+                  <table className="w-full text-center border-collapse border border-[#2b3a67]">
+                    <thead>
+                      <tr className="bg-[#d2e0ee] text-[#2b3a67] font-bold text-lg">
+                        <th className="border border-[#2b3a67] py-2.5 w-12">م</th>
+                        <th className="border border-[#2b3a67] py-2.5">اسم المنتج / الصنف</th>
+                        <th className="border border-[#2b3a67] py-2.5 w-32">الكمية</th>
+                        <th className="border border-[#2b3a67] py-2.5 w-36">سعر الوحدة</th>
+                        <th className="border border-[#2b3a67] py-2.5 w-36">الإجمالي</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-base font-bold text-[#2b3a67]">
+                      {/* Render exact 10 rows to match the design's fixed height appearance */}
+                      {Array.from({ length: Math.max(10, inv.items.length) }).map((_, idx) => {
+                        const item = inv.items[idx];
+                        return (
+                          <tr key={idx} className="h-[2.1rem]">
+                            <td className="border border-[#2b3a67] font-mono">{idx + 1}</td>
+                            <td className="border border-[#2b3a67] px-3 text-right font-semibold">
+                              {item ? item.itemName : ''}
+                            </td>
+                            <td className="border border-[#2b3a67] font-mono">
+                              {item ? item.quantity : ''}
+                            </td>
+                            <td className="border border-[#2b3a67] font-mono">
+                              {item ? item.unitPrice.toFixed(2) : ''}
+                            </td>
+                            <td className="border border-[#2b3a67] font-mono">
+                              {item ? item.total.toFixed(2) : ''}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Footer and Totals */}
+                <div className="grid grid-cols-2 gap-8 items-start mt-2">
+                  {/* Totals Box */}
+                  <div className="border border-[#2b3a67] rounded-lg flex flex-col overflow-hidden text-base">
+                    <div className="flex border-b border-[#2b3a67]">
+                      <div className="w-1/2 p-2 font-bold text-center border-l border-[#2b3a67] bg-[#d2e0ee] text-[#2b3a67]">إجمالي المبلغ</div>
+                      <div className="w-1/2 p-2 font-mono text-center font-bold text-[#2b3a67]">{inv.subtotal.toFixed(2)}</div>
+                    </div>
+                    <div className="flex border-b border-[#2b3a67]">
+                      <div className="w-1/2 p-2 font-bold text-center border-l border-[#2b3a67] bg-[#d2e0ee] text-[#2b3a67]">الخصم</div>
+                      <div className="w-1/2 p-2 font-mono text-center font-bold text-[#2b3a67]">{inv.discountTotal > 0 ? inv.discountTotal.toFixed(2) : ''}</div>
+                    </div>
+                    <div className="flex border-b border-[#2b3a67]">
+                      <div className="w-1/2 p-2 font-bold text-center border-l border-[#2b3a67] bg-[#d2e0ee] text-[#2b3a67]">صافي المبلغ</div>
+                      <div className="w-1/2 p-2 font-mono text-center font-bold text-[#2b3a67]">{(inv.subtotal - inv.discountTotal).toFixed(2)}</div>
+                    </div>
+                    <div className="flex border-b border-[#2b3a67]">
+                      <div className="w-1/2 p-2 font-bold text-center border-l border-[#2b3a67] bg-[#d2e0ee] text-[#2b3a67]">قيمة الضريبة (إن وجدت)</div>
+                      <div className="w-1/2 p-2 font-mono text-center font-bold text-[#2b3a67]">{inv.taxAmount > 0 ? inv.taxAmount.toFixed(2) : ''}</div>
+                    </div>
+                    <div className="flex bg-[#2b3a67] text-white">
+                      <div className="w-1/2 p-2 font-bold text-center border-l border-[#2b3a67]">المبلغ الإجمالي</div>
+                      <div className="w-1/2 p-2 font-mono text-center bg-white text-[#2b3a67] font-black">{inv.totalAmount.toFixed(2)}</div>
+                    </div>
+                  </div>
+
+                  {/* Notes Box */}
+                  <div className="border border-[#2b3a67] rounded-lg flex flex-col overflow-hidden h-[190px]">
+                    <div className="bg-[#d2e0ee] text-[#2b3a67] font-bold text-center py-2 border-b border-[#2b3a67] text-lg">
+                      ملاحظات
+                    </div>
+                    <div className="p-4 font-medium text-slate-700 whitespace-pre-wrap flex-1">
+                      {inv.notes || ''}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Signatures */}
+                <div className="flex justify-between items-end px-16 pt-8 pb-4">
+                  <div className="text-center font-bold text-[#2b3a67]">
+                    <p className="mb-10 text-lg">توقيع البائع</p>
+                    <p className="border-b-[1.5px] border-dashed border-[#2b3a67] w-48 mx-auto"></p>
+                  </div>
+                  <div className="text-center font-bold text-[#2b3a67]">
+                    <p className="mb-10 text-lg">توقيع العميل</p>
+                    <p className="border-b-[1.5px] border-dashed border-[#2b3a67] w-48 mx-auto"></p>
+                  </div>
+                </div>
+
+                <div className="text-center font-bold text-[#2b3a67] pt-2 pb-2 text-lg">
+                  مع خالص الشكر والتقدير
+                </div>
+
+              </div>
             </div>
           </div>
         ) : (

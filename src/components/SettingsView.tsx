@@ -3,6 +3,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { CurrencySettings } from './settings/CurrencySettings';
 import { OfflineSqlSettings } from './settings/OfflineSqlSettings';
 import { UnitsOfMeasureSettings } from './settings/UnitsOfMeasureSettings';
+import { DatabaseZeroingSettings } from './settings/DatabaseZeroingSettings';
 import { PrintHeader, ThermalReceiptHeader } from './common/PrintHeader';
 import {
   Settings,
@@ -37,13 +38,13 @@ import {
 } from 'lucide-react';
 
 interface SettingsViewProps {
-  initialTab?: 'general' | 'units' | 'shortcuts' | 'currency' | 'sql' | 'backup';
+  initialTab?: 'general' | 'units' | 'shortcuts' | 'currency' | 'sql' | 'backup' | 'reset_db';
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'general' }) => {
   const { settings, updateSettings, resetAllData, exportDataJSON, importDataJSON } = useAccounting();
 
-  const [activeTab, setActiveTab] = useState<'general' | 'units' | 'shortcuts' | 'currency' | 'sql' | 'backup'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'general' | 'units' | 'shortcuts' | 'currency' | 'sql' | 'backup' | 'reset_db'>(initialTab);
 
   React.useEffect(() => {
     if (initialTab) {
@@ -188,7 +189,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
   };
 
   return (
-    <div className="space-y-3 max-w-5xl mx-auto pb-8">
+    <div className="space-y-3 w-full pb-8">
       {/* Header */}
       <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
         <div className="flex items-center gap-2.5">
@@ -289,6 +290,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
         >
           <ShieldAlert className="w-3.5 h-3.5" />
           <span>النسخ الاحتياطي والصيانة</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('reset_db')}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            activeTab === 'reset_db'
+              ? 'bg-rose-600 text-white shadow-xs'
+              : 'bg-rose-50/70 text-rose-700 hover:bg-rose-100 border border-rose-200'
+          }`}
+        >
+          <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+          <span>تصفير قاعدة البيانات (التشغيل الفعلي)</span>
         </button>
       </div>
 
@@ -953,8 +967,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
               <span>إعادة ضبط البيانات الافتراضية</span>
             </button>
           </div>
+
+          {/* Quick link to Database Zeroing */}
+          <div className="mt-4 p-3.5 bg-rose-50/80 border border-rose-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5 font-bold text-rose-950 text-xs">
+                <Trash2 className="w-4 h-4 text-rose-600" />
+                <span>تصفير قاعدة البيانات وبدء التشغيل الفعلي (خاص بالمدير)</span>
+              </div>
+              <p className="text-[11px] text-rose-800 leading-relaxed">
+                تصفير كافة الحركات التجريبية والعملاء والموردين والأصناف حتى تاريخ معين، وتصفير أرصدة المخزون والديون للبدء الفعلي بعد التجربة.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab('reset_db')}
+              className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg shadow-xs cursor-pointer shrink-0 transition-colors"
+            >
+              الانتقال لشاشة التصفير والاعتماد
+            </button>
+          </div>
         </div>
       )}
+
+      {/* Tab 5: Database Zeroing for Go-Live */}
+      {activeTab === 'reset_db' && <DatabaseZeroingSettings />}
     </div>
   );
 };

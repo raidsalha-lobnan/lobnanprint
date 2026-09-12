@@ -235,11 +235,12 @@ export const InventoryView: React.FC = () => {
         }
       } else {
         setSearchQuery(scannedCode);
-        setBarcodeNotification(
-          existing
-            ? `تم العثور على الصنف عبر الماسح الضوئي: [${existing.code}] ${existing.name}`
-            : `تم مسح الباركود عبر الماسح الضوئي: ${scannedCode}`
-        );
+        if (existing) {
+          setBarcodeNotification(`تم العثور على الصنف عبر الماسح الضوئي: [${existing.code}] ${existing.name}`);
+        } else {
+          posSound.error();
+          setBarcodeNotification(`الصنف غير موجود (الباركود: ${scannedCode})`);
+        }
       }
 
       // Auto dismiss banner after 3.5s
@@ -730,19 +731,22 @@ export const InventoryView: React.FC = () => {
               <span>بنك الباركود والـ QR</span>
             </button>
 
-            {/* Camera Scanner Button */}
+            {/* زر كاميرا الباركود - رمز فقط مطابق لزر الكاشير */}
             <button
               type="button"
               onClick={() => {
-                handleOpenAdd();
-                setScannerForSearch(false);
-                setShowBarcodeScanner(true);
+                setScannerForSearch(true);
+                setShowBarcodeScanner(prev => !prev);
               }}
-              className="flex items-center gap-1.5 bg-white hover:bg-sky-50 text-sky-800 border border-sky-200 hover:border-sky-300 text-xs font-bold px-3 py-1.5 rounded-md shadow-2xs transition cursor-pointer shrink-0"
-              title="تشغيل كاميرا الجهاز لقراءة الباركود فوراً"
+              className={`p-2 rounded-lg border flex items-center justify-center cursor-pointer transition-all shrink-0 ${
+                showBarcodeScanner
+                  ? 'bg-blue-600 text-white border-blue-700 shadow-inner ring-2 ring-blue-300'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100 hover:border-blue-400 shadow-2xs'
+              }`}
+              title="تشغيل كاميرا الباركود"
             >
-              <Camera className="w-3.5 h-3.5 text-sky-600" />
-              <span>مسح بالكاميرا</span>
+              <Camera className={`w-4 h-4 ${showBarcodeScanner ? 'text-emerald-300 animate-pulse' : 'text-blue-600'}`} />
+              {showBarcodeScanner && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-1" />}
             </button>
 
             {/* Hardware Scanner Live Status Indicator */}
@@ -1476,11 +1480,10 @@ export const InventoryView: React.FC = () => {
                         setScannerForSearch(false);
                         setShowBarcodeScanner(true);
                       }}
-                      className="flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-1.5 py-0.5 rounded cursor-pointer transition-colors"
-                      title="تشغيل الكاميرا لقراءة الباركود مباشرة"
+                      className="p-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-200 rounded cursor-pointer transition-colors"
+                      title="تشغيل كاميرا الباركود"
                     >
-                      <Camera className="w-3 h-3" />
-                      <span>مسح</span>
+                      <Camera className="w-3.5 h-3.5" />
                     </button>
                   </div>
                   <div className="relative">
