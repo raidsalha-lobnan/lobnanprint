@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import {
   BarChart3,
@@ -29,6 +30,9 @@ import {
 import { Party } from '../types';
 import { generateAccountStatement, generateEmployeeStatement, StatementRow } from '../utils/statementGenerator';
 import { tafqeetArabic } from '../utils/tafqeet';
+import { PrintHeader } from './common/PrintHeader';
+import { OfficialStamp } from './common/OfficialStamp';
+import { ReportSignatures } from './common/ReportSignatures';
 
 export type ReportType =
   | 'customer_statement'
@@ -444,12 +448,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
     const rows: EmpRow[] = [];
 
     // Advances
-    employeeAdvances.filter(a => a.employeeId === emp.id).forEach(adv => {
+    employeeAdvances.filter(a => a.employeeId === emp.id && !a.isCarryOver).forEach(adv => {
       rows.push({
         date: adv.date,
         type: 'سلفة نقدية منصرفة',
         refNumber: `ADV-${adv.id.slice(-4)}`,
-        description: `سلفة على الراتب (${adv.notes || 'سلفة عاجلة'})`,
+        description: `سلفة على الراتب (${adv.reason || 'سلفة عاجلة'})`,
         dueAmount: 0,
         paidAmount: adv.amount
       });
@@ -489,7 +493,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
           type: sheet.status === 'approved' ? 'مسير راتب معتمد' : 'مسودة مسير راتب',
           refNumber: sheet.sheetNumber,
           description: `راتب شهر ${sheet.period || (sheet as any).periodMonth || ''} (أساسي: ${line.basicSalary || 0}، بدلات: ${line.allowances || line.allowancesTotal || 0}، استقطاعات: ${line.deductions || line.deductionsTotal || 0})`,
-          dueAmount: line.netSalary,
+          dueAmount: (line.basicSalary || 0) + (line.allowances || line.allowancesTotal || 0),
           paidAmount: sheet.status === 'approved' ? line.netSalary : 0
         });
       }
@@ -768,7 +772,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
           </div>
           <div>
             <h1 className="text-base font-bold text-slate-900">مركز التقارير المحاسبية والتفصيلية</h1>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[10px] text-slate-400 font-light">
               كشوفات الحسابات المعتمدة، حركات وتجميع الأصناف، سندات القبض والصرف، الرواتب والصناديق والقوائم المالية
             </p>
           </div>
@@ -945,17 +949,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
         {/* Date Filter Inputs */}
         <div className="flex items-center gap-2 text-slate-600">
           <span className="text-[11px] text-slate-400">من:</span>
-          <input
-            type="date"
-            value={fromDate}
-            onChange={e => setFromDate(e.target.value)}
+          <DateInput value={fromDate} onChange={e => setFromDate(e.target.value)}
             className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs"
           />
           <span className="text-[11px] text-slate-400">إلى:</span>
-          <input
-            type="date"
-            value={toDate}
-            onChange={e => setToDate(e.target.value)}
+          <DateInput value={toDate} onChange={e => setToDate(e.target.value)}
             className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs"
           />
           {(fromDate || toDate) && (
@@ -976,66 +974,17 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* 1. كشف حساب تفصيلي عميل */}
       {/* ========================================================================= */}
       {activeReport === 'customer_statement' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4 print:p-0 print:border-0 print:shadow-none">
-          {/* 1. ترويسة كشف الحساب حسب إعدادات البرنامج */}
-          <div className="border-b-2 border-slate-800 pb-3 flex items-start justify-between">
-            <div>
-              <h1 className="text-xl font-black text-slate-900">{settings.name || 'مؤسسة الدعاية والإعلان'}</h1>
-              <div className="text-xs text-slate-600 mt-0.5 space-x-2 space-x-reverse">
-                {settings.commercialRegister && <span>س.ت: <strong className="font-mono">{settings.commercialRegister}</strong></span>}
-                {settings.taxNumber && <span> | الرقم الضريبي: <strong className="font-mono">{settings.taxNumber}</strong></span>}
-              </div>
-              <div className="text-xs text-slate-500 mt-0.5">
-                {settings.address && <span>{settings.address}</span>}
-                {settings.phone && <span> | هاتف: <span className="font-mono">{settings.phone}</span></span>}
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="inline-block bg-slate-900 text-white px-4 py-1 rounded-md text-base font-black shadow-xs">
-                كشف حساب عميل تفصيلي
-              </div>
-              <div className="text-[11px] text-slate-500 font-mono mt-1">
-                تاريخ الاستخراج: {new Date().toISOString().split('T')[0]}
-              </div>
-            </div>
-            {settings.logo ? (
-              <img src={settings.logo} alt="Logo" className="w-16 h-16 object-contain" />
-            ) : (
-              <div className="w-16 h-16 bg-slate-100 border border-slate-300 rounded flex items-center justify-center text-[10px] text-slate-400 font-bold">
-                شعار المنشأة
-              </div>
-            )}
-          </div>
-
-          {/* 2. بيانات العميل والفترة */}
-          <div className="bg-slate-50 border border-slate-300 rounded-lg p-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div className="space-y-1">
-              <div className="text-sm font-black text-slate-900 flex items-center gap-1.5 flex-wrap">
-                <span>اسم العميل:</span>
-                <span className="text-blue-900 font-extrabold">{customerStatementData.party?.name || 'غير محدد'}</span>
-                {selectedSubCustObj && (
-                  <span className="text-blue-700 bg-blue-100 px-2 py-0.5 rounded text-xs font-bold">
-                    / الزبون الفرعي: {selectedSubCustObj.name}
-                  </span>
-                )}
-              </div>
-              <div className="text-slate-600">
-                <span>كود الحساب: </span>
-                <strong className="font-mono text-slate-900">{customerStatementData.party?.code || '-'}</strong>
-                {customerStatementData.party?.phone && (
-                  <span className="mr-3">
-                    الهاتف: <strong className="font-mono text-slate-800">{customerStatementData.party.phone}</strong>
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="space-y-1 sm:text-left">
-              <div className="font-bold text-slate-800">
-                الفترة من: <span className="font-mono text-blue-950">{fromDate || 'بداية التعامل'}</span> إلى: <span className="font-mono text-blue-950">{toDate || 'تاريخ اليوم'}</span>
-              </div>
-              <div className="text-slate-600">
-                العملة: <strong className="text-slate-900 font-bold">{settings.currency}</strong>
-              </div>
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 sm:p-6 space-y-3 print:p-0 print:border-0 print:shadow-none report-a4-container">
+          {/* 1. ترويسة كشف الحساب حسب إعدادات البرنامج المعتمدة */}
+          <PrintHeader />
+          <div className="text-center font-bold text-base sm:text-lg mb-2 mt-3 text-slate-900 leading-relaxed border-b-2 border-slate-900 pb-2">
+            كشف حساب عميل تفصيلي:{' '}
+            <span className="text-blue-900">
+              {customerStatementData.party?.name === 'زبون نقدي' && selectedSubCustObj ? selectedSubCustObj.name : (customerStatementData.party?.name || 'غير محدد')}
+            </span>
+            <div className="text-xs sm:text-sm text-slate-600 mt-1 font-semibold">
+              من تاريخ: <span className="font-mono">{fromDate || 'بداية التعامل'}</span>{' '}
+              إلى تاريخ: <span className="font-mono">{toDate || 'تاريخ اليوم'}</span>
             </div>
           </div>
 
@@ -1053,41 +1002,83 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
               >
                 <span>{showStatementItemDetails ? 'إخفاء تفاصيل بنود الفواتير' : 'إظهار تفاصيل بنود الفواتير والمقاسات'}</span>
               </button>
-              <span className="text-[11px] text-slate-500">
+              <span className="text-[10px] text-slate-400 font-light">
                 (الصنف، البيان، الطول، العرض، العدد، الكمية، السعر)
               </span>
             </div>
-            <div className="text-[11px] text-slate-500">
+            <div className="text-[10px] text-slate-400 font-light">
               عدد الحركات: <strong className="font-mono text-slate-900">{customerStatementData.rows.length}</strong>
             </div>
           </div>
 
           {/* 3. جدول الحركات المالي المفصل */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs border-collapse border border-slate-300">
-              <thead className="bg-slate-800 text-white text-[11px]">
+          <div className="overflow-x-auto border border-slate-400 rounded-md shadow-2xs min-h-[440px] print:min-h-[720px] flex flex-col justify-between bg-white">
+            <table className="w-full text-right report-table border-collapse h-full">
+              <thead className="bg-slate-800 text-white font-bold border-b border-slate-900 print:bg-slate-200 print:text-slate-900">
                 <tr>
-                  <th className="py-2 px-1.5 border border-slate-700 text-center w-8">م</th>
-                  <th className="py-2 px-2 border border-slate-700 text-center w-24">التاريخ</th>
-                  <th className="py-2 px-2 border border-slate-700 text-center w-24">رقم الحركة</th>
-                  <th className="py-2 px-2 border border-slate-700 w-28">نوع العملية</th>
-                  <th className="py-2 px-2 border border-slate-700">البيان والشرح والتفاصيل الكاملة</th>
-                  <th className="py-2 px-2 border border-slate-700 text-left w-24">مدين (عليه)</th>
-                  <th className="py-2 px-2 border border-slate-700 text-left w-24">دائن (له)</th>
-                  <th className="py-2 px-2 border border-slate-700 text-left w-28">الرصيد التراكمي</th>
+                  <th className="w-7 min-w-7 text-center border-l border-slate-600 print:border-slate-400">م</th>
+                  <th className="w-20 min-w-20 text-center border-l border-slate-600 print:border-slate-400">التاريخ</th>
+                  <th className="border-l border-slate-600 print:border-slate-400">البيان والشرح والتفاصيل الكاملة</th>
+                  <th className="w-24 min-w-24 text-left bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">مدين (عليه)</th>
+                  <th className="w-24 min-w-24 text-left bg-emerald-950/40 print:bg-emerald-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">دائن (له)</th>
+                  <th className="w-28 min-w-28 text-left bg-slate-700 print:bg-slate-300 whitespace-nowrap">الرصيد التراكمي</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200">
+              <tbody className="divide-y divide-slate-200 font-mono">
                 {customerStatementData.rows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-8 text-center text-slate-400 font-bold">
+                    <td colSpan={6} className="py-8 text-center text-slate-400 font-sans font-bold">
                       لا توجد حركات مالية مسجلة للعميل خلال الفترة المحددة
                     </td>
                   </tr>
                 ) : (
-                  customerStatementData.rows.map((row: StatementRow, idx: number) => (
+                  customerStatementData.rows.map((row: StatementRow, idx: number) => {
+                    const typeLabel = row.typeLabel || (
+                      row.type === 'invoice' ? 'فاتورة مبيعات' :
+                      row.type === 'receipt' ? 'سند قبض' :
+                      row.type === 'payment' ? 'سند صرف' :
+                      row.type === 'sales_return' ? 'مردودات مبيعات' :
+                      row.type === 'clearance' ? 'مقاصة ديون' :
+                      row.type === 'opening' ? 'رصيد سابق' : 'حركة مالية'
+                    );
+
+                    let note = '';
+                    if (row.type === 'invoice') {
+                      if (row.invoiceNotes) {
+                        note = row.invoiceNotes;
+                        if (row.subCustomerName) note += ` [الزبون الفرعي: ${row.subCustomerName}]`;
+                      } else if (row.subCustomerName) {
+                        note = `[الزبون الفرعي: ${row.subCustomerName}]`;
+                      } else if (row.description) {
+                        note = row.description.replace(/^فاتورة مبيعات\s*(\([^)]*\))?\s*(-\s*)?/, '');
+                      }
+                    } else if (row.type === 'receipt') {
+                      const rawNote = row.voucherNotes || row.description || '';
+                      note = rawNote.replace(/^سند قبض\s*(نقدية|شيك|تحويل)?\s*(-\s*)?/, '');
+                    } else if (row.type === 'payment') {
+                      const rawNote = row.voucherNotes || row.description || '';
+                      note = rawNote.replace(/^سند صرف\s*(نقدية|شيك|تحويل)?\s*(-\s*)?/, '');
+                    } else if (row.type === 'sales_return') {
+                      const rawNote = row.invoiceNotes || row.voucherNotes || row.description || '';
+                      note = rawNote.replace(/^مردودات مبيعات\s*(-\s*)?/, '');
+                    } else {
+                      note = row.description || '';
+                    }
+                    const trimmedNote = note.trim();
+
+                    const hasReceiptExtraDetails = row.type === 'receipt' && Boolean(
+                      row.chequeNumber || row.chequeBank || row.chequeDueDate || row.transferReference ||
+                      (row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً')
+                    );
+
+                    const hasPaymentExtraDetails = row.type === 'payment' && Boolean(
+                      row.chequeNumber || row.chequeBank || row.chequeDueDate || row.transferReference ||
+                      (row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً')
+                    );
+
+                    return (
+                    <React.Fragment key={row.id}>
                     <tr
-                      key={row.id}
                       className={`hover:bg-slate-50/80 transition-colors ${
                         row.type === 'opening'
                           ? 'bg-slate-100/90 font-bold'
@@ -1096,299 +1087,220 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                           : 'bg-white'
                       }`}
                     >
-                      <td className="py-2.5 px-1.5 text-center text-slate-500 font-mono text-[11px] align-top">
+                      <td className="text-center text-slate-500 font-sans align-middle border-l border-slate-300">
                         {idx + 1}
                       </td>
-                      <td className="py-2.5 px-2 font-mono text-slate-700 text-center align-top whitespace-nowrap">
+                      <td className="font-mono text-slate-700 text-center align-middle whitespace-nowrap border-l border-slate-300">
                         {row.date}
                       </td>
-                      <td className="py-2.5 px-2 font-mono font-bold text-slate-900 text-center align-top whitespace-nowrap">
-                        {row.referenceNumber}
-                      </td>
-                      <td className="py-2.5 px-2 align-top">
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                            row.type === 'invoice'
-                              ? 'bg-blue-100 text-blue-900'
-                              : row.type === 'receipt'
-                              ? 'bg-emerald-100 text-emerald-900'
-                              : row.type === 'payment'
-                              ? 'bg-amber-100 text-amber-900'
-                              : row.type === 'clearance'
-                              ? 'bg-teal-100 text-teal-900'
-                              : row.type === 'sales_return'
-                              ? 'bg-rose-100 text-rose-900'
-                              : 'bg-slate-200 text-slate-800'
-                          }`}
-                        >
-                          {row.typeLabel || row.type}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-2 align-top">
-                        {/* البيان الأساسي للحركة */}
-                        <div className="font-semibold text-slate-900 leading-snug">
-                          {row.description}
+                      <td className="align-middle font-sans border-l border-slate-300">
+                        {/* سطر نوع العملية - رقم الحركة - الملاحظة */}
+                        <div className="font-bold text-slate-900 leading-tight flex flex-wrap items-center gap-1.5">
+                          <span className="text-slate-900 font-bold">{typeLabel}</span>
+                          {row.referenceNumber && row.referenceNumber !== 'OPENING' && (
+                            <>
+                              <span className="text-slate-400 font-normal">-</span>
+                              <span className="font-mono font-bold text-slate-800">{row.referenceNumber}</span>
+                            </>
+                          )}
+                          {trimmedNote && (
+                            <>
+                              <span className="text-slate-400 font-normal">-</span>
+                              <span className="text-slate-700 font-medium">{trimmedNote}</span>
+                            </>
+                          )}
                         </div>
 
-                        {/* تفاصيل بنود الفاتورة المفصلة بالكامل */}
-                        {row.type === 'invoice' && row.items && row.items.length > 0 && showStatementItemDetails && (
-                          <div className="mt-2 border border-slate-200 rounded-md overflow-hidden bg-slate-50/80 text-[11px]">
-                            <table className="w-full text-right border-collapse">
-                              <thead className="bg-slate-200/90 text-slate-800 text-[10px] font-black border-b border-slate-300">
+                        {/* تفاصيل إضافية لسند القبض بدون تكرار السند أو رقمه أو مبلغه */}
+                        {hasReceiptExtraDetails && (
+                          <div className="mt-1 p-1 bg-blue-50/60 border border-blue-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1">
+                            {row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً' && (
+                              <div>
+                                <span className="text-slate-500">طريقة القبض: </span>
+                                <span className="font-bold text-slate-800">{row.paymentMethodLabel}</span>
+                              </div>
+                            )}
+                            {row.chequeNumber && (
+                              <div>
+                                <span className="text-slate-500">رقم الشيك: </span>
+                                <span className="font-bold text-slate-900 font-mono">{row.chequeNumber}</span>
+                              </div>
+                            )}
+                            {row.chequeBank && (
+                              <div>
+                                <span className="text-slate-500">البنك المسحوب عليه: </span>
+                                <span className="font-bold text-slate-800">{row.chequeBank}</span>
+                              </div>
+                            )}
+                            {row.chequeDueDate && (
+                              <div>
+                                <span className="text-slate-500">تاريخ الاستحقاق: </span>
+                                <span className="font-bold text-slate-900 font-mono">{row.chequeDueDate}</span>
+                              </div>
+                            )}
+                            {row.transferReference && (
+                              <div>
+                                <span className="text-slate-500">رقم الحوالة: </span>
+                                <span className="font-bold text-slate-900 font-mono">{row.transferReference}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* تفاصيل المقاصة */}
+                        {row.type === 'clearance' && (row.counterPartyName || row.reason) && (
+                          <div className="mt-1 p-1 bg-teal-50/60 border border-teal-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-2">
+                            {row.counterPartyName && (
+                              <div>
+                                <span className="text-teal-900 font-bold">الطرف المقابل: </span>
+                                <span className="font-medium text-slate-800">{row.counterPartyName}</span>
+                              </div>
+                            )}
+                            {row.reason && (
+                              <div>
+                                <span className="text-teal-900 font-bold">السبب: </span>
+                                <span className="text-slate-700">{row.reason}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* تفاصيل إضافية لسند الصرف بدون تكرار السند أو رقمه أو مبلغه */}
+                        {hasPaymentExtraDetails && (
+                          <div className="mt-1 p-1 bg-amber-50/60 border border-amber-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1">
+                            {row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً' && (
+                              <div>
+                                <span className="text-slate-500">طريقة الصرف: </span>
+                                <span className="font-bold text-slate-800">{row.paymentMethodLabel}</span>
+                              </div>
+                            )}
+                            {row.chequeNumber && (
+                              <div>
+                                <span className="text-slate-500">رقم الشيك: </span>
+                                <span className="font-bold text-slate-900 font-mono">{row.chequeNumber}</span>
+                              </div>
+                            )}
+                            {row.chequeBank && (
+                              <div>
+                                <span className="text-slate-500">البنك: </span>
+                                <span className="font-bold text-slate-800">{row.chequeBank}</span>
+                              </div>
+                            )}
+                            {row.chequeDueDate && (
+                              <div>
+                                <span className="text-slate-500">تاريخ الاستحقاق: </span>
+                                <span className="font-bold text-slate-900 font-mono">{row.chequeDueDate}</span>
+                              </div>
+                            )}
+                            {row.transferReference && (
+                              <div>
+                                <span className="text-slate-500">رقم الحوالة: </span>
+                                <span className="font-bold text-slate-900 font-mono">{row.transferReference}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="text-left font-bold text-rose-700 font-mono align-middle whitespace-nowrap border-l border-slate-300">
+                        {row.debit > 0 ? row.debit.toFixed(2) : '-'}
+                      </td>
+                      <td className="text-left font-bold text-emerald-700 font-mono align-middle whitespace-nowrap border-l border-slate-300">
+                        {row.credit > 0 ? row.credit.toFixed(2) : '-'}
+                      </td>
+                      <td className="text-left font-black text-slate-900 bg-slate-50/70 font-mono align-middle whitespace-nowrap">
+                        {row.runningBalance.toFixed(2)}
+                      </td>
+                    </tr>
+
+                    {/* تفاصيل بنود الفاتورة المفصلة بالكامل ممتدة تحت كافة الأعمدة */}
+                    {row.type === 'invoice' && row.items && row.items.length > 0 && showStatementItemDetails && (
+                      <tr className="bg-slate-50/60 print:bg-transparent">
+                        <td colSpan={6} className="p-1 px-1.5 sm:px-2 border-b border-slate-300">
+                          <div className="border border-slate-300 rounded overflow-hidden bg-slate-50/80">
+                            <table className="w-full text-right report-sub-table border-collapse">
+                              <thead className="bg-slate-200 text-slate-800 font-bold border-b border-slate-300">
                                 <tr>
-                                  <th className="p-1.5">الصنف</th>
-                                  <th className="p-1.5">البيان</th>
-                                  <th className="p-1.5 text-center">الطول</th>
-                                  <th className="p-1.5 text-center">العرض</th>
-                                  <th className="p-1.5 text-center">العدد</th>
-                                  <th className="p-1.5 text-center">الكمية</th>
-                                  <th className="p-1.5 text-left">السعر</th>
-                                  <th className="p-1.5 text-left">الإجمالي</th>
+                                  <th className="border-l border-slate-200">الصنف</th>
+                                  <th className="text-center w-12 min-w-12 border-l border-slate-200">الطول</th>
+                                  <th className="text-center w-12 min-w-12 border-l border-slate-200">العرض</th>
+                                  <th className="text-center w-10 min-w-10 border-l border-slate-200">العدد</th>
+                                  <th className="text-center w-12 min-w-12 border-l border-slate-200">الكمية</th>
+                                  <th className="text-left w-16 min-w-16 border-l border-slate-200">السعر</th>
+                                  <th className="text-left w-20 min-w-20">الإجمالي</th>
                                 </tr>
                               </thead>
-                              <tbody className="divide-y divide-slate-200/70 bg-white">
+                              <tbody className="divide-y divide-slate-200/80 bg-white">
                                 {row.items.map((it, itemIdx) => (
                                   <tr key={it.itemId || itemIdx} className="hover:bg-blue-50/30">
-                                    <td className="p-1.5 font-bold text-slate-900">
-                                      {it.itemName}
-                                      {it.itemCode && <span className="text-[9px] text-slate-400 mr-1 font-mono">({it.itemCode})</span>}
+                                    <td className="font-bold text-slate-900 border-l border-slate-200">
+                                      <div>
+                                        {it.itemName}
+                                        {it.itemCode && <span className="text-[10px] text-slate-400 mr-1 font-mono">({it.itemCode})</span>}
+                                      </div>
                                     </td>
-                                    <td className="p-1.5 text-slate-700">
-                                      {it.description || '-'}
-                                      {it.notes && (
-                                        <div className="text-[10px] text-amber-800 bg-amber-50 px-1 rounded inline-block mt-0.5">
-                                          {it.notes}
-                                        </div>
-                                      )}
+                                    <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.length != null && it.length !== 0 ? it.length : '-'}</td>
+                                    <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.width != null && it.width !== 0 ? it.width : '-'}</td>
+                                    <td className="text-center font-mono font-bold text-slate-800 border-l border-slate-200">{it.count || 1}</td>
+                                    <td className="text-center font-mono font-bold text-blue-900 border-l border-slate-200">
+                                      {it.quantity}
                                     </td>
-                                    <td className="p-1.5 text-center font-mono">{it.length ?? '-'}</td>
-                                    <td className="p-1.5 text-center font-mono">{it.width ?? '-'}</td>
-                                    <td className="p-1.5 text-center font-mono font-bold text-slate-800">{it.count ?? '-'}</td>
-                                    <td className="p-1.5 text-center font-mono font-bold text-blue-900">
-                                      {it.quantity} {it.unit && <span className="text-[9px] font-sans text-slate-500">{it.unit}</span>}
-                                    </td>
-                                    <td className="p-1.5 text-left font-mono font-semibold text-slate-800">
+                                    <td className="text-left font-mono text-slate-800 border-l border-slate-200">
                                       {it.unitPrice.toFixed(2)}
                                     </td>
-                                    <td className="p-1.5 text-left font-mono font-bold text-slate-900">
+                                    <td className="text-left font-mono font-bold text-slate-900">
                                       {it.total.toFixed(2)}
                                     </td>
                                   </tr>
                                 ))}
                               </tbody>
-                              <tfoot className="bg-slate-100/90 border-t border-slate-300 text-[10px] font-bold">
+                              <tfoot className="bg-slate-100 border-t border-slate-300 font-bold">
                                 <tr>
-                                  <td colSpan={4} className="p-1.5 text-slate-700">
+                                  <td colSpan={4} className="py-1 px-1.5 text-slate-700">
                                     {row.subCustomerName && (
-                                      <span className="text-blue-900 font-bold mr-2">
+                                      <span className="text-blue-900 font-bold mr-1 bg-blue-50 px-1 py-0.5 rounded border border-blue-200">
                                         الزبون الفرعي: {row.subCustomerName}
                                       </span>
                                     )}
                                     {row.invoiceNotes && (
-                                      <span className="text-amber-900 font-medium">
+                                      <span className="text-amber-900 font-medium bg-amber-50 px-1 py-0.5 rounded border border-amber-200">
                                         ملاحظات الفاتورة: {row.invoiceNotes}
                                       </span>
                                     )}
                                   </td>
-                                  <td colSpan={2} className="p-1.5 text-left text-slate-600">
-                                    {row.discountAmount && row.discountAmount > 0 ? (
-                                      <span className="text-rose-700">الخصم: {row.discountAmount.toFixed(2)}</span>
-                                    ) : null}
-                                    {row.taxAmount && row.taxAmount > 0 ? (
-                                      <span className="mr-2 text-slate-600">الضريبة: {row.taxAmount.toFixed(2)}</span>
-                                    ) : null}
-                                  </td>
-                                  <td colSpan={2} className="p-1.5 text-left font-mono font-black text-blue-950">
-                                    صافي الفاتورة: {row.debit.toFixed(2)} {settings.currency}
+                                  <td colSpan={3} className="py-1 px-1.5 text-left font-mono font-black text-blue-950">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      {row.discountAmount && row.discountAmount > 0 ? (
+                                        <span className="text-rose-700 font-bold">خصم: -{row.discountAmount.toFixed(2)}</span>
+                                      ) : null}
+                                      {row.taxAmount && row.taxAmount > 0 ? (
+                                        <span className="text-slate-600 font-bold">ضريبة: +{row.taxAmount.toFixed(2)}</span>
+                                      ) : null}
+                                      <span className="bg-slate-200 px-1.5 py-0.5 rounded">
+                                        صافي الفاتورة: {row.debit.toFixed(2)} {settings.currency}
+                                      </span>
+                                    </div>
                                   </td>
                                 </tr>
                               </tfoot>
                             </table>
                           </div>
-                        )}
-
-                        {/* تفاصيل سند القبض الكاملة مع الملاحظات */}
-                        {row.type === 'receipt' && (
-                          <div className="mt-1 p-2 bg-blue-50/70 border border-blue-200 rounded text-xs space-y-1">
-                            <div className="flex items-center justify-between border-b border-blue-200 pb-1">
-                              <div className="flex items-center gap-2 font-bold text-blue-900">
-                                <span className="bg-blue-700 text-white px-2 py-0.5 rounded text-[10px]">سند قبض نقدية</span>
-                                <span>رقم السند: <strong className="font-mono">{row.referenceNumber}</strong></span>
-                                {row.subCustomerName && (
-                                  <span className="text-blue-800 bg-white px-2 py-0.5 rounded border border-blue-300 text-[11px]">
-                                    الزبون الفرعي: {row.subCustomerName}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="font-mono font-bold text-blue-950 text-xs">
-                                المبلغ المقبوض: <span className="text-emerald-700 font-black text-sm">{row.credit.toFixed(2)}</span> {settings.currency}
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] pt-0.5">
-                              <div>
-                                <span className="text-slate-500">طريقة القبض: </span>
-                                <span className="font-bold text-slate-800">{row.paymentMethodLabel || 'نقداً'}</span>
-                              </div>
-                              {row.chequeNumber && (
-                                <div>
-                                  <span className="text-slate-500">رقم الشيك: </span>
-                                  <span className="font-bold text-slate-900 font-mono">{row.chequeNumber}</span>
-                                </div>
-                              )}
-                              {row.chequeBank && (
-                                <div>
-                                  <span className="text-slate-500">البنك المسحوب عليه: </span>
-                                  <span className="font-bold text-slate-800">{row.chequeBank}</span>
-                                </div>
-                              )}
-                              {row.chequeDueDate && (
-                                <div>
-                                  <span className="text-slate-500">تاريخ استحقاق الشيك: </span>
-                                  <span className="font-bold text-slate-900 font-mono">{row.chequeDueDate}</span>
-                                </div>
-                              )}
-                              {row.transferReference && (
-                                <div>
-                                  <span className="text-slate-500">رقم الحوالة: </span>
-                                  <span className="font-bold text-slate-900 font-mono">{row.transferReference}</span>
-                                </div>
-                              )}
-                              {row.accountCode && (
-                                <div>
-                                  <span className="text-slate-500">الصندوق / الحساب المستلم: </span>
-                                  <span className="font-mono text-slate-800">{row.accountCode}</span>
-                                </div>
-                              )}
-                            </div>
-                            {(row.voucherNotes || row.description) && (
-                              <div className="mt-1 pt-1 border-t border-blue-200/80 flex items-start gap-1.5 text-[11px]">
-                                <span className="font-bold text-blue-900 shrink-0">📝 البيان والملاحظات:</span>
-                                <span className="text-slate-900 font-medium">{row.voucherNotes || row.description}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* تفاصيل المقاصة الكاملة */}
-                        {row.type === 'clearance' && (
-                          <div className="mt-1 p-2 bg-teal-50/80 border border-teal-200 rounded text-xs space-y-1">
-                            <div className="flex items-center justify-between border-b border-teal-200 pb-1">
-                              <div className="flex items-center gap-2 font-bold text-teal-900">
-                                <span className="bg-teal-700 text-white px-2 py-0.5 rounded text-[10px]">مقاصة ذمم متبادلة</span>
-                                <span>رقم المقاصة: <strong className="font-mono">{row.referenceNumber}</strong></span>
-                                {row.counterPartyName && (
-                                  <span className="text-teal-950 bg-white px-2 py-0.5 rounded border border-teal-300 text-[11px]">
-                                    الطرف المقابل: {row.counterPartyName}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="font-mono font-bold text-teal-950 text-xs">
-                                مبلغ المقاصة: <span className="font-black text-teal-800 text-sm">{(row.credit || row.debit).toFixed(2)}</span> {settings.currency}
-                              </div>
-                            </div>
-                            {row.reason && (
-                              <div className="text-[11px] text-slate-800">
-                                <span className="font-bold text-teal-900">سبب المقاصة والتسوية: </span>
-                                <span>{row.reason}</span>
-                              </div>
-                            )}
-                            {(row.voucherNotes || row.description) && (
-                              <div className="text-[11px] text-slate-800 flex items-start gap-1.5">
-                                <span className="font-bold text-teal-900 shrink-0">📝 تفاصيل وملاحظات المقاصة: </span>
-                                <span className="text-slate-900 font-medium">{row.voucherNotes || row.description}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* تفاصيل سند الصرف الكاملة والملاحظات */}
-                        {row.type === 'payment' && (
-                          <div className="mt-1 p-2 bg-amber-50/80 border border-amber-200 rounded text-xs space-y-1">
-                            <div className="flex items-center justify-between border-b border-amber-200 pb-1">
-                              <div className="flex items-center gap-2 font-bold text-amber-900">
-                                <span className="bg-amber-700 text-white px-2 py-0.5 rounded text-[10px]">سند صرف نقدية / استرداد</span>
-                                <span>رقم السند: <strong className="font-mono">{row.referenceNumber}</strong></span>
-                              </div>
-                              <div className="font-mono font-bold text-amber-950 text-xs">
-                                المبلغ المصروف: <span className="font-black text-amber-900 text-sm">{row.debit.toFixed(2)}</span> {settings.currency}
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] pt-0.5">
-                              <div>
-                                <span className="text-slate-500">طريقة الصرف: </span>
-                                <span className="font-bold text-slate-800">{row.paymentMethodLabel || 'نقداً'}</span>
-                              </div>
-                              {row.chequeNumber && (
-                                <div>
-                                  <span className="text-slate-500">رقم الشيك: </span>
-                                  <span className="font-bold text-slate-900 font-mono">{row.chequeNumber}</span>
-                                </div>
-                              )}
-                              {row.chequeBank && (
-                                <div>
-                                  <span className="text-slate-500">البنك: </span>
-                                  <span className="font-bold text-slate-800">{row.chequeBank}</span>
-                                </div>
-                              )}
-                              {row.chequeDueDate && (
-                                <div>
-                                  <span className="text-slate-500">تاريخ الاستحقاق: </span>
-                                  <span className="font-bold text-slate-900 font-mono">{row.chequeDueDate}</span>
-                                </div>
-                              )}
-                              {row.transferReference && (
-                                <div>
-                                  <span className="text-slate-500">رقم الحوالة: </span>
-                                  <span className="font-bold text-slate-900 font-mono">{row.transferReference}</span>
-                                </div>
-                              )}
-                              {row.accountCode && (
-                                <div>
-                                  <span className="text-slate-500">الصندوق / الحساب المنصرف منه: </span>
-                                  <span className="font-mono text-slate-800">{row.accountCode}</span>
-                                </div>
-                              )}
-                            </div>
-                            {(row.voucherNotes || row.description) && (
-                              <div className="mt-1 pt-1 border-t border-amber-200/80 flex items-start gap-1.5 text-[11px]">
-                                <span className="font-bold text-amber-900 shrink-0">📝 البيان والملاحظات:</span>
-                                <span className="text-slate-900 font-medium">{row.voucherNotes || row.description}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* أي عملية أخرى تظهر كامل تفاصيلها */}
-                        {row.type !== 'invoice' && row.type !== 'receipt' && row.type !== 'payment' && row.type !== 'clearance' && row.voucherNotes && (
-                          <div className="mt-1 text-[11px] text-slate-700 bg-slate-100 p-1.5 rounded border border-slate-200">
-                            <span className="font-bold text-slate-800">ملاحظات وتفاصيل العملية: </span>
-                            <span>{row.voucherNotes}</span>
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-2 font-mono font-bold text-rose-700 text-left align-top">
-                        {row.debit > 0 ? row.debit.toFixed(2) : '-'}
-                      </td>
-                      <td className="py-2.5 px-2 font-mono font-bold text-emerald-700 text-left align-top">
-                        {row.credit > 0 ? row.credit.toFixed(2) : '-'}
-                      </td>
-                      <td className="py-2.5 px-2 font-mono font-black text-slate-900 text-left bg-slate-50/70 align-top">
-                        {row.runningBalance.toFixed(2)}
-                      </td>
-                    </tr>
-                  ))
-                )}
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
+                  );
+                }))}
               </tbody>
-              <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-900">
+              <tfoot className="bg-slate-100 font-bold border-t border-slate-300 text-slate-900">
                 <tr>
-                  <td colSpan={5} className="py-2.5 px-3 text-left font-sans">الإجمالي العام للحركات بالفترة:</td>
-                  <td className="py-2.5 px-2 text-left font-mono text-rose-800 font-black">
+                  <td colSpan={3} className="text-left font-sans">الإجمالي العام للحركات بالفترة:</td>
+                  <td className="text-left font-mono text-rose-800 font-black whitespace-nowrap">
                     {customerStatementData.totalDebit.toFixed(2)}
                   </td>
-                  <td className="py-2.5 px-2 text-left font-mono text-emerald-800 font-black">
+                  <td className="text-left font-mono text-emerald-800 font-black whitespace-nowrap">
                     {customerStatementData.totalCredit.toFixed(2)}
                   </td>
-                  <td className="py-2.5 px-2 text-left font-mono text-slate-900 font-black bg-slate-200/80">
+                  <td className="text-left font-mono text-slate-900 font-black bg-slate-200/80 whitespace-nowrap">
                     {customerStatementData.balance.toFixed(2)} {settings.currency}
                   </td>
                 </tr>
@@ -1396,108 +1308,41 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
             </table>
           </div>
 
-          {/* 4. ملخص نهاية الكشف بعد الجدول حسب طلب المستخدم الدقيق: */}
-          {/* إجمالي مدين الفترة :وهو الرصيد للفترة فقط المحددة -- إجمالي دائن الفترة -- الإجمالي لتاريخ الكشف */}
-          <div className="mt-4 p-3.5 bg-slate-50 border-2 border-slate-800 rounded-xl space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {/* 1. إجمالي مدين الفترة */}
-              <div className="p-3 bg-white border-2 border-rose-300 rounded-lg shadow-xs flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-rose-900">إجمالي مدين الفترة:</span>
-                  <span className="text-[10px] bg-rose-100 text-rose-800 px-2 py-0.5 rounded font-bold">
-                    سحوبات وفواتير
+          {/* 4. ملخص نهاية الكشف بعد الجدول بتنسيق رسمي ومضغوط سطر واحد للبنرات الأربعة */}
+          <div className="mt-2 p-1.5 bg-slate-50 border border-slate-400 rounded-md space-y-1.5 shadow-2xs print:border-slate-300">
+            <div className="grid grid-cols-4 gap-1.5 text-[10px]">
+              <div className="bg-white border border-slate-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
+                <span className="font-bold text-slate-700 text-[9.5px] whitespace-nowrap">رصيد سابق:</span>
+                <div className="font-black font-mono text-slate-900 text-[11px] flex items-center gap-1 whitespace-nowrap">
+                  <span>{customerStatementData.openingBalance.toFixed(2)}</span>
+                  <span className="text-[8.5px] font-sans font-bold opacity-75">{settings.currency}</span>
+                </div>
+              </div>
+              <div className="bg-white border border-rose-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
+                <span className="font-bold text-rose-900 text-[9.5px] whitespace-nowrap">إجمالي مدين:</span>
+                <div className="font-black font-mono text-rose-700 text-[11px] flex items-center gap-1 whitespace-nowrap">
+                  <span>{customerStatementData.totalDebit.toFixed(2)}</span>
+                  <span className="text-[8.5px] font-sans font-bold opacity-75">{settings.currency}</span>
+                </div>
+              </div>
+              <div className="bg-white border border-emerald-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
+                <span className="font-bold text-emerald-900 text-[9.5px] whitespace-nowrap">إجمالي دائن:</span>
+                <div className="font-black font-mono text-emerald-700 text-[11px] flex items-center gap-1 whitespace-nowrap">
+                  <span>{customerStatementData.totalCredit.toFixed(2)}</span>
+                  <span className="text-[8.5px] font-sans font-bold opacity-75">{settings.currency}</span>
+                </div>
+              </div>
+              <div className={`bg-white border rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs ${customerStatementData.balance > 0 ? 'border-amber-400 bg-amber-50/20' : customerStatementData.balance < 0 ? 'border-blue-400 bg-blue-50/20' : 'border-slate-300'}`}>
+                <span className="font-bold text-slate-900 text-[9.5px] whitespace-nowrap">
+                  الإجمالي:
+                </span>
+                <div className={`font-black font-mono text-[11px] flex items-center gap-1 whitespace-nowrap ${customerStatementData.balance > 0 ? 'text-amber-700' : customerStatementData.balance < 0 ? 'text-blue-700' : 'text-slate-800'}`}>
+                  <span>{Math.abs(customerStatementData.balance).toFixed(2)}</span>
+                  <span className="text-[8.5px] font-sans font-bold opacity-75">{settings.currency}</span>
+                  <span className="text-[9px] font-sans font-bold">
+                    ({customerStatementData.balance > 0 ? 'مدين' : customerStatementData.balance < 0 ? 'دائن' : 'متزن'})
                   </span>
                 </div>
-                <div className="my-2 text-center">
-                  <div className="text-2xl font-black font-mono text-rose-700">
-                    {customerStatementData.totalDebit.toFixed(2)} <span className="text-sm font-sans">{settings.currency}</span>
-                  </div>
-                </div>
-                <div className="text-[10px] text-slate-500 text-center border-t border-slate-100 pt-1 font-medium">
-                  (وهو الرصيد للفترة فقط المحددة)
-                </div>
-              </div>
-
-              {/* 2. إجمالي دائن الفترة */}
-              <div className="p-3 bg-white border-2 border-emerald-300 rounded-lg shadow-xs flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-900">إجمالي دائن الفترة:</span>
-                  <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold">
-                    مقبوضات وتحصيلات
-                  </span>
-                </div>
-                <div className="my-2 text-center">
-                  <div className="text-2xl font-black font-mono text-emerald-700">
-                    {customerStatementData.totalCredit.toFixed(2)} <span className="text-sm font-sans">{settings.currency}</span>
-                  </div>
-                </div>
-                <div className="text-[10px] text-slate-500 text-center border-t border-slate-100 pt-1 font-medium">
-                  (إجمالي المقبوضات والحركات الدائنة للفترة)
-                </div>
-              </div>
-
-              {/* 3. الإجمالي لتاريخ الكشف */}
-              <div className={`p-3 bg-white border-2 rounded-lg shadow-xs flex flex-col justify-between ${
-                customerStatementData.balance > 0
-                  ? 'border-amber-400 bg-amber-50/20'
-                  : customerStatementData.balance < 0
-                  ? 'border-blue-400 bg-blue-50/20'
-                  : 'border-slate-300'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-900">الإجمالي لتاريخ الكشف:</span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
-                    customerStatementData.balance > 0
-                      ? 'bg-amber-100 text-amber-900'
-                      : customerStatementData.balance < 0
-                      ? 'bg-blue-100 text-blue-900'
-                      : 'bg-slate-100 text-slate-800'
-                  }`}>
-                    {customerStatementData.balance > 0
-                      ? 'رصيد مدين مستحق على العميل'
-                      : customerStatementData.balance < 0
-                      ? 'رصيد دائن مسدد مقدماً من العميل'
-                      : 'حساب متزن ومسدد بالكامل'}
-                  </span>
-                </div>
-                <div className="my-2 text-center">
-                  <div className={`text-2xl font-black font-mono ${
-                    customerStatementData.balance > 0
-                      ? 'text-amber-800'
-                      : customerStatementData.balance < 0
-                      ? 'text-blue-800'
-                      : 'text-slate-700'
-                  }`}>
-                    {Math.abs(customerStatementData.balance).toFixed(2)} <span className="text-sm font-sans">{settings.currency}</span>
-                  </div>
-                </div>
-                <div className="text-[10px] text-slate-500 text-center border-t border-slate-100 pt-1 font-medium">
-                  (الرصيد الصافي التراكمي حتى تاريخ اليوم)
-                </div>
-              </div>
-            </div>
-
-            {/* كتابة المبلغ وتفقيطه */}
-            <div className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs flex items-center gap-2">
-              <span className="font-bold text-slate-700 shrink-0">المبلغ كتابة وتفقيطاً:</span>
-              <span className="font-semibold text-slate-900 bg-slate-50 px-2 py-1 rounded border border-slate-200 flex-1">
-                {tafqeetArabic(Math.abs(customerStatementData.balance), settings.currency)}
-              </span>
-            </div>
-
-            {/* التوقيعات والاعتمادات الرسمية */}
-            <div className="grid grid-cols-3 gap-4 pt-3 border-t border-slate-300 text-center text-xs">
-              <div>
-                <div className="font-bold text-slate-800 mb-6">إعداد وتدقيق الحسابات</div>
-                <div className="border-t border-dashed border-slate-400 pt-1 text-[11px] text-slate-500">التوقيع / التاريخ</div>
-              </div>
-              <div>
-                <div className="font-bold text-slate-800 mb-6">اعتماد الإدارة المالية</div>
-                <div className="border-t border-dashed border-slate-400 pt-1 text-[11px] text-slate-500">الختم والاعتماد</div>
-              </div>
-              <div>
-                <div className="font-bold text-slate-800 mb-6">توقيع وإقرار العميل بالمطابقة</div>
-                <div className="border-t border-dashed border-slate-400 pt-1 text-[11px] text-slate-500">التوقيع والاستلام</div>
               </div>
             </div>
           </div>
@@ -1508,21 +1353,26 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* 2. كشف حساب الأصناف للعميل (تجميع الأصناف المتشابهة للفترة) */}
       {/* ========================================================================= */}
       {activeReport === 'customer_items' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
-          <div className="flex items-center justify-between border-b pb-4">
+        <div className="report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3">
+          <PrintHeader
+            title="كشف مبيعات الأصناف التراكمي للعميل"
+            subtitle={customerItemsData.party ? `العميل: ${customerItemsData.party.name}` : undefined}
+            docDate={new Date().toISOString().split('T')[0]}
+          />
+          <div className="flex items-center justify-between border-b pb-2">
             <div>
               <span className="text-[10px] text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded">تقرير مبيعات الأصناف التراكمي</span>
-              <h2 className="text-base font-bold text-slate-900 mt-1">
+              <h2 className="text-sm font-bold text-slate-900 mt-1">
                 كشف الأصناف المسحوبة للعميل: {customerItemsData.party?.name}
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-[10px] text-slate-400 font-light mt-0.5">
                 تجميع كميات وقيم الأصناف ومواد الطباعة المسحوبة من قبل العميل للفترة المحددة
               </p>
             </div>
 
             <div className="text-left">
               <span className="text-[11px] text-slate-400 block">إجمالي قيمة المشتريات:</span>
-              <strong className="text-xl font-mono font-bold text-indigo-600">
+              <strong className="text-lg font-mono font-bold text-indigo-600">
                 {customerItemsData.totalAmount.toLocaleString('ar-SA')} {settings.currency}
               </strong>
               <span className="text-[10px] text-slate-400 block font-mono">
@@ -1532,79 +1382,66 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-semibold border-b">
+            <table className="w-full text-right report-table border-collapse">
+              <thead className="bg-slate-800 text-white font-semibold border-b">
                 <tr>
-                  <th className="p-2.5">كود الصنف</th>
-                  <th className="p-2.5">اسم الصنف / المطبوع</th>
-                  <th className="p-2.5">التصنيف</th>
-                  <th className="p-2.5">الوحدة</th>
-                  <th className="p-2.5">إجمالي الكمية المسحوبة</th>
-                  <th className="p-2.5">متوسط سعر البيع</th>
-                  <th className="p-2.5">إجمالي القيمة</th>
-                  <th className="p-2.5">آخر تاريخ سحب</th>
-                  <th className="p-2.5">عدد الفواتير</th>
+                  <th>كود الصنف</th>
+                  <th>اسم الصنف / المطبوع</th>
+                  <th>التصنيف</th>
+                  <th>الوحدة</th>
+                  <th className="text-center w-14 min-w-14">إجمالي الكمية</th>
+                  <th className="text-left w-20 min-w-20">متوسط السعر</th>
+                  <th className="text-left w-24 min-w-24">إجمالي القيمة</th>
+                  <th className="text-center w-20 min-w-20">آخر سحب</th>
+                  <th className="text-center w-16 min-w-16">عدد الفواتير</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-slate-200 text-slate-700">
                 {customerItemsData.items.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="p-6 text-center text-slate-400">لا توجد مسحوبات أصناف لهذا العميل خلال الفترة</td>
+                    <td colSpan={9} className="py-6 text-center text-slate-400">لا توجد مسحوبات أصناف لهذا العميل خلال الفترة</td>
                   </tr>
                 ) : (
                   customerItemsData.items.map(item => {
                     const avgPrice = item.totalQuantity > 0 ? item.totalAmount / item.totalQuantity : 0;
                     return (
                       <tr key={item.itemId} className="hover:bg-slate-50">
-                        <td className="p-2.5 font-mono text-slate-500">{item.itemCode}</td>
-                        <td className="p-2.5">
-                          <div className="font-bold text-slate-900">{item.itemName}</div>
-                          {/* ملاحظات البيان والصنف تظهر تحت اسم الصنف */}
-                          {(item.description || item.notes) && (
-                            <div className="mt-0.5 space-y-0.5 text-[10px]">
-                              {item.description && (
-                                <div className="text-slate-600 font-medium">
-                                  <span className="font-bold text-slate-700">البيان:</span> {item.description}
-                                </div>
-                              )}
-                              {item.notes && (
-                                <div className="text-amber-900 bg-amber-50 border border-amber-200/70 rounded px-1.5 py-0.5 inline-flex items-center gap-1 font-medium">
-                                  <span className="font-bold text-amber-800">ملاحظة الصنف:</span>
-                                  <span>{item.notes}</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                        <td className="font-mono text-slate-500">{item.itemCode}</td>
+                        <td className="font-bold text-slate-900">
+                          {item.itemName}
                         </td>
-                        <td className="p-2.5 text-slate-600">{item.category}</td>
-                        <td className="p-2.5 text-slate-500">{item.unit}</td>
-                        <td className="p-2.5 font-mono font-bold text-indigo-700 text-sm">
+                        <td className="text-slate-600">{item.category}</td>
+                        <td className="text-slate-500">{item.unit}</td>
+                        <td className="font-mono font-bold text-indigo-700 text-center">
                           {item.totalQuantity.toLocaleString('ar-SA')}
                         </td>
-                        <td className="p-2.5 font-mono text-slate-700">
+                        <td className="font-mono text-slate-700 text-left">
                           {avgPrice.toLocaleString('ar-SA', { maximumFractionDigits: 2 })} {settings.currency}
                         </td>
-                        <td className="p-2.5 font-mono font-bold text-slate-900 text-sm">
+                        <td className="font-mono font-bold text-slate-900 text-left">
                           {item.totalAmount.toLocaleString('ar-SA')} {settings.currency}
                         </td>
-                        <td className="p-2.5 font-mono text-slate-500">{item.lastDate}</td>
-                        <td className="p-2.5 font-mono text-blue-600 font-semibold">{item.invoiceCount}</td>
+                        <td className="font-mono text-slate-500 text-center">{item.lastDate}</td>
+                        <td className="font-mono text-blue-600 font-semibold text-center">{item.invoiceCount}</td>
                       </tr>
                     );
                   })
                 )}
               </tbody>
-              <tfoot className="bg-slate-100/70 font-bold border-t border-slate-200">
+              <tfoot className="bg-slate-100 font-bold border-t border-slate-300">
                 <tr>
-                  <td colSpan={4} className="p-2.5 text-slate-800">الإجمالي العام:</td>
-                  <td className="p-2.5 font-mono text-indigo-700 font-black">{customerItemsData.totalQuantity.toLocaleString('ar-SA')}</td>
+                  <td colSpan={4} className="text-slate-800">الإجمالي العام:</td>
+                  <td className="font-mono text-indigo-700 font-black text-center">{customerItemsData.totalQuantity.toLocaleString('ar-SA')}</td>
                   <td></td>
-                  <td className="p-2.5 font-mono text-slate-900 font-black">{customerItemsData.totalAmount.toLocaleString('ar-SA')} {settings.currency}</td>
+                  <td className="font-mono text-slate-900 font-black text-left">{customerItemsData.totalAmount.toLocaleString('ar-SA')} {settings.currency}</td>
                   <td colSpan={2}></td>
                 </tr>
               </tfoot>
             </table>
           </div>
+          {/* Signatures */}
+          <ReportSignatures rightLabel="إعداد التقرير" centerLabel="توقيع وختم العميل بالمطابقة" leftLabel="المدير المالي والاعتماد" />
+
         </div>
       )}
 
@@ -1612,66 +1449,17 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* 3. كشف حساب تفصيلي مورد */}
       {/* ========================================================================= */}
       {activeReport === 'supplier_statement' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4 print:p-0 print:border-0 print:shadow-none">
-          {/* 1. ترويسة كشف الحساب حسب إعدادات البرنامج */}
-          <div className="border-b-2 border-slate-800 pb-3 flex items-start justify-between">
-            <div>
-              <h1 className="text-xl font-black text-slate-900">{settings.name || 'مؤسسة الدعاية والإعلان'}</h1>
-              <div className="text-xs text-slate-600 mt-0.5 space-x-2 space-x-reverse">
-                {settings.commercialRegister && <span>س.ت: <strong className="font-mono">{settings.commercialRegister}</strong></span>}
-                {settings.taxNumber && <span> | الرقم الضريبي: <strong className="font-mono">{settings.taxNumber}</strong></span>}
-              </div>
-              <div className="text-xs text-slate-500 mt-0.5">
-                {settings.address && <span>{settings.address}</span>}
-                {settings.phone && <span> | هاتف: <span className="font-mono">{settings.phone}</span></span>}
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="inline-block bg-slate-900 text-white px-4 py-1 rounded-md text-base font-black shadow-xs">
-                كشف حساب مورد تفصيلي معتمد
-              </div>
-              <div className="text-[11px] text-slate-500 font-mono mt-1">
-                تاريخ الاستخراج: {new Date().toISOString().split('T')[0]}
-              </div>
-            </div>
-            {settings.logo ? (
-              <img src={settings.logo} alt="Logo" className="w-16 h-16 object-contain" />
-            ) : (
-              <div className="w-16 h-16 bg-slate-100 border border-slate-300 rounded flex items-center justify-center text-[10px] text-slate-400 font-bold">
-                شعار المنشأة
-              </div>
-            )}
-          </div>
-
-          {/* 2. بيانات المورد والفترة */}
-          <div className="bg-slate-50 border border-slate-300 rounded-lg p-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div className="space-y-1">
-              <div className="text-sm font-black text-slate-900 flex items-center gap-1.5 flex-wrap">
-                <span>اسم المورد:</span>
-                <span className="text-amber-900 font-extrabold">{supplierStatementData.party?.name || 'غير محدد'}</span>
-                {selectedSubSuppObj && (
-                  <span className="text-amber-700 bg-amber-100 px-2 py-0.5 rounded text-xs font-bold">
-                    / الفرع: {selectedSubSuppObj.name}
-                  </span>
-                )}
-              </div>
-              <div className="text-slate-600">
-                <span>كود الحساب: </span>
-                <strong className="font-mono text-slate-900">{supplierStatementData.party?.code || '-'}</strong>
-                {supplierStatementData.party?.phone && (
-                  <span className="mr-3">
-                    الهاتف: <strong className="font-mono text-slate-800">{supplierStatementData.party.phone}</strong>
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="space-y-1 sm:text-left">
-              <div className="font-bold text-slate-800">
-                الفترة من: <span className="font-mono text-amber-950">{fromDate || 'بداية التعامل'}</span> إلى: <span className="font-mono text-amber-950">{toDate || 'تاريخ اليوم'}</span>
-              </div>
-              <div className="text-slate-600">
-                العملة: <strong className="text-slate-900 font-bold">{settings.currency}</strong>
-              </div>
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 sm:p-6 space-y-3 print:p-0 print:border-0 print:shadow-none report-a4-container">
+          {/* 1. ترويسة كشف الحساب المعتمدة */}
+          <PrintHeader />
+          <div className="text-center font-bold text-base sm:text-lg mb-2 mt-3 text-slate-900 leading-relaxed border-b-2 border-slate-900 pb-2">
+            كشف حساب مورد تفصيلي:{' '}
+            <span className="text-amber-900">
+              {supplierStatementData.party?.name === 'مورد نقدي' && selectedSubSuppObj ? selectedSubSuppObj.name : (supplierStatementData.party?.name || 'غير محدد')}
+            </span>
+            <div className="text-xs sm:text-sm text-slate-600 mt-1 font-semibold">
+              من تاريخ: <span className="font-mono">{fromDate || 'بداية التعامل'}</span>{' '}
+              إلى تاريخ: <span className="font-mono">{toDate || 'تاريخ اليوم'}</span>
             </div>
           </div>
 
@@ -1689,41 +1477,80 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
               >
                 <span>{showStatementItemDetails ? 'إخفاء تفاصيل بنود الفواتير' : 'إظهار تفاصيل بنود الفواتير والمقاسات'}</span>
               </button>
-              <span className="text-[11px] text-slate-500">
+              <span className="text-[10px] text-slate-400 font-light">
                 (الصنف، البيان، الطول، العرض، العدد، الكمية، السعر)
               </span>
             </div>
-            <div className="text-[11px] text-slate-500">
+            <div className="text-[10px] text-slate-400 font-light">
               عدد الحركات: <strong className="font-mono text-slate-900">{supplierStatementData.rows.length}</strong>
             </div>
           </div>
 
           {/* 3. جدول الحركات المالي المفصل للمورد */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs border-collapse border border-slate-300">
-              <thead className="bg-slate-800 text-white text-[11px]">
+          <div className="overflow-x-auto border border-slate-400 rounded-md shadow-2xs min-h-[440px] print:min-h-[720px] flex flex-col justify-between bg-white">
+            <table className="w-full text-right report-table border-collapse h-full">
+              <thead className="bg-slate-800 text-white font-bold border-b border-slate-900 print:bg-slate-200 print:text-slate-900">
                 <tr>
-                  <th className="py-2 px-1.5 border border-slate-700 text-center w-8">م</th>
-                  <th className="py-2 px-2 border border-slate-700 text-center w-24">التاريخ</th>
-                  <th className="py-2 px-2 border border-slate-700 text-center w-24">رقم الحركة</th>
-                  <th className="py-2 px-2 border border-slate-700 w-28">نوع العملية</th>
-                  <th className="py-2 px-2 border border-slate-700">البيان والشرح والتفاصيل الكاملة</th>
-                  <th className="py-2 px-2 border border-slate-700 text-left w-24">مدين (سداد له)</th>
-                  <th className="py-2 px-2 border border-slate-700 text-left w-24">دائن (توريد منه)</th>
-                  <th className="py-2 px-2 border border-slate-700 text-left w-28">الرصيد المستحق</th>
+                  <th className="w-7 min-w-7 text-center border-l border-slate-600 print:border-slate-400">م</th>
+                  <th className="w-20 min-w-20 text-center border-l border-slate-600 print:border-slate-400">التاريخ</th>
+                  <th className="border-l border-slate-600 print:border-slate-400">البيان والشرح والتفاصيل الكاملة</th>
+                  <th className="w-24 min-w-24 text-left bg-emerald-950/40 print:bg-emerald-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">مدين (سداد له)</th>
+                  <th className="w-24 min-w-24 text-left bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">دائن (توريد منه)</th>
+                  <th className="w-28 min-w-28 text-left bg-slate-700 print:bg-slate-300 whitespace-nowrap">الرصيد المستحق</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200">
+              <tbody className="divide-y divide-slate-200 font-mono">
                 {supplierStatementData.rows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-8 text-center text-slate-400 font-bold">
+                    <td colSpan={6} className="py-8 text-center text-slate-400 font-bold text-[10px]">
                       لا توجد حركات مالية مسجلة للمورد خلال الفترة المحددة
                     </td>
                   </tr>
                 ) : (
-                  supplierStatementData.rows.map((row: StatementRow, idx: number) => (
+                  supplierStatementData.rows.map((row: StatementRow, idx: number) => {
+                    const typeLabel = row.typeLabel || (
+                      row.type === 'purchase' ? 'فاتورة مشتريات' :
+                      row.type === 'payment' ? 'سند صرف' :
+                      row.type === 'receipt' ? 'سند قبض' :
+                      row.type === 'purchase_return' ? 'مردودات مشتريات' :
+                      row.type === 'clearance' ? 'مقاصة ديون' :
+                      row.type === 'opening' ? 'رصيد سابق' : 'حركة مالية'
+                    );
+
+                    let note = '';
+                    if (row.type === 'purchase') {
+                      if (row.invoiceNotes) {
+                        note = row.invoiceNotes;
+                      } else if (row.description) {
+                        note = row.description.replace(/^فاتورة مشتريات\s*(\([^)]*\))?\s*(-\s*)?/, '');
+                      }
+                    } else if (row.type === 'payment') {
+                      const rawNote = row.voucherNotes || row.description || '';
+                      note = rawNote.replace(/^سند صرف\s*(نقدية|شيك|تحويل)?\s*(-\s*)?/, '');
+                    } else if (row.type === 'receipt') {
+                      const rawNote = row.voucherNotes || row.description || '';
+                      note = rawNote.replace(/^سند قبض\s*(نقدية|شيك|تحويل)?\s*(-\s*)?/, '');
+                    } else if (row.type === 'purchase_return') {
+                      const rawNote = row.invoiceNotes || row.voucherNotes || row.description || '';
+                      note = rawNote.replace(/^مردودات مشتريات\s*(-\s*)?/, '');
+                    } else {
+                      note = row.description || '';
+                    }
+                    const trimmedNote = note.trim();
+
+                    const hasPaymentExtraDetails = row.type === 'payment' && Boolean(
+                      row.chequeNumber || row.chequeBank || row.chequeDueDate || row.transferReference ||
+                      (row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً')
+                    );
+
+                    const hasReceiptExtraDetails = row.type === 'receipt' && Boolean(
+                      row.chequeNumber || row.chequeBank || row.chequeDueDate || row.transferReference ||
+                      (row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً')
+                    );
+
+                    return (
+                    <React.Fragment key={row.id}>
                     <tr
-                      key={row.id}
                       className={`hover:bg-slate-50/80 transition-colors ${
                         row.type === 'opening'
                           ? 'bg-slate-100/90 font-bold'
@@ -1732,231 +1559,215 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                           : 'bg-white'
                       }`}
                     >
-                      <td className="py-2.5 px-1.5 text-center text-slate-500 font-mono text-[11px] align-top">
+                      <td className="py-1 px-1 text-center text-slate-500 font-mono text-[9px] align-middle border-l border-slate-300">
                         {idx + 1}
                       </td>
-                      <td className="py-2.5 px-2 font-mono text-slate-700 text-center align-top whitespace-nowrap">
+                      <td className="py-1 px-1.5 font-mono text-slate-700 text-center align-middle whitespace-nowrap text-[9.5px] border-l border-slate-300">
                         {row.date}
                       </td>
-                      <td className="py-2.5 px-2 font-mono font-bold text-slate-900 text-center align-top whitespace-nowrap">
-                        {row.referenceNumber}
-                      </td>
-                      <td className="py-2.5 px-2 align-top">
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                            row.type === 'purchase'
-                              ? 'bg-amber-100 text-amber-900'
-                              : row.type === 'payment'
-                              ? 'bg-emerald-100 text-emerald-900'
-                              : row.type === 'receipt'
-                              ? 'bg-blue-100 text-blue-900'
-                              : row.type === 'clearance'
-                              ? 'bg-teal-100 text-teal-900'
-                              : row.type === 'purchase_return'
-                              ? 'bg-rose-100 text-rose-900'
-                              : 'bg-slate-200 text-slate-800'
-                          }`}
-                        >
-                          {row.typeLabel || row.type}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-2 align-top">
-                        <div className="font-semibold text-slate-900 leading-snug">
-                          {row.description}
+                      <td className="py-1 px-2 align-middle border-l border-slate-300">
+                        {/* سطر نوع العملية - رقم الحركة - الملاحظة */}
+                        <div className="font-bold text-slate-900 text-[10px] leading-tight flex flex-wrap items-center gap-1">
+                          <span className="text-slate-900 font-bold">{typeLabel}</span>
+                          {row.referenceNumber && row.referenceNumber !== 'OPENING' && (
+                            <>
+                              <span className="text-slate-400 font-normal">-</span>
+                              <span className="font-mono font-bold text-slate-800">{row.referenceNumber}</span>
+                            </>
+                          )}
+                          {trimmedNote && (
+                            <>
+                              <span className="text-slate-400 font-normal">-</span>
+                              <span className="text-slate-700 font-medium">{trimmedNote}</span>
+                            </>
+                          )}
                         </div>
 
-                        {/* تفاصيل بنود فاتورة المشتريات */}
-                        {row.type === 'purchase' && row.items && row.items.length > 0 && showStatementItemDetails && (
-                          <div className="mt-2 border border-slate-200 rounded-md overflow-hidden bg-slate-50/80 text-[11px]">
-                            <table className="w-full text-right border-collapse">
-                              <thead className="bg-slate-200/90 text-slate-800 text-[10px] font-black border-b border-slate-300">
-                                <tr>
-                                  <th className="p-1.5">الصنف</th>
-                                  <th className="p-1.5">البيان</th>
-                                  <th className="p-1.5 text-center">الطول</th>
-                                  <th className="p-1.5 text-center">العرض</th>
-                                  <th className="p-1.5 text-center">العدد</th>
-                                  <th className="p-1.5 text-center">الكمية</th>
-                                  <th className="p-1.5 text-left">السعر</th>
-                                  <th className="p-1.5 text-left">الإجمالي</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-200/70 bg-white">
-                                {row.items.map((it, itemIdx) => (
-                                  <tr key={it.itemId || itemIdx} className="hover:bg-amber-50/30">
-                                    <td className="p-1.5 font-bold text-slate-900">
-                                      {it.itemName}
-                                      {it.itemCode && <span className="text-[9px] text-slate-400 mr-1 font-mono">({it.itemCode})</span>}
-                                    </td>
-                                    <td className="p-1.5 text-slate-700">
-                                      {it.description || '-'}
-                                      {it.notes && (
-                                        <div className="text-[10px] text-amber-800 bg-amber-50 px-1 rounded inline-block mt-0.5">
-                                          {it.notes}
-                                        </div>
-                                      )}
-                                    </td>
-                                    <td className="p-1.5 text-center font-mono">{it.length ?? '-'}</td>
-                                    <td className="p-1.5 text-center font-mono">{it.width ?? '-'}</td>
-                                    <td className="p-1.5 text-center font-mono font-bold text-slate-800">{it.count ?? '-'}</td>
-                                    <td className="p-1.5 text-center font-mono font-bold text-amber-900">
-                                      {it.quantity} {it.unit && <span className="text-[9px] font-sans text-slate-500">{it.unit}</span>}
-                                    </td>
-                                    <td className="p-1.5 text-left font-mono font-semibold text-slate-800">
-                                      {it.unitPrice.toFixed(2)}
-                                    </td>
-                                    <td className="p-1.5 text-left font-mono font-bold text-slate-900">
-                                      {it.total.toFixed(2)}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                              <tfoot className="bg-slate-100/90 border-t border-slate-300 text-[10px] font-bold">
-                                <tr>
-                                  <td colSpan={4} className="p-1.5 text-slate-700">
-                                    {row.invoiceNotes && (
-                                      <span className="text-amber-900 font-medium">
-                                        ملاحظات الفاتورة: {row.invoiceNotes}
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td colSpan={2} className="p-1.5 text-left text-slate-600">
-                                    {row.discountAmount && row.discountAmount > 0 ? (
-                                      <span className="text-rose-700">الخصم: {row.discountAmount.toFixed(2)}</span>
-                                    ) : null}
-                                    {row.taxAmount && row.taxAmount > 0 ? (
-                                      <span className="mr-2 text-slate-600">الضريبة: {row.taxAmount.toFixed(2)}</span>
-                                    ) : null}
-                                  </td>
-                                  <td colSpan={2} className="p-1.5 text-left font-mono font-black text-amber-950">
-                                    صافي الفاتورة: {row.credit.toFixed(2)} {settings.currency}
-                                  </td>
-                                </tr>
-                              </tfoot>
-                            </table>
+                        {/* تفاصيل إضافية لسند الصرف للمورد بدون تكرار السند أو رقمه أو المبلغ */}
+                        {hasPaymentExtraDetails && (
+                          <div className="mt-1 p-1 bg-emerald-50/60 border border-emerald-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1">
+                            {row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً' && (
+                              <div>
+                                <span className="text-slate-500">طريقة السداد: </span>
+                                <span className="font-bold text-slate-800">{row.paymentMethodLabel}</span>
+                              </div>
+                            )}
+                            {row.chequeNumber && (
+                              <div>
+                                <span className="text-slate-500">رقم الشيك: </span>
+                                <span className="font-bold text-slate-900 font-mono">{row.chequeNumber}</span>
+                              </div>
+                            )}
+                            {row.chequeBank && (
+                              <div>
+                                <span className="text-slate-500">البنك: </span>
+                                <span className="font-bold text-slate-800">{row.chequeBank}</span>
+                              </div>
+                            )}
+                            {row.chequeDueDate && (
+                              <div>
+                                <span className="text-slate-500">تاريخ الاستحقاق: </span>
+                                <span className="font-bold text-slate-900 font-mono">{row.chequeDueDate}</span>
+                              </div>
+                            )}
+                            {row.transferReference && (
+                              <div>
+                                <span className="text-slate-500">رقم الحوالة: </span>
+                                <span className="font-bold text-slate-900 font-mono">{row.transferReference}</span>
+                              </div>
+                            )}
                           </div>
                         )}
 
-                        {/* تفاصيل سند الصرف للمورد */}
-                        {row.type === 'payment' && (
-                          <div className="mt-1 p-2 bg-emerald-50/70 border border-emerald-200 rounded text-xs space-y-1">
-                            <div className="flex items-center justify-between border-b border-emerald-200 pb-1">
-                              <div className="flex items-center gap-2 font-bold text-emerald-900">
-                                <span className="bg-emerald-700 text-white px-2 py-0.5 rounded text-[10px]">سند صرف وسداد</span>
-                                <span>رقم السند: <strong className="font-mono">{row.referenceNumber}</strong></span>
-                              </div>
-                              <div className="font-mono font-bold text-emerald-950 text-xs">
-                                المبلغ المسدد للمورد: <span className="text-emerald-700 font-black text-sm">{row.debit.toFixed(2)}</span> {settings.currency}
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] pt-0.5">
+                        {/* تفاصيل إضافية لسند القبض من المورد (إن وجد) */}
+                        {hasReceiptExtraDetails && (
+                          <div className="mt-1 p-1 bg-blue-50/60 border border-blue-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1">
+                            {row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً' && (
                               <div>
-                                <span className="text-slate-500">طريقة السداد: </span>
-                                <span className="font-bold text-slate-800">{row.paymentMethodLabel || 'نقداً'}</span>
+                                <span className="text-slate-500">طريقة القبض: </span>
+                                <span className="font-bold text-slate-800">{row.paymentMethodLabel}</span>
                               </div>
-                              {row.chequeNumber && (
-                                <div>
-                                  <span className="text-slate-500">رقم الشيك: </span>
-                                  <span className="font-bold text-slate-900 font-mono">{row.chequeNumber}</span>
-                                </div>
-                              )}
-                              {row.chequeBank && (
-                                <div>
-                                  <span className="text-slate-500">البنك: </span>
-                                  <span className="font-bold text-slate-800">{row.chequeBank}</span>
-                                </div>
-                              )}
-                              {row.chequeDueDate && (
-                                <div>
-                                  <span className="text-slate-500">تاريخ الاستحقاق: </span>
-                                  <span className="font-bold text-slate-900 font-mono">{row.chequeDueDate}</span>
-                                </div>
-                              )}
-                              {row.transferReference && (
-                                <div>
-                                  <span className="text-slate-500">رقم الحوالة: </span>
-                                  <span className="font-bold text-slate-900 font-mono">{row.transferReference}</span>
-                                </div>
-                              )}
-                              {row.accountCode && (
-                                <div>
-                                  <span className="text-slate-500">الخزينة المنصرف منها: </span>
-                                  <span className="font-mono text-slate-800">{row.accountCode}</span>
-                                </div>
-                              )}
-                            </div>
-                            {(row.voucherNotes || row.description) && (
-                              <div className="mt-1 pt-1 border-t border-emerald-200/80 flex items-start gap-1.5 text-[11px]">
-                                <span className="font-bold text-emerald-900 shrink-0">📝 البيان والملاحظات:</span>
-                                <span className="text-slate-900 font-medium">{row.voucherNotes || row.description}</span>
+                            )}
+                            {row.chequeNumber && (
+                              <div>
+                                <span className="text-slate-500">رقم الشيك: </span>
+                                <span className="font-bold text-slate-900 font-mono">{row.chequeNumber}</span>
+                              </div>
+                            )}
+                            {row.chequeBank && (
+                              <div>
+                                <span className="text-slate-500">البنك: </span>
+                                <span className="font-bold text-slate-800">{row.chequeBank}</span>
+                              </div>
+                            )}
+                            {row.chequeDueDate && (
+                              <div>
+                                <span className="text-slate-500">تاريخ الاستحقاق: </span>
+                                <span className="font-bold text-slate-900 font-mono">{row.chequeDueDate}</span>
+                              </div>
+                            )}
+                            {row.transferReference && (
+                              <div>
+                                <span className="text-slate-500">رقم الحوالة: </span>
+                                <span className="font-bold text-slate-900 font-mono">{row.transferReference}</span>
                               </div>
                             )}
                           </div>
                         )}
 
                         {/* تفاصيل المقاصة للمورد */}
-                        {row.type === 'clearance' && (
-                          <div className="mt-1 p-2 bg-teal-50/80 border border-teal-200 rounded text-xs space-y-1">
-                            <div className="flex items-center justify-between border-b border-teal-200 pb-1">
-                              <div className="flex items-center gap-2 font-bold text-teal-900">
-                                <span className="bg-teal-700 text-white px-2 py-0.5 rounded text-[10px]">مقاصة ذمم متبادلة</span>
-                                <span>رقم المقاصة: <strong className="font-mono">{row.referenceNumber}</strong></span>
-                                {row.counterPartyName && (
-                                  <span className="text-teal-950 bg-white px-2 py-0.5 rounded border border-teal-300 text-[11px]">
-                                    الطرف المقابل: {row.counterPartyName}
-                                  </span>
-                                )}
+                        {row.type === 'clearance' && (row.counterPartyName || row.reason) && (
+                          <div className="mt-1 p-1 bg-teal-50/60 border border-teal-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-2">
+                            {row.counterPartyName && (
+                              <div>
+                                <span className="text-teal-900 font-bold">الطرف المقابل: </span>
+                                <span className="font-medium text-slate-800">{row.counterPartyName}</span>
                               </div>
-                              <div className="font-mono font-bold text-teal-950 text-xs">
-                                مبلغ المقاصة: <span className="font-black text-teal-800 text-sm">{(row.debit || row.credit).toFixed(2)}</span> {settings.currency}
-                              </div>
-                            </div>
+                            )}
                             {row.reason && (
-                              <div className="text-[11px] text-slate-800">
-                                <span className="font-bold text-teal-900">سبب المقاصة والتسوية: </span>
-                                <span>{row.reason}</span>
+                              <div>
+                                <span className="text-teal-900 font-bold">السبب: </span>
+                                <span className="text-slate-700">{row.reason}</span>
                               </div>
                             )}
-                            {(row.voucherNotes || row.description) && (
-                              <div className="text-[11px] text-slate-800 flex items-start gap-1.5">
-                                <span className="font-bold text-teal-900 shrink-0">📝 تفاصيل وملاحظات المقاصة: </span>
-                                <span className="text-slate-900 font-medium">{row.voucherNotes || row.description}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* أي عملية أخرى */}
-                        {row.type !== 'purchase' && row.type !== 'payment' && row.type !== 'clearance' && row.voucherNotes && (
-                          <div className="mt-1 text-[11px] text-slate-700 bg-slate-100 p-1.5 rounded border border-slate-200">
-                            <span className="font-bold text-slate-800">ملاحظات وتفاصيل العملية: </span>
-                            <span>{row.voucherNotes}</span>
                           </div>
                         )}
                       </td>
-                      <td className="py-2.5 px-2 font-mono font-bold text-emerald-700 text-left align-top">
+                      <td className="text-left font-bold text-emerald-700 font-mono align-middle whitespace-nowrap border-l border-slate-300">
                         {row.debit > 0 ? row.debit.toFixed(2) : '-'}
                       </td>
-                      <td className="py-2.5 px-2 font-mono font-bold text-rose-700 text-left align-top">
+                      <td className="text-left font-bold text-rose-700 font-mono align-middle whitespace-nowrap border-l border-slate-300">
                         {row.credit > 0 ? row.credit.toFixed(2) : '-'}
                       </td>
-                      <td className="py-2.5 px-2 font-mono font-black text-slate-900 text-left bg-slate-50/70 align-top">
+                      <td className="text-left font-black text-slate-900 bg-slate-50/70 font-mono align-middle whitespace-nowrap">
                         {row.runningBalance.toFixed(2)}
                       </td>
                     </tr>
-                  ))
-                )}
+
+                    {/* تفاصيل بنود فاتورة المشتريات ممتدة تحت كافة الأعمدة */}
+                    {row.type === 'purchase' && row.items && row.items.length > 0 && showStatementItemDetails && (
+                      <tr className="bg-slate-50/60 print:bg-transparent">
+                        <td colSpan={6} className="p-1 px-1.5 sm:px-2 border-b border-slate-300">
+                          <div className="border border-slate-300 rounded overflow-hidden bg-slate-50/80">
+                            <table className="w-full text-right report-sub-table border-collapse">
+                              <thead className="bg-slate-200 text-slate-800 font-bold border-b border-slate-300">
+                                <tr>
+                                  <th className="border-l border-slate-200">الصنف</th>
+                                  <th className="text-center w-12 min-w-12 border-l border-slate-200">الطول</th>
+                                  <th className="text-center w-12 min-w-12 border-l border-slate-200">العرض</th>
+                                  <th className="text-center w-10 min-w-10 border-l border-slate-200">العدد</th>
+                                  <th className="text-center w-12 min-w-12 border-l border-slate-200">الكمية</th>
+                                  <th className="text-left w-16 min-w-16 border-l border-slate-200">السعر</th>
+                                  <th className="text-left w-20 min-w-20">الإجمالي</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-200/80 bg-white">
+                                {row.items.map((it, itemIdx) => (
+                                  <tr key={it.itemId || itemIdx} className="hover:bg-amber-50/30">
+                                    <td className="font-bold text-slate-900 border-l border-slate-200">
+                                      <div>
+                                        {it.itemName}
+                                        {it.itemCode && <span className="text-[10px] text-slate-400 mr-1 font-mono">({it.itemCode})</span>}
+                                      </div>
+                                    </td>
+                                    <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.length != null && it.length !== 0 ? it.length : '-'}</td>
+                                    <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.width != null && it.width !== 0 ? it.width : '-'}</td>
+                                    <td className="text-center font-mono font-bold text-slate-800 border-l border-slate-200">{it.count || 1}</td>
+                                    <td className="text-center font-mono font-bold text-amber-900 border-l border-slate-200">
+                                      {it.quantity}
+                                    </td>
+                                    <td className="text-left font-mono text-slate-800 border-l border-slate-200">
+                                      {it.unitPrice.toFixed(2)}
+                                    </td>
+                                    <td className="text-left font-mono font-bold text-slate-900">
+                                      {it.total.toFixed(2)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot className="bg-slate-100 border-t border-slate-300 font-bold">
+                                <tr>
+                                  <td colSpan={4} className="py-1 px-1.5 text-slate-700">
+                                    {row.invoiceNotes && (
+                                      <span className="text-amber-900 font-medium bg-amber-50 px-1 py-0.5 rounded border border-amber-200">
+                                        ملاحظات الفاتورة: {row.invoiceNotes}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td colSpan={3} className="py-1 px-1.5 text-left font-mono font-black text-amber-950">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      {row.discountAmount && row.discountAmount > 0 ? (
+                                        <span className="text-rose-700 font-bold">خصم: -{row.discountAmount.toFixed(2)}</span>
+                                      ) : null}
+                                      {row.taxAmount && row.taxAmount > 0 ? (
+                                        <span className="text-slate-600 font-bold">ضريبة: +{row.taxAmount.toFixed(2)}</span>
+                                      ) : null}
+                                      <span className="bg-slate-200 px-1.5 py-0.5 rounded">
+                                        صافي الفاتورة: {row.credit.toFixed(2)} {settings.currency}
+                                      </span>
+                                    </div>
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
+                  );
+                }))}
               </tbody>
-              <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-900">
+              <tfoot className="bg-slate-100 font-bold border-t border-slate-300 text-slate-900">
                 <tr>
-                  <td colSpan={5} className="py-2.5 px-3 text-left font-sans">الإجمالي العام للحركات بالفترة:</td>
-                  <td className="py-2.5 px-2 text-left font-mono text-emerald-800 font-black">
+                  <td colSpan={3} className="text-left font-sans">الإجمالي العام للحركات بالفترة:</td>
+                  <td className="text-left font-mono text-emerald-800 font-black whitespace-nowrap">
                     {supplierStatementData.totalDebit.toFixed(2)}
                   </td>
-                  <td className="py-2.5 px-2 text-left font-mono text-rose-800 font-black">
+                  <td className="text-left font-mono text-rose-800 font-black whitespace-nowrap">
                     {supplierStatementData.totalCredit.toFixed(2)}
                   </td>
-                  <td className="py-2.5 px-2 text-left font-mono text-slate-900 font-black bg-slate-200/80">
+                  <td className="text-left font-mono text-slate-900 font-black bg-slate-200/80 whitespace-nowrap">
                     {supplierStatementData.balance.toFixed(2)} {settings.currency}
                   </td>
                 </tr>
@@ -1964,107 +1775,41 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
             </table>
           </div>
 
-          {/* 4. ملخص نهاية الكشف بعد الجدول حسب طلب المستخدم */}
-          <div className="mt-4 p-3.5 bg-slate-50 border-2 border-slate-800 rounded-xl space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {/* 1. إجمالي مدين الفترة */}
-              <div className="p-3 bg-white border-2 border-emerald-300 rounded-lg shadow-xs flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-900">إجمالي مدين الفترة:</span>
-                  <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold">
-                    سدادات ومدفوعات له
+          {/* 4. ملخص نهاية الكشف بعد الجدول بتنسيق رسمي ومضغوط سطر واحد للبنرات الأربعة */}
+          <div className="mt-2 p-1.5 bg-slate-50 border border-slate-400 rounded-md space-y-1.5 shadow-2xs print:border-slate-300">
+            <div className="grid grid-cols-4 gap-1.5 text-[10px]">
+              <div className="bg-white border border-slate-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
+                <span className="font-bold text-slate-700 text-[9.5px] whitespace-nowrap">رصيد سابق:</span>
+                <div className="font-black font-mono text-slate-900 text-[11px] flex items-center gap-1 whitespace-nowrap">
+                  <span>{supplierStatementData.openingBalance.toFixed(2)}</span>
+                  <span className="text-[8.5px] font-sans font-bold opacity-75">{settings.currency}</span>
+                </div>
+              </div>
+              <div className="bg-white border border-emerald-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
+                <span className="font-bold text-emerald-900 text-[9.5px] whitespace-nowrap">إجمالي مدين:</span>
+                <div className="font-black font-mono text-emerald-700 text-[11px] flex items-center gap-1 whitespace-nowrap">
+                  <span>{supplierStatementData.totalDebit.toFixed(2)}</span>
+                  <span className="text-[8.5px] font-sans font-bold opacity-75">{settings.currency}</span>
+                </div>
+              </div>
+              <div className="bg-white border border-rose-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
+                <span className="font-bold text-rose-900 text-[9.5px] whitespace-nowrap">إجمالي دائن:</span>
+                <div className="font-black font-mono text-rose-700 text-[11px] flex items-center gap-1 whitespace-nowrap">
+                  <span>{supplierStatementData.totalCredit.toFixed(2)}</span>
+                  <span className="text-[8.5px] font-sans font-bold opacity-75">{settings.currency}</span>
+                </div>
+              </div>
+              <div className={`bg-white border rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs ${supplierStatementData.balance > 0 ? 'border-rose-400 bg-rose-50/20' : supplierStatementData.balance < 0 ? 'border-emerald-400 bg-emerald-50/20' : 'border-slate-300'}`}>
+                <span className="font-bold text-slate-900 text-[9.5px] whitespace-nowrap">
+                  الإجمالي:
+                </span>
+                <div className={`font-black font-mono text-[11px] flex items-center gap-1 whitespace-nowrap ${supplierStatementData.balance > 0 ? 'text-rose-700' : supplierStatementData.balance < 0 ? 'text-emerald-700' : 'text-slate-800'}`}>
+                  <span>{Math.abs(supplierStatementData.balance).toFixed(2)}</span>
+                  <span className="text-[8.5px] font-sans font-bold opacity-75">{settings.currency}</span>
+                  <span className="text-[9px] font-sans font-bold">
+                    ({supplierStatementData.balance > 0 ? 'دائن' : supplierStatementData.balance < 0 ? 'مدين' : 'متزن'})
                   </span>
                 </div>
-                <div className="my-2 text-center">
-                  <div className="text-2xl font-black font-mono text-emerald-700">
-                    {supplierStatementData.totalDebit.toFixed(2)} <span className="text-sm font-sans">{settings.currency}</span>
-                  </div>
-                </div>
-                <div className="text-[10px] text-slate-500 text-center border-t border-slate-100 pt-1 font-medium">
-                  (وهو الرصيد للفترة فقط المحددة)
-                </div>
-              </div>
-
-              {/* 2. إجمالي دائن الفترة */}
-              <div className="p-3 bg-white border-2 border-rose-300 rounded-lg shadow-xs flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-rose-900">إجمالي دائن الفترة:</span>
-                  <span className="text-[10px] bg-rose-100 text-rose-800 px-2 py-0.5 rounded font-bold">
-                    فواتير وتوريدات
-                  </span>
-                </div>
-                <div className="my-2 text-center">
-                  <div className="text-2xl font-black font-mono text-rose-700">
-                    {supplierStatementData.totalCredit.toFixed(2)} <span className="text-sm font-sans">{settings.currency}</span>
-                  </div>
-                </div>
-                <div className="text-[10px] text-slate-500 text-center border-t border-slate-100 pt-1 font-medium">
-                  (إجمالي التوريدات والمشتريات الدائنة للفترة)
-                </div>
-              </div>
-
-              {/* 3. الإجمالي لتاريخ الكشف */}
-              <div className={`p-3 bg-white border-2 rounded-lg shadow-xs flex flex-col justify-between ${
-                supplierStatementData.balance > 0
-                  ? 'border-rose-400 bg-rose-50/20'
-                  : supplierStatementData.balance < 0
-                  ? 'border-emerald-400 bg-emerald-50/20'
-                  : 'border-slate-300'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-900">الإجمالي لتاريخ الكشف:</span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
-                    supplierStatementData.balance > 0
-                      ? 'bg-rose-100 text-rose-900'
-                      : supplierStatementData.balance < 0
-                      ? 'bg-emerald-100 text-emerald-900'
-                      : 'bg-slate-100 text-slate-800'
-                  }`}>
-                    {supplierStatementData.balance > 0
-                      ? 'رصيد مستحق للمورد في ذمة الشركة'
-                      : supplierStatementData.balance < 0
-                      ? 'رصيد مدفوع للمورد مقدماً'
-                      : 'حساب متزن ومسدد بالكامل'}
-                  </span>
-                </div>
-                <div className="my-2 text-center">
-                  <div className={`text-2xl font-black font-mono ${
-                    supplierStatementData.balance > 0
-                      ? 'text-rose-800'
-                      : supplierStatementData.balance < 0
-                      ? 'text-emerald-800'
-                      : 'text-slate-700'
-                  }`}>
-                    {Math.abs(supplierStatementData.balance).toFixed(2)} <span className="text-sm font-sans">{settings.currency}</span>
-                  </div>
-                </div>
-                <div className="text-[10px] text-slate-500 text-center border-t border-slate-100 pt-1 font-medium">
-                  (صافي الرصيد المستحق حتى تاريخ اليوم)
-                </div>
-              </div>
-            </div>
-
-            {/* كتابة المبلغ وتفقيطه */}
-            <div className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs flex items-center gap-2">
-              <span className="font-bold text-slate-700 shrink-0">المبلغ كتابة وتفقيطاً:</span>
-              <span className="font-semibold text-slate-900 bg-slate-50 px-2 py-1 rounded border border-slate-200 flex-1">
-                {tafqeetArabic(Math.abs(supplierStatementData.balance), settings.currency)}
-              </span>
-            </div>
-
-            {/* التوقيعات الرسمية */}
-            <div className="grid grid-cols-3 gap-4 pt-3 border-t border-slate-300 text-center text-xs">
-              <div>
-                <div className="font-bold text-slate-800 mb-6">إعداد وتدقيق الحسابات</div>
-                <div className="border-t border-dashed border-slate-400 pt-1 text-[11px] text-slate-500">التوقيع / التاريخ</div>
-              </div>
-              <div>
-                <div className="font-bold text-slate-800 mb-6">اعتماد الإدارة المالية</div>
-                <div className="border-t border-dashed border-slate-400 pt-1 text-[11px] text-slate-500">الختم والاعتماد</div>
-              </div>
-              <div>
-                <div className="font-bold text-slate-800 mb-6">توقيع وإقرار المورد بالمطابقة</div>
-                <div className="border-t border-dashed border-slate-400 pt-1 text-[11px] text-slate-500">التوقيع والاستلام</div>
               </div>
             </div>
           </div>
@@ -2075,21 +1820,26 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* 4. كشف حساب الأصناف للمورد (تجميع الأصناف المتشابهة للفترة) */}
       {/* ========================================================================= */}
       {activeReport === 'supplier_items' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
-          <div className="flex items-center justify-between border-b pb-4">
+        <div className="report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3">
+          <PrintHeader
+            title="كشف الخامات والمشتريات التراكمي للمورد"
+            subtitle={supplierItemsData.party ? `المورد: ${supplierItemsData.party.name}` : undefined}
+            docDate={new Date().toISOString().split('T')[0]}
+          />
+          <div className="flex items-center justify-between border-b pb-2">
             <div>
               <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded">تقرير خامات ومشتريات المورد التراكمي</span>
-              <h2 className="text-base font-bold text-slate-900 mt-1">
+              <h2 className="text-sm font-bold text-slate-900 mt-1">
                 كشف الخامات الموردة من: {supplierItemsData.party?.name}
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-[10px] text-slate-400 font-light mt-0.5">
                 تجميع الخامات ومستلزمات الإنتاج وألواح الورق الموردة من هذا المورد خلال الفترة المحددة
               </p>
             </div>
 
             <div className="text-left">
               <span className="text-[11px] text-slate-400 block">إجمالي قيمة التوريدات:</span>
-              <strong className="text-xl font-mono font-bold text-amber-700">
+              <strong className="text-lg font-mono font-bold text-amber-700">
                 {supplierItemsData.totalAmount.toLocaleString('ar-SA')} {settings.currency}
               </strong>
               <span className="text-[10px] text-slate-400 block font-mono">
@@ -2099,73 +1849,60 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-semibold border-b">
+            <table className="w-full text-right report-table border-collapse">
+              <thead className="bg-slate-800 text-white font-semibold border-b">
                 <tr>
-                  <th className="p-2.5">اسم الخامة / الصنف</th>
-                  <th className="p-2.5">إجمالي الكمية الموردة</th>
-                  <th className="p-2.5">متوسط سعر التكلفة للوحدة</th>
-                  <th className="p-2.5">إجمالي القيمة</th>
-                  <th className="p-2.5">آخر تاريخ توريد</th>
-                  <th className="p-2.5">عدد فواتير الشراء</th>
+                  <th>اسم الخامة / الصنف</th>
+                  <th className="text-center w-16 min-w-16">إجمالي الكمية</th>
+                  <th className="text-left w-24 min-w-24">متوسط التكلفة</th>
+                  <th className="text-left w-24 min-w-24">إجمالي القيمة</th>
+                  <th className="text-center w-20 min-w-20">آخر توريد</th>
+                  <th className="text-center w-16 min-w-16">عدد الفواتير</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-slate-200 text-slate-700">
                 {supplierItemsData.items.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-6 text-center text-slate-400">لا توجد توريدات أصناف من هذا المورد خلال الفترة</td>
+                    <td colSpan={6} className="py-6 text-center text-slate-400">لا توجد توريدات أصناف من هذا المورد خلال الفترة</td>
                   </tr>
                 ) : (
                   supplierItemsData.items.map(item => {
                     const avgCost = item.totalQuantity > 0 ? item.totalAmount / item.totalQuantity : 0;
                     return (
                       <tr key={item.itemId} className="hover:bg-slate-50">
-                        <td className="p-2.5">
-                          <div className="font-bold text-slate-900">{item.itemName}</div>
-                          {/* ملاحظات البيان والصنف تظهر تحت اسم الصنف */}
-                          {(item.description || item.notes) && (
-                            <div className="mt-0.5 space-y-0.5 text-[10px]">
-                              {item.description && (
-                                <div className="text-slate-600 font-medium">
-                                  <span className="font-bold text-slate-700">البيان:</span> {item.description}
-                                </div>
-                              )}
-                              {item.notes && (
-                                <div className="text-amber-900 bg-amber-50 border border-amber-200/70 rounded px-1.5 py-0.5 inline-flex items-center gap-1 font-medium">
-                                  <span className="font-bold text-amber-800">ملاحظة الصنف:</span>
-                                  <span>{item.notes}</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                        <td className="font-bold text-slate-900">
+                          {item.itemName}
                         </td>
-                        <td className="p-2.5 font-mono font-bold text-amber-700 text-sm">
+                        <td className="font-mono font-bold text-amber-700 text-center">
                           {item.totalQuantity.toLocaleString('ar-SA')}
                         </td>
-                        <td className="p-2.5 font-mono text-slate-700">
+                        <td className="font-mono text-slate-700 text-left">
                           {avgCost.toLocaleString('ar-SA', { maximumFractionDigits: 2 })} {settings.currency}
                         </td>
-                        <td className="p-2.5 font-mono font-bold text-slate-900 text-sm">
+                        <td className="font-mono font-bold text-slate-900 text-left">
                           {item.totalAmount.toLocaleString('ar-SA')} {settings.currency}
                         </td>
-                        <td className="p-2.5 font-mono text-slate-500">{item.lastDate}</td>
-                        <td className="p-2.5 font-mono text-amber-600 font-semibold">{item.invoiceCount}</td>
+                        <td className="font-mono text-slate-500 text-center">{item.lastDate}</td>
+                        <td className="font-mono text-amber-600 font-semibold text-center">{item.invoiceCount}</td>
                       </tr>
                     );
                   })
                 )}
               </tbody>
-              <tfoot className="bg-slate-100/70 font-bold border-t border-slate-200">
+              <tfoot className="bg-slate-100 font-bold border-t border-slate-300">
                 <tr>
-                  <td className="p-2.5 text-slate-800">الإجمالي العام:</td>
-                  <td className="p-2.5 font-mono text-amber-700 font-black">{supplierItemsData.totalQuantity.toLocaleString('ar-SA')}</td>
+                  <td className="text-slate-800">الإجمالي العام:</td>
+                  <td className="font-mono text-amber-700 font-black text-center">{supplierItemsData.totalQuantity.toLocaleString('ar-SA')}</td>
                   <td></td>
-                  <td className="p-2.5 font-mono text-slate-900 font-black">{supplierItemsData.totalAmount.toLocaleString('ar-SA')} {settings.currency}</td>
+                  <td className="font-mono text-slate-900 font-black text-left">{supplierItemsData.totalAmount.toLocaleString('ar-SA')} {settings.currency}</td>
                   <td colSpan={2}></td>
                 </tr>
               </tfoot>
             </table>
           </div>
+          {/* Signatures */}
+          <ReportSignatures rightLabel="إعداد التقرير" centerLabel="مصادقة وختم المورد" leftLabel="المدير المالي والاعتماد" />
+
         </div>
       )}
 
@@ -2173,17 +1910,22 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* 5. كشف تفصيلي سندات القبض */}
       {/* ========================================================================= */}
       {activeReport === 'receipt_vouchers' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
-          <div className="flex items-center justify-between border-b pb-4">
+        <div className="report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3">
+          <PrintHeader
+            title="تقرير وكشف سندات القبض"
+            subtitle="سجل المبالغ المقبوضة والتحصيلات المالية"
+            docDate={new Date().toISOString().split('T')[0]}
+          />
+          <div className="flex items-center justify-between border-b pb-2">
             <div>
               <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded">تقرير التحصيلات والمقبوضات</span>
-              <h2 className="text-base font-bold text-slate-900 mt-1">كشف تفصيلي لسندات القبض</h2>
-              <p className="text-xs text-slate-500 mt-0.5">سجل كافة المبالغ المقبوضة من العملاء وجهات التحصيل المختلفة</p>
+              <h2 className="text-sm font-bold text-slate-900 mt-1">كشف تفصيلي لسندات القبض</h2>
+              <p className="text-[10px] text-slate-400 font-light mt-0.5">سجل كافة المبالغ المقبوضة من العملاء وجهات التحصيل المختلفة</p>
             </div>
 
             <div className="text-left">
               <span className="text-[11px] text-slate-400 block">إجمالي المقبوضات:</span>
-              <strong className="text-xl font-mono font-bold text-emerald-600">
+              <strong className="text-lg font-mono font-bold text-emerald-600">
                 {receiptVouchersData.reduce((s, v) => s + v.amount, 0).toLocaleString('ar-SA')} {settings.currency}
               </strong>
               <span className="text-[10px] text-slate-400 block">عدد السندات: {receiptVouchersData.length}</span>
@@ -2191,47 +1933,57 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-semibold border-b">
+            <table className="w-full text-right report-table border-collapse">
+              <thead className="bg-slate-800 text-white font-semibold border-b">
                 <tr>
-                  <th className="p-2.5">رقم السند</th>
-                  <th className="p-2.5">التاريخ</th>
-                  <th className="p-2.5">اسم العميل / المستلم منه</th>
-                  <th className="p-2.5">البيان والشرح</th>
-                  <th className="p-2.5">طريقة القبض</th>
-                  <th className="p-2.5">الخزينة المودع بها</th>
-                  <th className="p-2.5">المبلغ المقبوض</th>
+                  <th className="w-20 min-w-20 text-center">رقم السند</th>
+                  <th className="w-20 min-w-20 text-center">التاريخ</th>
+                  <th>اسم العميل / المستلم منه</th>
+                  <th>البيان والشرح</th>
+                  <th className="w-20 min-w-20 text-center">طريقة القبض</th>
+                  <th className="w-24 min-w-24">الخزينة</th>
+                  <th className="w-24 min-w-24 text-left">المبلغ المقبوض</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-slate-200 text-slate-700">
                 {receiptVouchersData.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-6 text-center text-slate-400">لا توجد سندات قبض مطابقة</td>
+                    <td colSpan={7} className="py-6 text-center text-slate-400">لا توجد سندات قبض مطابقة</td>
                   </tr>
                 ) : (
                   receiptVouchersData.map(v => (
                     <tr key={v.id} className="hover:bg-slate-50">
-                      <td className="p-2.5 font-mono font-bold text-emerald-700">{v.voucherNumber}</td>
-                      <td className="p-2.5 font-mono text-slate-600">{v.date}</td>
-                      <td className="p-2.5 font-semibold text-slate-900">{v.partyName}</td>
-                      <td className="p-2.5 text-slate-600 max-w-[240px] truncate">{v.description}</td>
-                      <td className="p-2.5">
-                        <span className="bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded text-[11px] font-medium">
+                      <td className="font-mono font-bold text-emerald-700 text-center">{v.voucherNumber}</td>
+                      <td className="font-mono text-slate-600 text-center">{v.date}</td>
+                      <td className="font-semibold text-slate-900">{v.partyName}</td>
+                      <td className="text-slate-600 max-w-[200px] truncate">{v.description}</td>
+                      <td className="text-center">
+                        <span className="bg-emerald-50 text-emerald-800 px-1.5 py-0.5 rounded text-[10.5px] font-medium">
                           {v.paymentMethod === 'cash' ? 'نقداً' : v.paymentMethod === 'bank_transfer' ? 'تحويل بنكي' : 'شيك'}
                         </span>
                       </td>
-                      <td className="p-2.5 text-slate-600 font-medium">
+                      <td className="text-slate-600 font-medium">
                         {treasuries.find(t => t.accountCode === v.accountCode || t.accountCode === v.treasuryAccountCode)?.name || 'الخزينة'}
                       </td>
-                      <td className="p-2.5 font-mono font-bold text-emerald-700 text-sm">
+                      <td className="font-mono font-bold text-emerald-700 text-left">
                         {v.amount.toLocaleString('ar-SA')} {settings.currency}
                       </td>
                     </tr>
                   ))
                 )}
               </tbody>
+              <tfoot className="bg-slate-100 font-bold border-t border-slate-300">
+                <tr>
+                  <td colSpan={6} className="text-slate-800">إجمالي المقبوضات:</td>
+                  <td className="font-mono font-black text-emerald-700 text-left">
+                    {receiptVouchersData.reduce((s, v) => s + v.amount, 0).toLocaleString('ar-SA')} {settings.currency}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
+          {/* Signatures */}
+          <ReportSignatures rightLabel="أمين الصندوق / المحصل" centerLabel="المراجع والمحاسب" leftLabel="المدير المالي والاعتماد" />
         </div>
       )}
 
@@ -2239,17 +1991,22 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* 6. كشف تفصيلي سندات الصرف */}
       {/* ========================================================================= */}
       {activeReport === 'payment_vouchers' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
-          <div className="flex items-center justify-between border-b pb-4">
+        <div className="report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3">
+          <PrintHeader
+            title="تقرير وكشف سندات الصرف"
+            subtitle="سجل المدفوعات والمنصرفات والمسددات"
+            docDate={new Date().toISOString().split('T')[0]}
+          />
+          <div className="flex items-center justify-between border-b pb-2">
             <div>
               <span className="text-[10px] text-rose-700 font-bold bg-rose-50 px-2 py-0.5 rounded">تقرير المدفوعات والمنصرفات</span>
-              <h2 className="text-base font-bold text-slate-900 mt-1">كشف تفصيلي لسندات الصرف</h2>
-              <p className="text-xs text-slate-500 mt-0.5">سجل المبالغ المسددة للموردين والمصروفات والعهد النقدية والبنكية</p>
+              <h2 className="text-sm font-bold text-slate-900 mt-1">كشف تفصيلي لسندات الصرف</h2>
+              <p className="text-[10px] text-slate-400 font-light mt-0.5">سجل المبالغ المسددة للموردين والمصروفات والعهد النقدية والبنكية</p>
             </div>
 
             <div className="text-left">
               <span className="text-[11px] text-slate-400 block">إجمالي المنصرفات:</span>
-              <strong className="text-xl font-mono font-bold text-rose-600">
+              <strong className="text-lg font-mono font-bold text-rose-600">
                 {paymentVouchersData.reduce((s, v) => s + v.amount, 0).toLocaleString('ar-SA')} {settings.currency}
               </strong>
               <span className="text-[10px] text-slate-400 block">عدد السندات: {paymentVouchersData.length}</span>
@@ -2257,47 +2014,57 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-semibold border-b">
+            <table className="w-full text-right report-table border-collapse">
+              <thead className="bg-slate-800 text-white font-semibold border-b">
                 <tr>
-                  <th className="p-2.5">رقم السند</th>
-                  <th className="p-2.5">التاريخ</th>
-                  <th className="p-2.5">المستفيد / المورد</th>
-                  <th className="p-2.5">البيان والشرح</th>
-                  <th className="p-2.5">طريقة الصرف</th>
-                  <th className="p-2.5">الخزينة المنصرف منها</th>
-                  <th className="p-2.5">المبلغ المصروف</th>
+                  <th className="w-20 min-w-20 text-center">رقم السند</th>
+                  <th className="w-20 min-w-20 text-center">التاريخ</th>
+                  <th>المستفيد / المورد</th>
+                  <th>البيان والشرح</th>
+                  <th className="w-20 min-w-20 text-center">طريقة الصرف</th>
+                  <th className="w-24 min-w-24">الخزينة</th>
+                  <th className="w-24 min-w-24 text-left">المبلغ المصروف</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-slate-200 text-slate-700">
                 {paymentVouchersData.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-6 text-center text-slate-400">لا توجد سندات صرف مطابقة</td>
+                    <td colSpan={7} className="py-6 text-center text-slate-400">لا توجد سندات صرف مطابقة</td>
                   </tr>
                 ) : (
                   paymentVouchersData.map(v => (
                     <tr key={v.id} className="hover:bg-slate-50">
-                      <td className="p-2.5 font-mono font-bold text-rose-700">{v.voucherNumber}</td>
-                      <td className="p-2.5 font-mono text-slate-600">{v.date}</td>
-                      <td className="p-2.5 font-semibold text-slate-900">{v.partyName}</td>
-                      <td className="p-2.5 text-slate-600 max-w-[240px] truncate">{v.description}</td>
-                      <td className="p-2.5">
-                        <span className="bg-rose-50 text-rose-800 px-2 py-0.5 rounded text-[11px] font-medium">
+                      <td className="font-mono font-bold text-rose-700 text-center">{v.voucherNumber}</td>
+                      <td className="font-mono text-slate-600 text-center">{v.date}</td>
+                      <td className="font-semibold text-slate-900">{v.partyName}</td>
+                      <td className="text-slate-600 max-w-[200px] truncate">{v.description}</td>
+                      <td className="text-center">
+                        <span className="bg-rose-50 text-rose-800 px-1.5 py-0.5 rounded text-[10.5px] font-medium">
                           {v.paymentMethod === 'cash' ? 'نقداً' : v.paymentMethod === 'bank_transfer' ? 'تحويل بنكي' : 'شيك'}
                         </span>
                       </td>
-                      <td className="p-2.5 text-slate-600 font-medium">
+                      <td className="text-slate-600 font-medium">
                         {treasuries.find(t => t.accountCode === v.accountCode || t.accountCode === v.treasuryAccountCode)?.name || 'الخزينة'}
                       </td>
-                      <td className="p-2.5 font-mono font-bold text-rose-700 text-sm">
+                      <td className="font-mono font-bold text-rose-700 text-left">
                         {v.amount.toLocaleString('ar-SA')} {settings.currency}
                       </td>
                     </tr>
                   ))
                 )}
               </tbody>
+              <tfoot className="bg-slate-100 font-bold border-t border-slate-300">
+                <tr>
+                  <td colSpan={6} className="text-slate-800">إجمالي المنصرفات:</td>
+                  <td className="font-mono font-black text-rose-700 text-left">
+                    {paymentVouchersData.reduce((s, v) => s + v.amount, 0).toLocaleString('ar-SA')} {settings.currency}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
+          {/* Signatures */}
+          <ReportSignatures rightLabel="أمين الصندوق / الصارف" centerLabel="المستلم / المستفيد" leftLabel="المدير المالي والاعتماد" />
         </div>
       )}
 
@@ -2305,81 +2072,37 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* 7. كشف حساب تفصيلي موظف */}
       {/* ========================================================================= */}
       {activeReport === 'employee_statement' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4 print:p-0 print:border-0 print:shadow-none">
-          {/* 1. ترويسة كشف الحساب حسب إعدادات البرنامج */}
-          <div className="border-b-2 border-slate-800 pb-3 flex items-start justify-between">
-            <div>
-              <h1 className="text-xl font-black text-slate-900">{settings.name || 'مؤسسة الدعاية والإعلان'}</h1>
-              <div className="text-xs text-slate-600 mt-0.5 space-x-2 space-x-reverse">
-                {settings.commercialRegister && <span>س.ت: <strong className="font-mono">{settings.commercialRegister}</strong></span>}
-                {settings.taxNumber && <span> | الرقم الضريبي: <strong className="font-mono">{settings.taxNumber}</strong></span>}
-              </div>
-              <div className="text-xs text-slate-500 mt-0.5">
-                {settings.address && <span>{settings.address}</span>}
-                {settings.phone && <span> | هاتف: <span className="font-mono">{settings.phone}</span></span>}
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="inline-block bg-slate-900 text-white px-4 py-1 rounded-md text-base font-black shadow-xs">
-                كشف حساب ومستحقات موظف
-              </div>
-              <div className="text-[11px] text-slate-500 font-mono mt-1">
-                تاريخ الاستخراج: {new Date().toISOString().split('T')[0]}
-              </div>
-            </div>
-            {settings.logo ? (
-              <img src={settings.logo} alt="Logo" className="w-16 h-16 object-contain" />
-            ) : (
-              <div className="w-16 h-16 bg-slate-100 border border-slate-300 rounded flex items-center justify-center text-[10px] text-slate-400 font-bold">
-                شعار المنشأة
-              </div>
-            )}
-          </div>
-
-          {/* 2. بيانات الموظف والفترة */}
-          <div className="bg-slate-50 border border-slate-300 rounded-lg p-3 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div className="space-y-1">
-              <div className="text-sm font-black text-slate-900 flex items-center gap-1.5 flex-wrap">
-                <span>اسم الموظف:</span>
-                <span className="text-purple-900 font-extrabold">{employeeStatementData.employee?.name || 'غير محدد'}</span>
-              </div>
-              <div className="text-slate-600">
-                <span>المسمى الوظيفي: </span>
-                <strong className="text-slate-900">{employeeStatementData.employee?.jobTitle || '-'}</strong>
-                <span className="mr-3">
-                  الراتب الأساسي: <strong className="font-mono text-slate-900">{employeeStatementData.employee?.salary.toLocaleString('ar-SA')} {settings.currency}</strong>
-                </span>
-              </div>
-            </div>
-            <div className="space-y-1 sm:text-left">
-              <div className="font-bold text-slate-800">
-                الفترة من: <span className="font-mono text-purple-950">{fromDate || 'بداية التعيين'}</span> إلى: <span className="font-mono text-purple-950">{toDate || 'تاريخ اليوم'}</span>
-              </div>
-              <div className="text-slate-600">
-                العملة: <strong className="text-slate-900 font-bold">{settings.currency}</strong>
-              </div>
+        <div className="report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3">
+          {/* 1. ترويسة كشف الحساب المعتمدة */}
+          <PrintHeader />
+          <div className="text-center font-bold text-base mb-1 mt-2 text-slate-900 leading-relaxed border-b-2 border-slate-900 pb-2">
+            كشف حساب موظف:{' '}
+            <span className="text-purple-900">
+              {employeeStatementData.employee?.name || 'غير محدد'}
+            </span>
+            <div className="text-xs text-slate-600 mt-0.5 font-semibold">
+              من تاريخ: <span className="font-mono">{fromDate || 'بداية العمل'}</span>{' '}
+              إلى تاريخ: <span className="font-mono">{toDate || 'تاريخ اليوم'}</span>
             </div>
           </div>
 
           {/* 3. جدول الحركات المالي المفصل للموظف */}
           <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs border-collapse border border-slate-300">
-              <thead className="bg-slate-800 text-white text-[11px]">
+            <table className="w-full text-right report-table border-collapse">
+              <thead className="bg-slate-800 text-white font-semibold border-b">
                 <tr>
-                  <th className="py-2 px-1.5 border border-slate-700 text-center w-8">م</th>
-                  <th className="py-2 px-2 border border-slate-700 text-center w-24">التاريخ</th>
-                  <th className="py-2 px-2 border border-slate-700 text-center w-24">رقم الحركة</th>
-                  <th className="py-2 px-2 border border-slate-700 w-28">نوع العملية</th>
-                  <th className="py-2 px-2 border border-slate-700">البيان والشرح والتفاصيل الكاملة</th>
-                  <th className="py-2 px-2 border border-slate-700 text-left w-24">استحقاق له (+)</th>
-                  <th className="py-2 px-2 border border-slate-700 text-left w-24">منصرف / مخصوم (-)</th>
-                  <th className="py-2 px-2 border border-slate-700 text-left w-28">الرصيد المتبقي</th>
+                  <th className="text-center w-8 min-w-8">م</th>
+                  <th className="text-center w-20 min-w-20">التاريخ</th>
+                  <th>البيان والشرح والتفاصيل</th>
+                  <th className="text-left w-24 min-w-24 whitespace-nowrap">استحقاق (+)</th>
+                  <th className="text-left w-24 min-w-24 whitespace-nowrap">منصرف (-)</th>
+                  <th className="text-left w-28 min-w-28 whitespace-nowrap">الرصيد المتبقي</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {employeeStatementData.rows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-8 text-center text-slate-400 font-bold">
+                    <td colSpan={6} className="py-6 text-center text-slate-400 font-bold">
                       لا توجد حركات مسجلة لهذا الموظف خلال الفترة المحددة
                     </td>
                   </tr>
@@ -2391,46 +2114,52 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                         idx % 2 === 1 ? 'bg-slate-50/40' : 'bg-white'
                       }`}
                     >
-                      <td className="py-2.5 px-1.5 text-center text-slate-500 font-mono text-[11px]">
+                      <td className="text-center text-slate-500 font-mono">
                         {idx + 1}
                       </td>
-                      <td className="py-2.5 px-2 font-mono text-slate-700 text-center whitespace-nowrap">
+                      <td className="font-mono text-slate-700 text-center whitespace-nowrap">
                         {row.date}
                       </td>
-                      <td className="py-2.5 px-2 font-mono font-bold text-slate-900 text-center whitespace-nowrap">
-                        {row.refNumber}
+                      <td>
+                        <div className="font-bold text-slate-900 leading-tight flex flex-wrap items-center gap-1">
+                          <span className="text-slate-900 font-bold">{row.type}</span>
+                          {row.refNumber && (
+                            <>
+                              <span className="text-slate-400 font-normal">-</span>
+                              <span className="font-mono font-bold text-slate-800">{row.refNumber}</span>
+                            </>
+                          )}
+                          {row.description && (
+                            <>
+                              <span className="text-slate-400 font-normal">-</span>
+                              <span className="text-slate-700 font-medium">{row.description}</span>
+                            </>
+                          )}
+                        </div>
                       </td>
-                      <td className="py-2.5 px-2">
-                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-900">
-                          {row.type}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-2 font-semibold text-slate-800">
-                        {row.description}
-                      </td>
-                      <td className="py-2.5 px-2 font-mono font-bold text-purple-700 text-left">
+                      <td className="font-mono font-bold text-purple-700 text-left whitespace-nowrap">
                         {row.dueAmount > 0 ? row.dueAmount.toFixed(2) : '-'}
                       </td>
-                      <td className="py-2.5 px-2 font-mono font-bold text-rose-700 text-left">
+                      <td className="font-mono font-bold text-rose-700 text-left whitespace-nowrap">
                         {row.paidAmount > 0 ? row.paidAmount.toFixed(2) : '-'}
                       </td>
-                      <td className="py-2.5 px-2 font-mono font-black text-slate-900 text-left bg-slate-50/70">
+                      <td className="font-mono font-black text-slate-900 text-left bg-slate-50/70 whitespace-nowrap">
                         {row.runningBalance.toFixed(2)}
                       </td>
                     </tr>
                   ))
                 )}
               </tbody>
-              <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-900">
+              <tfoot className="bg-slate-100 font-bold border-t border-slate-300 text-slate-900">
                 <tr>
-                  <td colSpan={5} className="py-2.5 px-3 text-left font-sans">الإجمالي العام للحركات بالفترة:</td>
-                  <td className="py-2.5 px-2 text-left font-mono text-purple-800 font-black">
+                  <td colSpan={3} className="text-left font-sans">الإجمالي العام للحركات بالفترة:</td>
+                  <td className="text-left font-mono text-purple-800 font-black whitespace-nowrap">
                     {employeeStatementData.totalDue.toFixed(2)}
                   </td>
-                  <td className="py-2.5 px-2 text-left font-mono text-rose-800 font-black">
+                  <td className="text-left font-mono text-rose-800 font-black whitespace-nowrap">
                     {employeeStatementData.totalPaid.toFixed(2)}
                   </td>
-                  <td className="py-2.5 px-2 text-left font-mono text-slate-900 font-black bg-slate-200/80">
+                  <td className="text-left font-mono text-slate-900 font-black bg-slate-200/80 whitespace-nowrap">
                     {employeeStatementData.netBalance.toFixed(2)} {settings.currency}
                   </td>
                 </tr>
@@ -2438,152 +2167,103 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
             </table>
           </div>
 
-          {/* 4. ملخص نهاية الكشف بعد الجدول */}
-          <div className="mt-4 p-3.5 bg-slate-50 border-2 border-slate-800 rounded-xl space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* 4. ملخص نهاية الكشف بعد الجدول بتنسيق رسمي ومضغوط */}
+          <div className="mt-2 p-1.5 bg-slate-50 border border-slate-400 rounded-md space-y-1.5 shadow-2xs print:border-slate-300">
+            <div className="grid grid-cols-3 gap-1.5 text-xs">
               {/* 1. إجمالي استحقاقات الفترة */}
-              <div className="p-3 bg-white border-2 border-purple-300 rounded-lg shadow-xs flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-purple-900">إجمالي مستحقات الفترة:</span>
-                  <span className="text-[10px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-bold">
-                    رواتب ومكافآت
-                  </span>
-                </div>
-                <div className="my-2 text-center">
-                  <div className="text-2xl font-black font-mono text-purple-700">
-                    {employeeStatementData.totalDue.toFixed(2)} <span className="text-sm font-sans">{settings.currency}</span>
-                  </div>
-                </div>
-                <div className="text-[10px] text-slate-500 text-center border-t border-slate-100 pt-1 font-medium">
-                  (وهو الرصيد للفترة فقط المحددة)
+              <div className="bg-white border border-purple-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
+                <span className="font-bold text-purple-900 text-[11px] whitespace-nowrap">إجمالي المستحقات:</span>
+                <div className="font-black font-mono text-purple-700 text-xs flex items-center gap-1 whitespace-nowrap">
+                  <span>{employeeStatementData.totalDue.toFixed(2)}</span>
+                  <span className="text-[9px] font-sans font-bold opacity-75">{settings.currency}</span>
                 </div>
               </div>
 
               {/* 2. إجمالي المنصرف والمسدد للفترة */}
-              <div className="p-3 bg-white border-2 border-rose-300 rounded-lg shadow-xs flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-rose-900">إجمالي المنصرف للفترة:</span>
-                  <span className="text-[10px] bg-rose-100 text-rose-800 px-2 py-0.5 rounded font-bold">
-                    سلف واستقطاعات
-                  </span>
-                </div>
-                <div className="my-2 text-center">
-                  <div className="text-2xl font-black font-mono text-rose-700">
-                    {employeeStatementData.totalPaid.toFixed(2)} <span className="text-sm font-sans">{settings.currency}</span>
-                  </div>
-                </div>
-                <div className="text-[10px] text-slate-500 text-center border-t border-slate-100 pt-1 font-medium">
-                  (إجمالي المدفوعات والخصومات للفترة)
+              <div className="bg-white border border-rose-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
+                <span className="font-bold text-rose-900 text-[11px] whitespace-nowrap">إجمالي المنصرف:</span>
+                <div className="font-black font-mono text-rose-700 text-xs flex items-center gap-1 whitespace-nowrap">
+                  <span>{employeeStatementData.totalPaid.toFixed(2)}</span>
+                  <span className="text-[9px] font-sans font-bold opacity-75">{settings.currency}</span>
                 </div>
               </div>
 
-              {/* 3. الإجمالي لتاريخ الكشف */}
-              <div className={`p-3 bg-white border-2 rounded-lg shadow-xs flex flex-col justify-between ${
+              {/* 3. الإجمالي */}
+              <div className={`bg-white border rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs ${
                 employeeStatementData.netBalance > 0
                   ? 'border-purple-400 bg-purple-50/20'
                   : employeeStatementData.netBalance < 0
                   ? 'border-rose-400 bg-rose-50/20'
                   : 'border-slate-300'
               }`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-900">الإجمالي لتاريخ الكشف:</span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
-                    employeeStatementData.netBalance > 0
-                      ? 'bg-purple-100 text-purple-900'
-                      : employeeStatementData.netBalance < 0
-                      ? 'bg-rose-100 text-rose-900'
-                      : 'bg-slate-100 text-slate-800'
-                  }`}>
-                    {employeeStatementData.netBalance > 0
-                      ? 'مستحق للموظف في ذمة المنشأة'
-                      : employeeStatementData.netBalance < 0
-                      ? 'مستحق على الموظف (سلف فائضة)'
-                      : 'حساب مسدد بالكامل'}
+                <span className="font-bold text-slate-900 text-[11px] whitespace-nowrap">
+                  الإجمالي:
+                </span>
+                <div className={`font-black font-mono text-xs flex items-center gap-1 whitespace-nowrap ${
+                  employeeStatementData.netBalance > 0
+                    ? 'text-purple-800'
+                    : employeeStatementData.netBalance < 0
+                    ? 'text-rose-800'
+                    : 'text-slate-700'
+                }`}>
+                  <span>{Math.abs(employeeStatementData.netBalance).toFixed(2)}</span>
+                  <span className="text-[9px] font-sans font-bold opacity-75">{settings.currency}</span>
+                  <span className="text-[10px] font-sans font-bold">
+                    ({employeeStatementData.netBalance > 0 ? 'دائن' : employeeStatementData.netBalance < 0 ? 'مدين' : 'متزن'})
                   </span>
                 </div>
-                <div className="my-2 text-center">
-                  <div className={`text-2xl font-black font-mono ${
-                    employeeStatementData.netBalance > 0
-                      ? 'text-purple-800'
-                      : employeeStatementData.netBalance < 0
-                      ? 'text-rose-800'
-                      : 'text-slate-700'
-                  }`}>
-                    {Math.abs(employeeStatementData.netBalance).toFixed(2)} <span className="text-sm font-sans">{settings.currency}</span>
-                  </div>
-                </div>
-                <div className="text-[10px] text-slate-500 text-center border-t border-slate-100 pt-1 font-medium">
-                  (صافي الرصيد المستحق حتى تاريخ اليوم)
-                </div>
-              </div>
-            </div>
-
-            {/* كتابة المبلغ وتفقيطه */}
-            <div className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs flex items-center gap-2">
-              <span className="font-bold text-slate-700 shrink-0">المبلغ كتابة وتفقيطاً:</span>
-              <span className="font-semibold text-slate-900 bg-slate-50 px-2 py-1 rounded border border-slate-200 flex-1">
-                {tafqeetArabic(Math.abs(employeeStatementData.netBalance), settings.currency)}
-              </span>
-            </div>
-
-            {/* التوقيعات الرسمية */}
-            <div className="grid grid-cols-3 gap-4 pt-3 border-t border-slate-300 text-center text-xs">
-              <div>
-                <div className="font-bold text-slate-800 mb-6">مسؤول الرواتب وشؤون الموظفين</div>
-                <div className="border-t border-dashed border-slate-400 pt-1 text-[11px] text-slate-500">التوقيع / التاريخ</div>
-              </div>
-              <div>
-                <div className="font-bold text-slate-800 mb-6">اعتماد الإدارة المالية</div>
-                <div className="border-t border-dashed border-slate-400 pt-1 text-[11px] text-slate-500">الختم والاعتماد</div>
-              </div>
-              <div>
-                <div className="font-bold text-slate-800 mb-6">توقيع وإقرار الموظف بالمطابقة</div>
-                <div className="border-t border-dashed border-slate-400 pt-1 text-[11px] text-slate-500">التوقيع والاستلام</div>
               </div>
             </div>
           </div>
+          {/* Signatures */}
+          <ReportSignatures rightLabel="المحاسب المسؤول" centerLabel="توقيع واستلام الموظف" leftLabel="المدير العام والاعتماد" />
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* 8. كشف رواتب الموظفين */}
+      {/* 8. كشف مسيرات الرواتب */}
       {/* ========================================================================= */}
       {activeReport === 'payroll_sheets' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
-          <div className="flex items-center justify-between border-b pb-4">
+        <div className="report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3">
+          <PrintHeader
+            title="كشف مسيرات الرواتب الشهرية"
+            subtitle="ملخص الرواتب والبدلات والاستقطاعات المعتمدة"
+            docDate={new Date().toISOString().split('T')[0]}
+          />
+          <div className="flex items-center justify-between border-b pb-2">
             <div>
               <span className="text-[10px] text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded">شؤون الموظفين والرواتب</span>
-              <h2 className="text-base font-bold text-slate-900 mt-1">كشف مسيرات الرواتب الشهرية</h2>
-              <p className="text-xs text-slate-500 mt-0.5">ملخص المسيرات المعتمدة والمسودات ومبالغ الرواتب الإجمالية والصافية</p>
+              <h2 className="text-sm font-bold text-slate-900 mt-1">كشف مسيرات الرواتب الشهرية</h2>
+              <p className="text-[10px] text-slate-400 font-light mt-0.5">ملخص المسيرات المعتمدة والمسودات ومبالغ الرواتب الإجمالية والصافية</p>
             </div>
 
             <div className="text-left">
               <span className="text-[11px] text-slate-400 block">إجمالي الرواتب المصروفة:</span>
-              <strong className="text-xl font-mono font-bold text-blue-700">
+              <strong className="text-lg font-mono font-bold text-blue-700">
                 {payrollSheetsData.filter(s => s.status === 'approved').reduce((s, p) => s + p.totalNet, 0).toLocaleString('ar-SA')} {settings.currency}
               </strong>
             </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-semibold border-b">
+            <table className="w-full text-right report-table border-collapse">
+              <thead className="bg-slate-800 text-white font-semibold border-b">
                 <tr>
-                  <th className="p-2.5">رقم المسير</th>
-                  <th className="p-2.5">شهر الاستحقاق</th>
-                  <th className="p-2.5">الحالة</th>
-                  <th className="p-2.5">عدد الموظفين</th>
-                  <th className="p-2.5">إجمالي الأساسي</th>
-                  <th className="p-2.5">البدلات والحوافز</th>
-                  <th className="p-2.5">الاستقطاعات والسلف</th>
-                  <th className="p-2.5">صافي الرواتب</th>
-                  <th className="p-2.5">تاريخ الاعتماد</th>
+                  <th className="text-center w-16 min-w-16">رقم المسير</th>
+                  <th>شهر الاستحقاق</th>
+                  <th className="text-center w-24 min-w-24">الحالة</th>
+                  <th className="text-center w-20 min-w-20">عدد الموظفين</th>
+                  <th className="text-left w-20 min-w-20">الأساسي</th>
+                  <th className="text-left w-20 min-w-20">البدلات</th>
+                  <th className="text-left w-20 min-w-20">الاستقطاعات</th>
+                  <th className="text-left w-24 min-w-24">صافي الرواتب</th>
+                  <th className="text-center w-20 min-w-20">تاريخ الاعتماد</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-slate-200 text-slate-700">
                 {payrollSheetsData.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="p-6 text-center text-slate-400">لا توجد مسيرات رواتب مسجلة</td>
+                    <td colSpan={9} className="py-6 text-center text-slate-400">لا توجد مسيرات رواتب مسجلة</td>
                   </tr>
                 ) : (
                   payrollSheetsData.map(sheet => {
@@ -2591,21 +2271,21 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                     const employeesCount = sheetItems.length || sheet.employeesCount || 0;
                     return (
                       <tr key={sheet.id} className="hover:bg-slate-50">
-                        <td className="p-2.5 font-mono font-bold text-blue-600">{sheet.sheetNumber}</td>
-                        <td className="p-2.5 font-mono font-bold text-slate-900">{sheet.period || (sheet as any).periodMonth || sheet.title}</td>
-                        <td className="p-2.5">
-                          <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                        <td className="font-mono font-bold text-blue-600 text-center">{sheet.sheetNumber}</td>
+                        <td className="font-mono font-bold text-slate-900">{sheet.period || (sheet as any).periodMonth || sheet.title}</td>
+                        <td className="text-center">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                             sheet.status === 'approved' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'
                           }`}>
                             {sheet.status === 'approved' ? 'معتمد ومصروف' : 'مسودة قيد المراجعة'}
                           </span>
                         </td>
-                        <td className="p-2.5 font-mono">{employeesCount} موظف</td>
-                        <td className="p-2.5 font-mono text-slate-700">{sheet.totalBasic.toLocaleString('ar-SA')}</td>
-                        <td className="p-2.5 font-mono text-emerald-700">+{sheet.totalAllowances.toLocaleString('ar-SA')}</td>
-                        <td className="p-2.5 font-mono text-rose-700">-{sheet.totalDeductions.toLocaleString('ar-SA')}</td>
-                        <td className="p-2.5 font-mono font-bold text-slate-900 text-sm">{sheet.totalNet.toLocaleString('ar-SA')} {settings.currency}</td>
-                        <td className="p-2.5 font-mono text-slate-500">{sheet.disbursedAt || (sheet as any).approvedAt || sheet.createdAt || '-'}</td>
+                        <td className="font-mono text-center">{employeesCount} موظف</td>
+                        <td className="font-mono text-slate-700 text-left">{sheet.totalBasic.toLocaleString('ar-SA')}</td>
+                        <td className="font-mono text-emerald-700 text-left">+{sheet.totalAllowances.toLocaleString('ar-SA')}</td>
+                        <td className="font-mono text-rose-700 text-left">-{sheet.totalDeductions.toLocaleString('ar-SA')}</td>
+                        <td className="font-mono font-bold text-slate-900 text-left">{sheet.totalNet.toLocaleString('ar-SA')} {settings.currency}</td>
+                        <td className="font-mono text-slate-500 text-center">{sheet.disbursedAt || (sheet as any).approvedAt || sheet.createdAt || '-'}</td>
                       </tr>
                     );
                   })
@@ -2613,6 +2293,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
               </tbody>
             </table>
           </div>
+          {/* Signatures */}
+          <ReportSignatures rightLabel="إعداد شؤون الموظفين" centerLabel="المراجعة المالية" leftLabel="المدير العام والاعتماد" />
         </div>
       )}
 
@@ -2620,17 +2302,22 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* 9. كشف تفصيلي للصناديق */}
       {/* ========================================================================= */}
       {activeReport === 'treasuries_movement' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between border-b pb-4 gap-3">
+        <div className="report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3">
+          <PrintHeader
+            title="كشف حركات الصناديق والحسابات البنكية"
+            subtitle="سجل التدفقات النقدية والمقبوضات والمنصرفات"
+            docDate={new Date().toISOString().split('T')[0]}
+          />
+          <div className="flex flex-col md:flex-row md:items-center justify-between border-b pb-2 gap-2">
             <div>
               <span className="text-[10px] text-teal-700 font-bold bg-teal-50 px-2 py-0.5 rounded">إدارة السيولة والخزائن</span>
-              <h2 className="text-base font-bold text-slate-900 mt-1">كشف حركات الصناديق والحسابات البنكية</h2>
-              <p className="text-xs text-slate-500 mt-0.5">تفاصيل التدفقات النقدية الداخلة والخارجة وحركات العملات الفعلية وأسعار الصرف</p>
+              <h2 className="text-sm font-bold text-slate-900 mt-1">كشف حركات الصناديق والحسابات البنكية</h2>
+              <p className="text-[10px] text-slate-400 font-light mt-0.5">تفاصيل التدفقات النقدية الداخلة والخارجة وحركات العملات الفعلية وأسعار الصرف</p>
             </div>
 
             {/* Holdings breakdown by currency */}
             <div className="text-right sm:text-left space-y-1">
-              <span className="text-[11px] text-slate-500 block font-semibold">الموجودات الفعلية في الصناديق المختارة:</span>
+              <span className="text-[10px] text-slate-400 font-light block font-semibold">الموجودات الفعلية في الصناديق المختارة:</span>
               <div className="flex flex-wrap items-center gap-1.5 justify-end">
                 {Object.entries(treasuriesMovementData.targetHoldings).map(([currCode, amt]) => {
                   const currObj = currencies.find(c => c.code === currCode);
@@ -2645,32 +2332,32 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                   );
                 })}
               </div>
-              <div className="text-[11px] text-slate-400">
+              <div className="text-[10px] text-slate-400">
                 المعادل المحاسبي الإجمالي: <strong className="font-mono text-teal-700 font-bold">{treasuriesMovementData.targetTreasuries.reduce((s, t) => s + t.balance, 0).toLocaleString('ar-SA')} ₪</strong>
               </div>
             </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-semibold border-b">
+            <table className="w-full text-right report-table border-collapse">
+              <thead className="bg-slate-800 text-white font-semibold border-b">
                 <tr>
-                  <th className="p-2.5">التاريخ</th>
-                  <th className="p-2.5">اسم الصندوق / الحساب</th>
-                  <th className="p-2.5">نوع الحركة</th>
-                  <th className="p-2.5">رقم السند</th>
-                  <th className="p-2.5">الطرف المستفيد / الدافع</th>
-                  <th className="p-2.5 text-slate-800">المبلغ الفعلي</th>
-                  <th className="p-2.5 text-center">سعر الصرف</th>
-                  <th className="p-2.5 text-emerald-600">وارد مكافئ (₪)</th>
-                  <th className="p-2.5 text-rose-600">منصرف مكافئ (₪)</th>
-                  <th className="p-2.5">البيان والشرح</th>
+                  <th className="w-20 min-w-20 text-center">التاريخ</th>
+                  <th className="w-24 min-w-24">الصندوق</th>
+                  <th className="w-20 min-w-20 text-center">العملية</th>
+                  <th className="w-16 min-w-16 text-center">المستند</th>
+                  <th>الطرف / المستفيد</th>
+                  <th className="w-20 min-w-20 text-left">المبلغ الفعلي</th>
+                  <th className="w-16 min-w-16 text-center">الصرف</th>
+                  <th className="w-20 min-w-20 text-left">وارد (₪)</th>
+                  <th className="w-20 min-w-20 text-left">منصرف (₪)</th>
+                  <th>البيان والشرح</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-slate-200 text-slate-700">
                 {treasuriesMovementData.rows.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="p-6 text-center text-slate-400">لا توجد حركات مسجلة للصناديق خلال الفترة</td>
+                    <td colSpan={10} className="py-6 text-center text-slate-400">لا توجد حركات مسجلة للصناديق خلال الفترة</td>
                   </tr>
                 ) : (
                   treasuriesMovementData.rows.map((row, idx) => {
@@ -2679,37 +2366,37 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
 
                     return (
                       <tr key={idx} className="hover:bg-slate-50">
-                        <td className="p-2.5 font-mono text-slate-600 whitespace-nowrap">{row.date}</td>
-                        <td className="p-2.5 font-semibold text-slate-900">{row.treasuryName}</td>
-                        <td className="p-2.5 font-medium whitespace-nowrap">{row.type}</td>
-                        <td className="p-2.5 font-mono text-blue-600 font-bold whitespace-nowrap">{row.docNumber}</td>
-                        <td className="p-2.5 text-slate-700">{row.partyName}</td>
-                        <td className="p-2.5 font-mono font-bold text-slate-900 whitespace-nowrap">
+                        <td className="font-mono text-slate-600 text-center whitespace-nowrap">{row.date}</td>
+                        <td className="font-semibold text-slate-900">{row.treasuryName}</td>
+                        <td className="text-center font-medium whitespace-nowrap">{row.type}</td>
+                        <td className="font-mono text-blue-600 font-bold text-center whitespace-nowrap">{row.docNumber}</td>
+                        <td className="text-slate-700">{row.partyName}</td>
+                        <td className="font-mono font-bold text-slate-900 text-left whitespace-nowrap">
                           {row.actualAmount.toLocaleString('ar-SA')} {sym}
                         </td>
-                        <td className="p-2.5 font-mono text-center text-slate-500 whitespace-nowrap">
+                        <td className="font-mono text-center text-slate-500 whitespace-nowrap">
                           {row.exchangeRate.toFixed(4)}
                         </td>
-                        <td className="p-2.5 font-mono font-bold text-emerald-700 whitespace-nowrap">
+                        <td className="font-mono font-bold text-emerald-700 text-left whitespace-nowrap">
                           {row.inflow > 0 ? row.inflow.toLocaleString('ar-SA') : '-'}
                         </td>
-                        <td className="p-2.5 font-mono font-bold text-rose-700 whitespace-nowrap">
+                        <td className="font-mono font-bold text-rose-700 text-left whitespace-nowrap">
                           {row.outflow > 0 ? row.outflow.toLocaleString('ar-SA') : '-'}
                         </td>
-                        <td className="p-2.5 text-slate-500 max-w-[200px] truncate">{row.notes}</td>
+                        <td className="text-slate-500 max-w-[150px] truncate">{row.notes}</td>
                       </tr>
                     );
                   })
                 )}
               </tbody>
-              <tfoot className="bg-slate-100/70 font-bold border-t border-slate-200">
+              <tfoot className="bg-slate-100 font-bold border-t border-slate-300">
                 <tr>
-                  <td colSpan={7} className="p-2.5 text-slate-800">
+                  <td colSpan={7} className="text-slate-800">
                     <div className="space-y-1">
                       <span>إجمالي التدفقات المكافئة (شيكل):</span>
                       {/* Currency Movements Breakdown */}
-                      <div className="flex flex-wrap gap-2 text-[11px] font-normal text-slate-600">
-                        <span>صافي حركة العملات الفعلية:</span>
+                      <div className="flex flex-wrap gap-2 text-[10.5px] font-normal text-slate-600">
+                        <span>صافي حركة العملات:</span>
                         {Object.entries(treasuriesMovementData.currencyMovements).map(([currCode, mov]) => {
                           const m = mov as { in: number; out: number };
                           const net = m.in - m.out;
@@ -2724,19 +2411,21 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                       </div>
                     </div>
                   </td>
-                  <td className="p-2.5 font-mono text-emerald-700 font-black whitespace-nowrap">
+                  <td className="font-mono text-emerald-700 font-black text-left whitespace-nowrap">
                     +{treasuriesMovementData.totalInflow.toLocaleString('ar-SA')} ₪
                   </td>
-                  <td className="p-2.5 font-mono text-rose-700 font-black whitespace-nowrap">
+                  <td className="font-mono text-rose-700 font-black text-left whitespace-nowrap">
                     -{treasuriesMovementData.totalOutflow.toLocaleString('ar-SA')} ₪
                   </td>
-                  <td className="p-2.5 font-mono text-teal-700 font-black whitespace-nowrap">
+                  <td className="font-mono text-teal-700 font-black text-left whitespace-nowrap">
                     صافي: {treasuriesMovementData.netMovement.toLocaleString('ar-SA')} ₪
                   </td>
                 </tr>
               </tfoot>
             </table>
           </div>
+          {/* Signatures */}
+          <ReportSignatures rightLabel="مسؤول الصندوق" centerLabel="المراجع الداخلي" leftLabel="المدير المالي والاعتماد" />
         </div>
       )}
 
@@ -2744,20 +2433,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* FINANCIAL STATEMENTS: Income Statement */}
       {/* ========================================================================= */}
       {activeReport === 'income' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 w-full max-w-5xl mx-auto space-y-4">
-          <div className="text-center border-b pb-4">
-            <h3 className="text-base font-bold text-slate-900">{settings.businessName}</h3>
-            <h4 className="text-xs font-bold text-blue-700 mt-0.5">قائمة الدخل والأرباح والخسائر (Income Statement)</h4>
-            <p className="text-[11px] text-slate-500 mt-0.5">للفترة المنتهية في {new Date().toLocaleDateString('ar-SA')}</p>
-          </div>
+        <div className="report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3">
+          <PrintHeader
+            title="قائمة الدخل والأرباح والخسائر"
+            subtitle={`للفترة المنتهية في ${new Date().toLocaleDateString('ar-SA')}`}
+            docDate={new Date().toISOString().split('T')[0]}
+          />
 
-          <div className="space-y-4 text-xs">
+          <div className="space-y-3 text-xs">
             <div>
-              <div className="font-bold text-xs text-slate-900 bg-slate-50 p-2 rounded-md mb-1.5 flex justify-between border border-slate-200">
+              <div className="font-bold text-xs text-slate-900 bg-slate-100 p-2 rounded mb-1 flex justify-between border border-slate-300">
                 <span>أولاً: الإيرادات التشغيلية (Revenues)</span>
                 <span className="font-mono text-blue-700 font-black">{totalRevenues.toLocaleString('ar-SA')} {settings.currency}</span>
               </div>
-              <div className="space-y-1 px-2 text-[11px]">
+              <div className="space-y-1 px-2 text-xs">
                 <div className="flex justify-between text-slate-700">
                   <span>إيرادات أعمال ومطبوعات المطبعة:</span>
                   <span className="font-mono font-semibold">{revPrinting.toLocaleString('ar-SA')} {settings.currency}</span>
@@ -2774,11 +2463,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
             </div>
 
             <div>
-              <div className="font-bold text-xs text-slate-900 bg-slate-50 p-2 rounded-md mb-1.5 flex justify-between border border-slate-200">
+              <div className="font-bold text-xs text-slate-900 bg-slate-100 p-2 rounded mb-1 flex justify-between border border-slate-300">
                 <span>ثانياً: تكلفة المبيعات والخامات (Cost of Goods Sold)</span>
                 <span className="font-mono text-rose-600 font-black">({totalCogs.toLocaleString('ar-SA')}) {settings.currency}</span>
               </div>
-              <div className="space-y-1 px-2 text-[11px]">
+              <div className="space-y-1 px-2 text-xs">
                 <div className="flex justify-between text-slate-700">
                   <span>تكلفة خامات وأحبار ومستهلكات الطباعة:</span>
                   <span className="font-mono font-semibold">{cogsPrinting.toLocaleString('ar-SA')} {settings.currency}</span>
@@ -2790,17 +2479,17 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
               </div>
             </div>
 
-            <div className="bg-emerald-50 border border-emerald-200 p-2 rounded-md flex justify-between text-xs font-bold text-emerald-900">
+            <div className="bg-emerald-50 border border-emerald-300 p-2 rounded flex justify-between text-xs font-bold text-emerald-900">
               <span>مجمل الربح (Gross Profit):</span>
               <span className="font-mono font-black">{grossProfit.toLocaleString('ar-SA')} {settings.currency}</span>
             </div>
 
             <div>
-              <div className="font-bold text-xs text-slate-900 bg-slate-50 p-2 rounded-md mb-1.5 flex justify-between border border-slate-200">
+              <div className="font-bold text-xs text-slate-900 bg-slate-100 p-2 rounded mb-1 flex justify-between border border-slate-300">
                 <span>ثالثاً: المصروفات التشغيلية والعمومية (Operating Expenses)</span>
                 <span className="font-mono text-rose-600 font-black">({totalExpenses.toLocaleString('ar-SA')}) {settings.currency}</span>
               </div>
-              <div className="space-y-1 px-2 text-[11px]">
+              <div className="space-y-1 px-2 text-xs">
                 <div className="flex justify-between text-slate-700">
                   <span>مصروفات الرواتب والأجور:</span>
                   <span className="font-mono font-semibold">{expSalaries.toLocaleString('ar-SA')} {settings.currency}</span>
@@ -2824,11 +2513,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
               </div>
             </div>
 
-            <div className="bg-slate-900 text-white p-3 rounded-md flex justify-between text-sm font-bold">
+            <div className="bg-slate-900 text-white p-2.5 rounded flex justify-between text-xs font-bold">
               <span>صافي الربح للفترة (Net Profit):</span>
               <span className="font-mono font-black text-emerald-400">{netProfit.toLocaleString('ar-SA')} {settings.currency}</span>
             </div>
           </div>
+          {/* Signatures */}
+          <ReportSignatures rightLabel="إعداد المحاسب القانوني" centerLabel="المراجع المالي" leftLabel="المدير العام والاعتماد" />
         </div>
       )}
 
@@ -2836,19 +2527,19 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* FINANCIAL STATEMENTS: Balance Sheet */}
       {/* ========================================================================= */}
       {activeReport === 'balance_sheet' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 w-full max-w-5xl mx-auto space-y-4">
-          <div className="text-center border-b pb-4">
-            <h3 className="text-base font-bold text-slate-900">{settings.businessName}</h3>
-            <h4 className="text-xs font-bold text-blue-700 mt-0.5">الميزانية العمومية (Balance Sheet)</h4>
-            <p className="text-[11px] text-slate-500 mt-0.5">كما في تاريخ {new Date().toLocaleDateString('ar-SA')}</p>
-          </div>
+        <div className="report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3">
+          <PrintHeader
+            title="الميزانية العمومية والمركز المالي"
+            subtitle={`كما في تاريخ ${new Date().toLocaleDateString('ar-SA')}`}
+            docDate={new Date().toISOString().split('T')[0]}
+          />
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold text-slate-900 bg-slate-50 p-2 rounded-md border border-slate-200">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-slate-900 bg-slate-100 p-1.5 rounded border border-slate-300">
                 الجانب الأيمن: الأصول (Assets)
               </h4>
-              <div className="space-y-1 text-[11px]">
+              <div className="space-y-1 text-xs">
                 <div className="flex justify-between">
                   <span>نقدية بالصندوق (الكاشير):</span>
                   <span className="font-mono font-semibold">{assetCash.toLocaleString('ar-SA')}</span>
@@ -2877,18 +2568,18 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                   <span>آلات ومعدات الطباعة (أصول ثابتة):</span>
                   <span className="font-mono font-semibold">{totalFixedAssets.toLocaleString('ar-SA')}</span>
                 </div>
-                <div className="flex justify-between bg-blue-50 p-2 rounded font-bold text-blue-900 mt-2">
+                <div className="flex justify-between bg-blue-50 border border-blue-200 p-1.5 rounded font-bold text-blue-900 mt-1">
                   <span>مجموع الأصول:</span>
                   <span className="font-mono">{totalAssets.toLocaleString('ar-SA')} {settings.currency}</span>
                 </div>
               </div>
             </div>
 
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold text-slate-900 bg-slate-50 p-2 rounded-md border border-slate-200">
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-slate-900 bg-slate-100 p-1.5 rounded border border-slate-300">
                 الجانب الأيسر: الخصوم وحقوق الملكية
               </h4>
-              <div className="space-y-1 text-[11px]">
+              <div className="space-y-1 text-xs">
                 <div className="flex justify-between">
                   <span>الموردون والذمم الدائنة:</span>
                   <span className="font-mono font-semibold">{liabPayables.toLocaleString('ar-SA')}</span>
@@ -2913,13 +2604,15 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                   <span>أرباح الفترة الحالية:</span>
                   <span className="font-mono font-semibold text-emerald-600">{netProfit.toLocaleString('ar-SA')}</span>
                 </div>
-                <div className="flex justify-between bg-blue-50 p-2 rounded font-bold text-blue-900 mt-2">
+                <div className="flex justify-between bg-blue-50 border border-blue-200 p-1.5 rounded font-bold text-blue-900 mt-1">
                   <span>مجموع الخصوم وحقوق الملكية:</span>
                   <span className="font-mono">{totalEquity.toLocaleString('ar-SA')} {settings.currency}</span>
                 </div>
               </div>
             </div>
           </div>
+          {/* Signatures */}
+          <ReportSignatures rightLabel="إعداد المحاسب القانوني" centerLabel="المراجع المالي" leftLabel="مجلس الإدارة والاعتماد" />
         </div>
       )}
 
@@ -2927,20 +2620,20 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
       {/* FINANCIAL STATEMENTS: VAT Return */}
       {/* ========================================================================= */}
       {activeReport === 'vat' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 w-full max-w-5xl mx-auto space-y-4">
-          <div className="text-center border-b pb-4">
-            <h3 className="text-base font-bold text-slate-900">{settings.businessName}</h3>
-            <h4 className="text-xs font-bold text-blue-700 mt-0.5">إقرار ضريبة القيمة المضافة المعتمد</h4>
-            <p className="text-[11px] text-slate-500 mt-0.5">الرقم الضريبي: {settings.taxNumber || '300000000000003'}</p>
-          </div>
+        <div className="report-a4-container bg-white p-3 sm:p-5 mx-auto print:p-0 print:border-0 print:shadow-none space-y-3">
+          <PrintHeader
+            title="إقرار ضريبة القيمة المضافة المعتمد"
+            subtitle={`الرقم الضريبي: ${settings.taxNumber || '-'}`}
+            docDate={new Date().toISOString().split('T')[0]}
+          />
 
-          <div className="space-y-4 text-xs">
+          <div className="space-y-3 text-xs">
             <div>
-              <div className="font-bold text-xs text-slate-900 bg-slate-50 p-2 rounded-md mb-1.5 flex justify-between border border-slate-200">
+              <div className="font-bold text-xs text-slate-900 bg-slate-100 p-2 rounded mb-1 flex justify-between border border-slate-300">
                 <span>1. المبيعات وضريبة المخرجات:</span>
                 <span className="font-mono text-blue-700 font-black">{totalOutputVat.toLocaleString('ar-SA')} {settings.currency}</span>
               </div>
-              <div className="space-y-1 px-2 text-[11px]">
+              <div className="space-y-1 px-2 text-xs">
                 <div className="flex justify-between">
                   <span>المبيعات الخاضعة للنسبة الأساسية ({settings.vatRate || 0}%):</span>
                   <span className="font-mono font-semibold">{totalSalesTaxable.toLocaleString('ar-SA')} {settings.currency}</span>
@@ -2953,11 +2646,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
             </div>
 
             <div>
-              <div className="font-bold text-xs text-slate-900 bg-slate-50 p-2 rounded-md mb-1.5 flex justify-between border border-slate-200">
+              <div className="font-bold text-xs text-slate-900 bg-slate-100 p-2 rounded mb-1 flex justify-between border border-slate-300">
                 <span>2. المشتريات وضريبة المدخلات:</span>
                 <span className="font-mono text-emerald-700 font-black">{totalInputVat.toLocaleString('ar-SA')} {settings.currency}</span>
               </div>
-              <div className="space-y-1 px-2 text-[11px]">
+              <div className="space-y-1 px-2 text-xs">
                 <div className="flex justify-between">
                   <span>المشتريات الخاضعة للنسبة الأساسية:</span>
                   <span className="font-mono font-semibold">{totalPurchasesTaxable.toLocaleString('ar-SA')} {settings.currency}</span>
@@ -2969,11 +2662,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
               </div>
             </div>
 
-            <div className="bg-slate-900 text-white p-3 rounded-md flex justify-between text-sm font-bold">
+            <div className="bg-slate-900 text-white p-2.5 rounded flex justify-between text-xs font-bold">
               <span>صافي الضريبة المستحقة للسداد:</span>
               <span className="font-mono font-black text-amber-400">{netVatPayable.toLocaleString('ar-SA')} {settings.currency}</span>
             </div>
           </div>
+          {/* Signatures */}
+          <ReportSignatures rightLabel="إعداد مسؤول الضرائب" centerLabel="المراجع القانوني" leftLabel="المفوض بالتوقيع والاعتماد" />
         </div>
       )}
     </div>

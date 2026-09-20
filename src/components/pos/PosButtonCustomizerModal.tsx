@@ -290,7 +290,7 @@ export const PosButtonCustomizerModal: React.FC<PosButtonCustomizerModalProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in duration-150">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden text-slate-800">
         {/* Modal Header */}
         <div className="p-4 bg-gradient-to-r from-blue-900 to-indigo-900 text-white flex items-center justify-between border-b border-blue-800">
@@ -419,7 +419,7 @@ export const PosButtonCustomizerModal: React.FC<PosButtonCustomizerModalProps> =
                     setIsAddingNew(false);
                     setEditingButton(null);
                   }}
-                  className="text-xs text-slate-500 hover:text-slate-800 font-semibold"
+                  className="text-[10px] text-slate-400 font-light hover:text-slate-800 font-semibold"
                 >
                   إلغاء التعديل
                 </button>
@@ -631,7 +631,7 @@ export const PosButtonCustomizerModal: React.FC<PosButtonCustomizerModalProps> =
                 <span>
                   ترتيب أزرار <strong>{activeTab === 'bottom_bar' ? 'الشريط السفلي' : activeTab === 'top_toolbar' ? 'الشريط العلوي' : 'شريط الاختصارات'}</strong> (استخدم الأسهم لتحريك الزر للأعلى أو للأسفل):
                 </span>
-                <span className="text-[11px] text-slate-500">
+                <span className="text-[10px] text-slate-400 font-light">
                   إجمالي: {currentSectionButtons.length} زر
                 </span>
               </div>
@@ -711,7 +711,7 @@ export const PosButtonCustomizerModal: React.FC<PosButtonCustomizerModalProps> =
                                 </span>
                               )}
                             </div>
-                            <div className="text-[11px] text-slate-500 truncate mt-0.5">
+                            <div className="text-[10px] text-slate-400 font-light truncate mt-0.5">
                               {btn.subLabel || ACTION_OPTIONS.find(a => a.type === btn.actionType)?.label || btn.actionType}
                             </div>
                           </div>

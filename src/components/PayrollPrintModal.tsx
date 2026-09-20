@@ -2,6 +2,7 @@ import React from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { Printer, X, CheckCircle, Building2, Calendar, DollarSign, FileText } from 'lucide-react';
 import { PrintHeader } from './common/PrintHeader';
+import { ReportSignatures } from './common/ReportSignatures';
 
 export const PayrollPrintModal: React.FC = () => {
   const { selectedPayrollSheetForPrint, setSelectedPayrollSheetForPrint, settings } = useAccounting();
@@ -15,8 +16,8 @@ export const PayrollPrintModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto print:p-0 print:bg-white print:static">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full border border-slate-200 overflow-hidden my-auto print:shadow-none print:border-none print:max-w-none print:rounded-none">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto print:p-0 print:m-0 print:bg-white print:static print:overflow-visible print-modal-container">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full border border-slate-200 overflow-hidden my-auto print:shadow-none print:border-none print:max-w-none print:w-full print:rounded-none print:overflow-visible">
         
         {/* Top Control Bar (Hidden when printing) */}
         <div className="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between print:hidden">
@@ -156,33 +157,8 @@ export const PayrollPrintModal: React.FC = () => {
           </div>
 
           {/* Disbursement Details & Signatures */}
-          <div className="pt-4 border-t border-slate-200 grid grid-cols-3 gap-6 text-center text-xs">
-            <div className="space-y-6">
-              <span className="font-bold text-slate-700">المحاسب المسؤول</span>
-              <div className="border-b border-dashed border-slate-400 w-3/4 mx-auto pt-6"></div>
-              <span className="text-[11px] text-slate-500">التوقيع والتاريخ</span>
-            </div>
-
-            <div className="space-y-6">
-              <span className="font-bold text-slate-700">أمين الصندوق / الخزينة</span>
-              <div className="border-b border-dashed border-slate-400 w-3/4 mx-auto pt-6"></div>
-              <span className="text-[11px] text-slate-500">تم الصرف والخصم</span>
-            </div>
-
-            <div className="space-y-6">
-              <span className="font-bold text-slate-700">المدير العام / الاعتماد</span>
-              <div className="border-b border-dashed border-slate-400 w-3/4 mx-auto pt-6"></div>
-              <span className="text-[11px] text-slate-500">يعتمد الصرف</span>
-            </div>
-          </div>
-
-          {/* Watermark / Legal Note */}
-          <div className="text-[10px] text-slate-400 text-center border-t border-slate-100 pt-2 print:block">
-            كشف مسير رواتب معتمد آلياً بواسطة نظام المحاسبة والشؤون الإدارية - {settings.businessName}
-          </div>
-
+          <ReportSignatures rightLabel="المحاسب المسؤول" centerLabel="أمين الصندوق / الخزينة" leftLabel="المدير العام والختم الرسمي" />
         </div>
-
       </div>
     </div>
   );

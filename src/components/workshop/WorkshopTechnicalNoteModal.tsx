@@ -45,7 +45,7 @@ export const WorkshopTechnicalNoteModal: React.FC<WorkshopTechnicalNoteModalProp
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
       <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
@@ -82,7 +82,7 @@ export const WorkshopTechnicalNoteModal: React.FC<WorkshopTechnicalNoteModalProp
         <div className="p-4 sm:p-5 flex-1 overflow-y-auto space-y-3 bg-slate-50/70">
           <div className="flex items-center justify-between text-xs font-bold text-slate-700 pb-1 border-b border-slate-200">
             <span>سجل التوجيهات والملاحظات الفنية ({notesList.length})</span>
-            <span className="text-[11px] text-slate-500 font-normal">تسجل مع اسم الفني وتوقيت الإضافة</span>
+            <span className="text-[10px] text-slate-400 font-light font-normal">تسجل مع اسم الفني وتوقيت الإضافة</span>
           </div>
 
           {notesList.length === 0 ? (
@@ -100,7 +100,7 @@ export const WorkshopTechnicalNoteModal: React.FC<WorkshopTechnicalNoteModalProp
                   key={nt.id}
                   className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs space-y-2 text-right"
                 >
-                  <div className="flex items-center justify-between text-xs text-slate-500 border-b border-slate-100 pb-1.5">
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 font-light border-b border-slate-100 pb-1.5">
                     <div className="flex items-center gap-1.5 text-indigo-900 font-bold">
                       <User className="w-3.5 h-3.5 text-indigo-600" />
                       <span>{nt.userName || 'فني الورشة'}</span>

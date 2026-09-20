@@ -41,6 +41,12 @@ export const Sidebar: React.FC = () => {
       badgeColor: 'bg-amber-500/20 text-amber-300'
     },
     {
+      id: 'manual_invoices',
+      label: 'فاتورة مبيعات يدوية',
+      icon: FileText,
+      badge: null
+    },
+    {
       id: 'invoices',
       label: 'فواتير المبيعات',
       icon: FileText,

@@ -64,35 +64,36 @@ export const DEFAULT_POS_BUTTONS: PosCustomButton[] = [
   // --- BOTTOM MAIN ACTION BAR ---
   {
     id: 'btn_f5_save',
-    label: 'F5 حفظ',
+    label: 'حفظ',
     subLabel: 'حفظ الفاتورة',
     iconName: 'Save',
     actionType: 'save_invoice',
     colorScheme: 'blue',
-    shortcut: 'F5',
+    shortcut: 'Ctrl+S',
     location: 'bottom_bar',
     order: 1,
     isVisible: true
   },
   {
     id: 'btn_f10_print',
-    label: 'F10 طباعة',
+    label: 'حراري',
     subLabel: 'حفظ وطباعة',
     iconName: 'Printer',
     actionType: 'save_and_print',
     colorScheme: 'blue',
-    shortcut: 'F10',
+    shortcut: 'Ctrl+C',
     location: 'bottom_bar',
     order: 2,
     isVisible: true
   },
   {
     id: 'btn_pay_cash',
-    label: 'دفع ⛁',
+    label: 'دفع',
     subLabel: 'سداد نقدي',
     iconName: 'Banknote',
     actionType: 'quick_pay_cash',
     colorScheme: 'blue',
+    shortcut: 'F5',
     location: 'bottom_bar',
     order: 3,
     isVisible: true
@@ -104,13 +105,14 @@ export const DEFAULT_POS_BUTTONS: PosCustomButton[] = [
     iconName: 'Printer',
     actionType: 'pay_cash_and_print',
     colorScheme: 'blue',
+    shortcut: 'Ctrl+↵',
     location: 'bottom_bar',
     order: 4,
     isVisible: true
   },
   {
     id: 'btn_pay_card',
-    label: 'فيزا 💳',
+    label: 'فيزا',
     subLabel: 'بطاقة ائتمان',
     iconName: 'CreditCard',
     actionType: 'quick_pay_card',
@@ -121,7 +123,7 @@ export const DEFAULT_POS_BUTTONS: PosCustomButton[] = [
   },
   {
     id: 'btn_f9_hold',
-    label: 'F9 تعليق',
+    label: 'تعليق',
     subLabel: 'تعليق الفاتورة',
     iconName: 'PauseCircle',
     actionType: 'hold_invoice',
@@ -281,13 +283,36 @@ export const DEFAULT_POS_BUTTONS: PosCustomButton[] = [
 
 const POS_BUTTONS_STORAGE_KEY = 'pos_custom_buttons_config_v2';
 
-export function loadPosCustomButtons(): PosCustomButton[] {
+export function getPosButtonsStorageKey(userId?: string): string {
+  if (userId && userId.trim() !== '') {
+    return `${POS_BUTTONS_STORAGE_KEY}_user_${userId.trim()}`;
+  }
+  return POS_BUTTONS_STORAGE_KEY;
+}
+
+export function loadPosCustomButtons(userId?: string): PosCustomButton[] {
   try {
-    const raw = localStorage.getItem(POS_BUTTONS_STORAGE_KEY);
+    const key = getPosButtonsStorageKey(userId);
+    let raw = localStorage.getItem(key);
+    // Fallback to legacy shared key if user specific doesn't exist yet
+    if (!raw && userId) {
+      raw = localStorage.getItem(POS_BUTTONS_STORAGE_KEY);
+    }
     if (!raw) return DEFAULT_POS_BUTTONS;
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
+      // Migrate old default buttons to new labels/shortcuts
+      return parsed.map(btn => {
+        const defaultBtn = DEFAULT_POS_BUTTONS.find(d => d.id === btn.id);
+        if (defaultBtn && !btn.isCustom) {
+          return {
+            ...btn,
+            shortcut: defaultBtn.shortcut,
+            label: defaultBtn.label, // Also sync label to remove F5 from text
+          };
+        }
+        return btn;
+      });
     }
     return DEFAULT_POS_BUTTONS;
   } catch (err) {
@@ -296,17 +321,19 @@ export function loadPosCustomButtons(): PosCustomButton[] {
   }
 }
 
-export function savePosCustomButtons(buttons: PosCustomButton[]): void {
+export function savePosCustomButtons(buttons: PosCustomButton[], userId?: string): void {
   try {
-    localStorage.setItem(POS_BUTTONS_STORAGE_KEY, JSON.stringify(buttons));
+    const key = getPosButtonsStorageKey(userId);
+    localStorage.setItem(key, JSON.stringify(buttons));
   } catch (err) {
     console.error('Failed to save POS custom buttons:', err);
   }
 }
 
-export function resetPosCustomButtonsToDefault(): PosCustomButton[] {
+export function resetPosCustomButtonsToDefault(userId?: string): PosCustomButton[] {
   try {
-    localStorage.removeItem(POS_BUTTONS_STORAGE_KEY);
+    const key = getPosButtonsStorageKey(userId);
+    localStorage.removeItem(key);
   } catch {}
   return DEFAULT_POS_BUTTONS;
 }

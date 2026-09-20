@@ -3,7 +3,7 @@ import { CurrencyInfo } from '../types';
 export const defaultCurrencies: CurrencyInfo[] = [
   {
     code: 'ILS',
-    name: 'شيكل فلسطيني (العملة الأساسية)',
+    name: 'شيكل',
     symbol: '₪',
     rateAgainstBase: 1.0,
     isBase: true,
@@ -56,7 +56,7 @@ export function getCurrencyInfo(code: string, currencies: CurrencyInfo[] = defau
   return (
     found || {
       code: code || 'ILS',
-      name: code || 'شيكل فلسطيني',
+      name: code || 'شيكل',
       symbol: code === 'ILS' ? '₪' : code,
       rateAgainstBase: 1.0,
       isBase: code === 'ILS'

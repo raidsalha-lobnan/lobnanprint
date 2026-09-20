@@ -152,7 +152,7 @@ export const EmployeeAdjustmentsView: React.FC<EmployeeAdjustmentsViewProps> = (
       {/* Top Metrics Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-          <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+          <div className="flex items-center justify-between text-[10px] text-slate-400 font-light font-medium">
             <span>سلف معلقة للاقتطاع</span>
             <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
               <CreditCard className="w-4 h-4" />
@@ -161,13 +161,13 @@ export const EmployeeAdjustmentsView: React.FC<EmployeeAdjustmentsViewProps> = (
           <div className="text-lg font-black font-mono text-amber-700 mt-1">
             {pendingAdvancesTotal.toLocaleString()} <span className="text-xs font-normal text-slate-400">{settings.currency}</span>
           </div>
-          <div className="text-[10px] text-slate-500 mt-0.5">
+          <div className="text-[9px] text-slate-400 font-light mt-0.5">
             {employeeAdvances.filter(a => a.status === 'pending').length} سلفة في انتظار كشف الرواتب
           </div>
         </div>
 
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-          <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+          <div className="flex items-center justify-between text-[10px] text-slate-400 font-light font-medium">
             <span>خصومات معلقة للاقتطاع</span>
             <div className="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
               <MinusCircle className="w-4 h-4" />
@@ -176,13 +176,13 @@ export const EmployeeAdjustmentsView: React.FC<EmployeeAdjustmentsViewProps> = (
           <div className="text-lg font-black font-mono text-rose-700 mt-1">
             {pendingDeductionsTotal.toLocaleString()} <span className="text-xs font-normal text-slate-400">{settings.currency}</span>
           </div>
-          <div className="text-[10px] text-slate-500 mt-0.5">
+          <div className="text-[9px] text-slate-400 font-light mt-0.5">
             {employeeDeductions.filter(d => d.status === 'pending').length} خصم مسجل
           </div>
         </div>
 
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-          <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
+          <div className="flex items-center justify-between text-[10px] text-slate-400 font-light font-medium">
             <span>حوافز ومكافآت معلقة</span>
             <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
               <PlusCircle className="w-4 h-4" />
@@ -191,13 +191,13 @@ export const EmployeeAdjustmentsView: React.FC<EmployeeAdjustmentsViewProps> = (
           <div className="text-lg font-black font-mono text-emerald-700 mt-1">
             {pendingIncentivesTotal.toLocaleString()} <span className="text-xs font-normal text-slate-400">{settings.currency}</span>
           </div>
-          <div className="text-[10px] text-slate-500 mt-0.5">
+          <div className="text-[9px] text-slate-400 font-light mt-0.5">
             {employeeIncentives.filter(i => i.status === 'pending').length} حافز ومكافأة
           </div>
         </div>
 
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
-          <div className="text-xs text-slate-500 font-medium">إجراءات سريعة للموظفين</div>
+          <div className="text-[10px] text-slate-400 font-light font-medium">إجراءات سريعة للموظفين</div>
           <div className="flex items-center gap-1.5 mt-2">
             <button
               onClick={() => onOpenAddModal('advance')}

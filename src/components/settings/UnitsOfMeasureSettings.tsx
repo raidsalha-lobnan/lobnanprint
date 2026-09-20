@@ -214,7 +214,7 @@ export const UnitsOfMeasureSettings: React.FC = () => {
 
       {/* Modal Add/Edit */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-2xs flex items-center justify-center p-3">
+        <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-2xs flex items-center justify-center p-3">
           <div className="bg-white rounded-2xl shadow-xl border border-slate-300 w-full max-w-md p-5 text-xs text-slate-800 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <h4 className="font-bold text-sm text-[#1f4a7c]">

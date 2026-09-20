@@ -33,6 +33,10 @@ export interface PosLayoutConfig {
 
   // Bottom Area Arrangement (ترتيب قسم الدفع في الأسفل)
   bottomLayoutOrder: 'payment_first' | 'standard' | 'totals_first';
+
+  // Date Lock Option (تثبيت التاريخ في كل العمليات على تاريخ محدد)
+  isDateLocked?: boolean;
+  lockedDate?: string;
 }
 
 export const DEFAULT_POS_LAYOUT_CONFIG: PosLayoutConfig = {
@@ -62,14 +66,28 @@ export const DEFAULT_POS_LAYOUT_CONFIG: PosLayoutConfig = {
 
   uiDensity: 'normal',
   fontSize: 'medium',
-  bottomLayoutOrder: 'payment_first'
+  bottomLayoutOrder: 'payment_first',
+  isDateLocked: false,
+  lockedDate: ''
 };
 
 const STORAGE_KEY = 'pos_layout_config_v3';
 
-export function loadPosLayoutConfig(): PosLayoutConfig {
+export function getPosLayoutStorageKey(userId?: string): string {
+  if (userId && userId.trim() !== '') {
+    return `${STORAGE_KEY}_user_${userId.trim()}`;
+  }
+  return STORAGE_KEY;
+}
+
+export function loadPosLayoutConfig(userId?: string): PosLayoutConfig {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const key = getPosLayoutStorageKey(userId);
+    let raw = localStorage.getItem(key);
+    // Fallback to legacy shared key if user specific doesn't exist yet
+    if (!raw && userId) {
+      raw = localStorage.getItem(STORAGE_KEY);
+    }
     if (!raw) return DEFAULT_POS_LAYOUT_CONFIG;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return DEFAULT_POS_LAYOUT_CONFIG;
@@ -89,16 +107,17 @@ export function loadPosLayoutConfig(): PosLayoutConfig {
   }
 }
 
-export function savePosLayoutConfig(config: PosLayoutConfig): void {
+export function savePosLayoutConfig(config: PosLayoutConfig, userId?: string): void {
   try {
     if (!config || typeof config !== 'object') return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    const key = getPosLayoutStorageKey(userId);
+    localStorage.setItem(key, JSON.stringify(config));
   } catch (err) {
     console.error('Failed to save pos layout config', err);
   }
 }
 
-export function resetPosLayoutConfigToDefault(): PosLayoutConfig {
-  savePosLayoutConfig(DEFAULT_POS_LAYOUT_CONFIG);
+export function resetPosLayoutConfigToDefault(userId?: string): PosLayoutConfig {
+  savePosLayoutConfig(DEFAULT_POS_LAYOUT_CONFIG, userId);
   return DEFAULT_POS_LAYOUT_CONFIG;
 }

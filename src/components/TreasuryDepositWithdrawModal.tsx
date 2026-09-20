@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import { posSound } from '../utils/audio';
 import { PaymentVoucher } from '../types';
@@ -218,7 +219,7 @@ export const TreasuryDepositWithdrawModal: React.FC<TreasuryDepositWithdrawModal
   return (
     <div
       id="treasury-deposit-withdraw-modal-backdrop"
-      className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
       dir="rtl"
     >
       <div
@@ -582,11 +583,7 @@ export const TreasuryDepositWithdrawModal: React.FC<TreasuryDepositWithdrawModal
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-slate-800 mb-1.5">تاريخ الحركة *</label>
-                  <input
-                    type="date"
-                    id="input-op-date"
-                    value={date}
-                    onChange={e => setDate(e.target.value)}
+                  <DateInput id="input-op-date" value={date} onChange={e => setDate(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                     required
                   />
@@ -612,7 +609,7 @@ export const TreasuryDepositWithdrawModal: React.FC<TreasuryDepositWithdrawModal
                     <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
                     <span>معاينة القيد المحاسبي المزدوج التلقائي</span>
                   </div>
-                  <span className="text-[10px] text-slate-500 font-normal">
+                  <span className="text-[9px] text-slate-400 font-light font-normal">
                     {mode === 'deposit' ? 'سند قبض رسمي آلي' : 'سند صرف رسمي آلي'}
                   </span>
                 </div>

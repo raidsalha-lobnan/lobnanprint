@@ -45,7 +45,7 @@ export class ErrorBoundary extends (React.Component as any) {
           <h3 className="text-base font-bold text-slate-900 mb-1">
             {this.props.fallbackTitle || 'حدث تنبيه في عرض هذا الجزء'}
           </h3>
-          <p className="text-xs text-slate-500 max-w-md mb-4 leading-relaxed">
+          <p className="text-[10px] text-slate-400 font-light max-w-md mb-4 leading-relaxed">
             تم تفادي توقف البرنامج تلقائياً. يمكنك إعادة المحاولة أو المتابعة بأمان.
           </p>
           <div className="flex items-center gap-2">

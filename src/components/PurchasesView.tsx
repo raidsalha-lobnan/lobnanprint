@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import { PurchaseInvoice, PurchaseReturn, PaymentMethod, Party, PaymentVoucher } from '../types';
 import {
@@ -469,7 +470,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
             <h2 className="text-sm font-black text-slate-900">
               إدارة المشتريات والموردين ومردودات الخامات وسندات الصرف
             </h2>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[10px] text-slate-400 font-light">
               دورة مشتريات متكاملة: موردين بأكواد تسلسلية غير متكررة، فواتير توريد، مرتجعات مخزنية، وسندات صرف تفصيلية
             </p>
           </div>
@@ -514,7 +515,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-slate-500 font-semibold">إجمالي المشتريات:</span>
+            <span className="text-[10px] text-slate-400 font-light font-semibold">إجمالي المشتريات:</span>
             <span className="text-[10px] font-mono bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-bold">
               {purchases.length} فاتورة
             </span>
@@ -527,7 +528,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
 
         <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-slate-500 font-semibold">المبالغ المنصرفة:</span>
+            <span className="text-[10px] text-slate-400 font-light font-semibold">المبالغ المنصرفة:</span>
             <span className="text-[10px] font-mono bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-bold">
               {supplierVouchers.length} سند صرف
             </span>
@@ -540,7 +541,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
 
         <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-slate-500 font-semibold">مستحقات الموردين:</span>
+            <span className="text-[10px] text-slate-400 font-light font-semibold">مستحقات الموردين:</span>
             <span className="text-[10px] font-mono bg-rose-50 text-rose-700 px-1.5 py-0.5 rounded font-bold">
               التزام علينا
             </span>
@@ -553,7 +554,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
 
         <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-slate-500 font-semibold">مردودات المشتريات:</span>
+            <span className="text-[10px] text-slate-400 font-light font-semibold">مردودات المشتريات:</span>
             <span className="text-[10px] font-mono bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-bold">
               {purchaseReturns.length} إشعار
             </span>
@@ -1274,7 +1275,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
       {/* --- MODAL: NEW PURCHASE INVOICE (فاتورة مشتريات) --- */}
       {/* ========================================================= */}
       {showNewPurchaseModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
           <div className="bg-white rounded-xl max-w-3xl w-full p-5 shadow-2xl border border-slate-200 max-h-[92vh] overflow-y-auto my-auto text-right font-sans">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-4">
               <div className="flex items-center gap-2">
@@ -1288,7 +1289,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
                       {previewPurchaseNumber}
                     </span>
                   </h3>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[10px] text-slate-400 font-light">
                     عملية شراء وتوريد خامات تزيد أرصدة المخزن تلقائياً وتسجل استحقاق المورد
                   </p>
                 </div>
@@ -1351,11 +1352,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
                 {/* Purchase Date */}
                 <div>
                   <label className="block text-slate-700 font-medium mb-1 text-[11px]">تاريخ الفاتورة:</label>
-                  <input
-                    type="date"
-                    required
-                    value={purchaseDate}
-                    onChange={e => setPurchaseDate(e.target.value)}
+                  <DateInput required value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs font-mono focus:bg-white focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -1606,7 +1603,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
       {/* --- MODAL: PURCHASE RETURN (مرتجع مشتريات) --- */}
       {/* ========================================================= */}
       {showReturnModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
           <div className="bg-white rounded-xl max-w-2xl w-full p-5 shadow-2xl border border-slate-200 max-h-[92vh] overflow-y-auto my-auto text-right font-sans">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-4">
               <div className="flex items-center gap-2">
@@ -1620,7 +1617,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
                       {previewReturnNumber}
                     </span>
                   </h3>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[10px] text-slate-400 font-light">
                     إرجاع خامات تالفة أو غير مطابقة للمورد وخصمها من رصيد المخزن والمديونية
                   </p>
                 </div>
@@ -1683,11 +1680,7 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
 
                 <div>
                   <label className="block text-slate-700 font-medium mb-1 text-[11px]">تاريخ المرتجع:</label>
-                  <input
-                    type="date"
-                    required
-                    value={returnDate}
-                    onChange={e => setReturnDate(e.target.value)}
+                  <DateInput required value={returnDate} onChange={e => setReturnDate(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs font-mono"
                   />
                 </div>

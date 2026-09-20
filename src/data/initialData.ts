@@ -1,3 +1,4 @@
+import { CATEGORY_DEFINITIONS } from '../utils/barcodeGenerator';
 import {
   Account,
   InventoryItem,
@@ -16,12 +17,14 @@ import {
   EmployeeIncentive,
   PayrollSheet,
   Treasury,
-  StockMovement
+  StockMovement,
+  ExpenseItem
 } from '../types';
 import { defaultCurrencies } from '../utils/currencies';
 import { defaultUnitsOfMeasure } from '../utils/unitsOfMeasure';
 
 export const initialSettings: BusinessSettings = {
+  categories: Object.values(CATEGORY_DEFINITIONS),
   businessName: 'مكتبة ومطبعة النور الحديثة',
   businessNameEn: 'Al-Noor Modern Press & Bookstore',
   activityType: 'خدمات الطباعة والنشر والقرطاسية والأدوات المدرسية',
@@ -126,7 +129,7 @@ export const initialInventory: InventoryItem[] = [
     customerSpecialPrices: [
       {
         customerId: 'pt-1',
-        customerName: 'مطعم ومقهى السحاب الراقي',
+        customerName: 'عميل كاشير نقدي',
         customerCode: 'CUST-0001',
         price: 11.0,
         notes: 'سعر خاص عميل تعاقدي دائم'
@@ -159,7 +162,7 @@ export const initialInventory: InventoryItem[] = [
     customerSpecialPrices: [
       {
         customerId: 'pt-1',
-        customerName: 'مطعم ومقهى السحاب الراقي',
+        customerName: 'عميل كاشير نقدي',
         customerCode: 'CUST-0001',
         price: 27.0,
         notes: 'سعر مخصص للطلبات الدورية'
@@ -362,7 +365,7 @@ export const initialParties: Party[] = [
     id: 'pt-1',
     code: 'CUST-0001',
     type: 'customer',
-    name: 'مطعم ومقهى السحاب الراقي',
+    name: 'عميل كاشير نقدي',
     phone: '0551122334',
     email: 'info@alsahab.com',
     taxNumber: '300998877600003',
@@ -392,7 +395,7 @@ export const initialParties: Party[] = [
     openingBalanceDate: '2026-01-01',
     openingBalanceType: 'debit',
     creditLimit: 2000,
-    notes: 'زبون فرعي / دين مؤقت متصل بمطعم ومقهى السحاب الراقي'
+    notes: 'زبون فرعي / دين مؤقت متصل بعميل كاشير نقدي'
   },
   {
     id: 'pt-2',
@@ -477,7 +480,7 @@ export const initialPrintOrders: PrintJobOrder[] = [
     id: 'job-101',
     orderNumber: 'JOB-2026-0084',
     customerId: 'pt-1',
-    customerName: 'مطعم ومقهى السحاب الراقي',
+    customerName: 'عميل كاشير نقدي',
     customerPhone: '0551122334',
     title: 'طباعة منيو طعام فاخر مقاس A4 مطوي وجهين',
     serviceType: 'flyer_brochure',
@@ -543,7 +546,7 @@ export const initialPrintOrders: PrintJobOrder[] = [
     id: 'job-104',
     orderNumber: 'JOB-2026-0087',
     customerId: 'pt-1',
-    customerName: 'مطعم ومقهى السحاب الراقي',
+    customerName: 'عميل كاشير نقدي',
     customerPhone: '0551122334',
     title: 'لوحة فليكس مضيئة مع حديد ومحولات إضاءة',
     serviceType: 'banner_flex',
@@ -810,7 +813,7 @@ export const initialInvoices: Invoice[] = [
     invoiceNumber: 'INV-2026-1007',
     date: '2026-09-03',
     customerId: 'pt-1',
-    customerName: 'مطعم ومقهى السحاب الراقي',
+    customerName: 'عميل كاشير نقدي',
     customerPhone: '0551122334',
     subCustomerName: 'فرع الكورنيش الشمالي',
     deliveryDate: '2026-09-08',
@@ -1534,7 +1537,7 @@ export const initialVouchers: PaymentVoucher[] = [
     type: 'receipt',
     date: '2026-09-02',
     partyId: 'pt-1',
-    partyName: 'مطعم ومقهى السحاب الراقي',
+    partyName: 'عميل كاشير نقدي',
     amount: 1300.0,
     paymentMethod: 'bank_transfer',
     accountCode: '1201',
@@ -1872,6 +1875,73 @@ export const initialStockMovements: StockMovement[] = [
     referenceNumber: 'INV-2026-0092',
     reason: 'مبيعات معرض الكتاب الداخلي',
     performedBy: 'كاشير 2'
+  }
+];
+
+export const initialExpenses: ExpenseItem[] = [
+  {
+    id: 'exp-1',
+    date: '2026-09-13',
+    expenseAccountCode: '5203',
+    expenseAccountName: 'مصروفات الصيانة وقطع غيار الماكينات',
+    category: 'maintenance',
+    categoryName: 'صيانة ماكينات',
+    amount: 450,
+    paymentMethod: 'cash',
+    treasuryAccountCode: '1101',
+    treasuryName: 'الصندوق الرئيسي (كاش)',
+    beneficiary: 'فني صيانة ماكينات Heidelberg',
+    taxInvoiceNumber: 'INV-MT-8841',
+    notes: 'صيانة دورية للمقص الهيدروليكي وتبديل حساس الأمان',
+    createdAt: '2026-09-13T10:00:00.000Z'
+  },
+  {
+    id: 'exp-2',
+    date: '2026-09-13',
+    expenseAccountCode: '5205',
+    expenseAccountName: 'مصروفات عمومية وتسويق',
+    category: 'hospitality',
+    categoryName: 'ضيافة وبوفيه',
+    amount: 180,
+    paymentMethod: 'cash',
+    treasuryAccountCode: '1101',
+    treasuryName: 'الصندوق الرئيسي (كاش)',
+    beneficiary: 'سوبرماركت المدينة',
+    taxInvoiceNumber: 'REC-992',
+    notes: 'شراء شاي وقهوة ومستلزمات نظافة للمطبعة والمكتبة',
+    createdAt: '2026-09-13T11:30:00.000Z'
+  },
+  {
+    id: 'exp-3',
+    date: '2026-09-11',
+    expenseAccountCode: '5204',
+    expenseAccountName: 'مصروفات الكهرباء والماء والمرافق',
+    category: 'utilities',
+    categoryName: 'كهرباء ومرافق',
+    amount: 1250,
+    paymentMethod: 'bank_transfer',
+    treasuryAccountCode: '1102',
+    treasuryName: 'بنك فلسطين - جاري',
+    beneficiary: 'شركة توزيع الكهرباء',
+    taxInvoiceNumber: 'ELEC-2026-09',
+    notes: 'سداد فاتورة استهلاك كهرباء خط الورشة والمطبعة',
+    createdAt: '2026-09-11T14:00:00.000Z'
+  },
+  {
+    id: 'exp-4',
+    date: '2026-09-08',
+    expenseAccountCode: '5205',
+    expenseAccountName: 'مصروفات عمومية وتسويق',
+    category: 'marketing',
+    categoryName: 'تسويق وإعلانات',
+    amount: 600,
+    paymentMethod: 'bank_transfer',
+    treasuryAccountCode: '1102',
+    treasuryName: 'بنك فلسطين - جاري',
+    beneficiary: 'وكالة الإعلان الرقمي',
+    taxInvoiceNumber: 'ADS-1049',
+    notes: 'حملة إعلانية ممولة على منصات التواصل لموسم المدارس والطباعة',
+    createdAt: '2026-09-08T09:15:00.000Z'
   }
 ];
 

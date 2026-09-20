@@ -54,7 +54,7 @@ export const PriceEditModal: React.FC<PriceEditModalProps> = ({
   const selectedItem = inventory.find(i => i.id === selectedItemId);
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-lg overflow-hidden text-slate-800">
         <div className="bg-emerald-700 text-white px-5 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -117,7 +117,7 @@ export const PriceEditModal: React.FC<PriceEditModalProps> = ({
             <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
               <div className="flex justify-between items-center">
                 <span className="font-bold text-slate-800">{selectedItem.name}</span>
-                <span className="text-[11px] text-slate-500">التكلفة: {selectedItem.purchasePrice.toFixed(2)} {settings.currency}</span>
+                <span className="text-[10px] text-slate-400 font-light">التكلفة: {selectedItem.purchasePrice.toFixed(2)} {settings.currency}</span>
               </div>
 
               <div>

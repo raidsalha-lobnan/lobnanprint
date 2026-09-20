@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../context/AccountingContext';
+import { shareDriveFolderWithEmail, getSavedDriveToken } from '../services/googleDriveService';
 import { SystemUser, Role, PermissionKey, PERMISSION_DEFINITIONS, PermissionDefinition, AllowedPriceTierScope } from '../types';
 import {
   Users,
@@ -70,7 +71,8 @@ export const UsersPermissionsView: React.FC = () => {
     status: 'active' as 'active' | 'inactive',
     avatarColor: 'bg-indigo-600',
     allowedPriceTier: 'all' as AllowedPriceTierScope,
-    canEditPrices: false
+    canEditPrices: false,
+    shareDriveAttachments: false
   });
 
   // Role form state
@@ -142,7 +144,8 @@ export const UsersPermissionsView: React.FC = () => {
         status: user.status,
         avatarColor: user.avatarColor || 'bg-indigo-600',
         allowedPriceTier: user.allowedPriceTier || 'all',
-        canEditPrices: userCanEdit
+        canEditPrices: userCanEdit,
+        shareDriveAttachments: false
       });
     } else {
       setEditingUser(null);
@@ -167,8 +170,19 @@ export const UsersPermissionsView: React.FC = () => {
   };
 
   // Save User
-  const handleSaveUser = (e: React.FormEvent) => {
+  const [isSharingDrive, setIsSharingDrive] = useState(false);
+  const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (userForm.shareDriveAttachments && userForm.email) {
+      setIsSharingDrive(true);
+      try {
+        await shareDriveFolderWithEmail(userForm.email);
+      } catch (err) {
+        console.error(err);
+      }
+      setIsSharingDrive(false);
+    }
     if (!userForm.username.trim() || !userForm.fullName.trim()) {
       alert('يرجى إدخال اسم المستخدم والاسم الكامل');
       return;
@@ -417,7 +431,7 @@ export const UsersPermissionsView: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-slate-500 font-bold">تصفية حسب الدور:</span>
+              <span className="text-[10px] text-slate-400 font-light font-bold">تصفية حسب الدور:</span>
               <select
                 value={selectedRoleFilter}
                 onChange={(e) => setSelectedRoleFilter(e.target.value)}
@@ -463,7 +477,7 @@ export const UsersPermissionsView: React.FC = () => {
                               </span>
                             )}
                           </h3>
-                          <div className="flex items-center gap-2 text-xs text-slate-500 font-mono">
+                          <div className="flex items-center gap-2 text-[10px] text-slate-400 font-light font-mono">
                             <span>@{user.username}</span>
                             <span>•</span>
                             <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
@@ -757,7 +771,7 @@ export const UsersPermissionsView: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="font-black text-slate-900 text-lg">{currentUser.fullName}</h3>
-                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <div className="flex items-center gap-2 text-[10px] text-slate-400 font-light">
                     <span className="font-mono">@{currentUser.username}</span>
                     <span>•</span>
                     <span className="bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded">
@@ -855,7 +869,7 @@ export const UsersPermissionsView: React.FC = () => {
       {/* MODAL: ADD / EDIT USER */}
       {/* ========================================================= */}
       {isUserModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden my-8 animate-in zoom-in-95 duration-150">
             <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1044,9 +1058,28 @@ export const UsersPermissionsView: React.FC = () => {
                       <option value="price2">سعر بيع 1 فقط</option>
                       <option value="price3">سعر بيع 2 فقط</option>
                     </select>
-                    <p className="text-[10px] text-slate-500 mt-1">
+                    <p className="text-[9px] text-slate-400 font-light mt-1">
                       يحدد فئات التسعير المتاحة للمستخدم عند إصدار الفاتورة بالكاشير.
                     </p>
+                  </div>
+
+                  {/* Google Drive Sharing */}
+                  <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-100 flex items-start gap-2.5">
+                    <input
+                      type="checkbox"
+                      id="shareDrive"
+                      checked={userForm.shareDriveAttachments}
+                      onChange={(e) => setUserForm({ ...userForm, shareDriveAttachments: e.target.checked })}
+                      className="mt-1"
+                    />
+                    <div className="flex-1">
+                      <label htmlFor="shareDrive" className="text-xs font-bold text-indigo-900 block cursor-pointer">
+                        مشاركة مجلد مرفقات Google Drive مع هذا المستخدم
+                      </label>
+                      <p className="text-[10px] text-indigo-700 mt-1 leading-relaxed">
+                        عند تفعيل هذا الخيار، سيتم منح الإيميل المدخل (<strong>{userForm.email || 'يرجى إدخال الإيميل'}</strong>) صلاحية قراءة ومشاهدة جميع المرفقات التي تم رفعها عبر النظام على الدرايف.
+                      </p>
+                    </div>
                   </div>
 
                   {/* إمكانية التعديل على السعر يدوياً */}
@@ -1062,7 +1095,7 @@ export const UsersPermissionsView: React.FC = () => {
                       <option value="allow">✅ مسموح (يمكنه تعديل السعر يدوياً)</option>
                       <option value="deny">🔒 مقفل ومحمي (لا يمكنه تعديل السعر)</option>
                     </select>
-                    <p className="text-[10px] text-slate-500 mt-1">
+                    <p className="text-[9px] text-slate-400 font-light mt-1">
                       إذا تم القفل، لن يتمكن المستخدم من تعديل سعر البيع مباشرة في الكاشير.
                     </p>
                   </div>
@@ -1109,9 +1142,10 @@ export const UsersPermissionsView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs cursor-pointer"
+                  disabled={isSharingDrive}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  حفظ المستخدم
+                  {isSharingDrive ? 'جاري المشاركة...' : 'حفظ المستخدم'}
                 </button>
               </div>
             </form>
@@ -1123,7 +1157,7 @@ export const UsersPermissionsView: React.FC = () => {
       {/* MODAL: ADD / EDIT ROLE WITH 20 GRANULAR PERMISSIONS */}
       {/* ========================================================= */}
       {isRoleModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden my-8 animate-in zoom-in-95 duration-150">
             <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-2">

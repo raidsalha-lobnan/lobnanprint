@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { DateInput } from '../../components/common/DateInput';
 import { useAccounting } from '../../context/AccountingContext';
 import { DatabaseZeroingOptions, ZeroingExecutionResult } from '../../types';
 import { initialParties, initialInventory, initialTreasuries } from '../../data/initialData';
@@ -21,7 +22,14 @@ import {
   Layers,
   ArrowRight,
   Printer,
-  Sparkles
+  Sparkles,
+  Package,
+  UserCheck,
+  BadgeDollarSign,
+  ArrowUpDown,
+  FileText,
+  Warehouse as WarehouseIcon,
+  RefreshCw
 } from 'lucide-react';
 
 export const DatabaseZeroingSettings: React.FC = () => {
@@ -30,6 +38,7 @@ export const DatabaseZeroingSettings: React.FC = () => {
     lastBackupInfo,
     exportDataJSON,
     performDatabaseZeroing,
+    forceSyncNow,
     invoices,
     purchases,
     salesReturns,
@@ -39,6 +48,12 @@ export const DatabaseZeroingSettings: React.FC = () => {
     printOrders,
     stockMovements,
     warehouseOperations,
+    debtClearings,
+    expenses,
+    employees,
+    employeeAdvances,
+    employeeDeductions,
+    employeeIncentives,
     payrollSheets,
     parties,
     inventory,
@@ -56,13 +71,27 @@ export const DatabaseZeroingSettings: React.FC = () => {
   // 2. إعدادات التاريخ والنطاق
   const todayStr = new Date().toISOString().split('T')[0];
   const [cutoffDate, setCutoffDate] = useState<string>(todayStr);
-  const [scope, setScope] = useState<'up_to_date' | 'all'>('up_to_date');
+  const [fromDate, setFromDate] = useState<string>(todayStr);
+  const [scope, setScope] = useState<'up_to_date' | 'from_date' | 'date_range' | 'all'>('up_to_date');
 
   // 3. خيارات التصفير
   const [options, setOptions] = useState<DatabaseZeroingOptions>({
     cutoffDate: todayStr,
+    fromDate: todayStr,
     scope: 'up_to_date',
-    // الحركات والعمليات
+    // 1. الموظفون والرواتب بالكامل
+    resetEmployees: true,
+    resetPayroll: true,
+    resetEmployeeAdvances: true,
+    resetEmployeeDeductions: true,
+    resetEmployeeIncentives: true,
+    // 2. الأصناف والمخزون وحركات الصنف
+    zeroInventoryStock: true,
+    resetManualInventoryItems: true,
+    resetStockMovements: true,
+    resetWarehouseOperations: true,
+    resetManualWarehouses: false,
+    // 3. العمليات والفواتير
     resetInvoices: true,
     resetPurchases: true,
     resetSalesReturns: true,
@@ -70,21 +99,16 @@ export const DatabaseZeroingSettings: React.FC = () => {
     resetVouchers: true,
     resetJournalEntries: true,
     resetPrintOrders: true,
-    resetStockMovements: true,
-    resetWarehouseOperations: true,
-    resetPayroll: true,
-    // العملاء والموردين
+    resetDebtClearings: true,
+    resetExpenses: true,
+    // 4. الأطراف والعملاء والموردين
     resetManualParties: true,
     zeroPartyBalances: true,
-    // المخازن والأصناف
-    zeroInventoryStock: true,
-    resetManualInventoryItems: false,
-    resetManualWarehouses: false,
-    // الصناديق والخزنات
+    // 5. الصناديق والخزنات
     zeroTreasuryBalances: true,
     resetManualTreasuries: false,
-    // الحسابات
-    zeroAccountBalances: false
+    // 6. الحسابات
+    zeroAccountBalances: true
   });
 
   // مزامنة التاريخ والنطاق في الخيارات
@@ -92,9 +116,10 @@ export const DatabaseZeroingSettings: React.FC = () => {
     setOptions(prev => ({
       ...prev,
       cutoffDate,
+      fromDate,
       scope
     }));
-  }, [cutoffDate, scope]);
+  }, [cutoffDate, fromDate, scope]);
 
   // كلمة التأكيد
   const [confirmInput, setConfirmInput] = useState('');
@@ -115,6 +140,12 @@ export const DatabaseZeroingSettings: React.FC = () => {
     if (scope === 'all') return true;
     if (!dateStr) return true;
     const clean = dateStr.split('T')[0];
+    if (scope === 'from_date') {
+      return clean >= fromDate;
+    }
+    if (scope === 'date_range') {
+      return clean >= fromDate && clean <= cutoffDate;
+    }
     return clean <= cutoffDate;
   };
 
@@ -131,17 +162,27 @@ export const DatabaseZeroingSettings: React.FC = () => {
     const vchCount = vouchers.filter(v => isBeforeCutoff(v.date)).length;
     const jeCount = journalEntries.filter(j => isBeforeCutoff(j.date)).length;
     const poCount = printOrders.filter(o => isBeforeCutoff(o.createdAt || o.deliveryDate)).length;
+    const dcCount = (debtClearings || []).filter(d => isBeforeCutoff(d.date || d.createdAt)).length;
+    const expCount = (expenses || []).filter(e => isBeforeCutoff(e.date || e.createdAt)).length;
+
+    // الأصناف وحركات المخزون والعمليات
     const smCount = stockMovements.filter(m => isBeforeCutoff(m.date)).length;
     const woCount = warehouseOperations.filter(w => isBeforeCutoff(w.date)).length;
-    const psCount = payrollSheets.filter(p => isBeforeCutoff(p.createdAt)).length;
+    const totalItems = inventory.length;
+    const manualItems = inventory.filter(i => isBeforeCutoff(i.lastMovementDate || (i as any).createdAt)).length;
+    const itemsWithStock = inventory.filter(i => i.stockQuantity !== 0).length;
+    const manualWhs = warehouses.filter(w => !defaultWhSet.has(w.id) && isBeforeCutoff(w.createdAt)).length;
 
+    // الموظفون والرواتب والسلف
+    const empCount = employees.filter(e => isBeforeCutoff(e.joinDate || e.createdAt)).length;
+    const psCount = payrollSheets.filter(p => isBeforeCutoff(p.createdAt)).length;
+    const advCount = employeeAdvances.filter(a => isBeforeCutoff(a.date)).length;
+    const dedCount = employeeDeductions.filter(d => isBeforeCutoff(d.date)).length;
+    const incCount = employeeIncentives.filter(i => isBeforeCutoff(i.date)).length;
+
+    // العملاء والصناديق والحسابات
     const manualParties = parties.filter(p => !initialPartiesSet.has(p.id) && isBeforeCutoff(p.openingBalanceDate || (p as any).createdAt)).length;
     const partiesWithBalance = parties.filter(p => p.balance !== 0).length;
-
-    const manualItems = inventory.filter(i => !initialInvSet.has(i.id) && isBeforeCutoff(i.lastMovementDate || (i as any).createdAt)).length;
-    const itemsWithStock = inventory.filter(i => i.stockQuantity !== 0).length;
-
-    const manualWhs = warehouses.filter(w => !defaultWhSet.has(w.id) && isBeforeCutoff(w.createdAt)).length;
     const manualTreas = treasuries.filter(t => !initialTreasurySet.has(t.id) && isBeforeCutoff(t.createdAt)).length;
     const treasWithBal = treasuries.filter(t => t.balance !== 0).length;
 
@@ -153,23 +194,32 @@ export const DatabaseZeroingSettings: React.FC = () => {
       vchCount,
       jeCount,
       poCount,
+      dcCount,
+      expCount,
       smCount,
       woCount,
-      psCount,
-      manualParties,
-      partiesWithBalance,
+      totalItems,
       manualItems,
       itemsWithStock,
       manualWhs,
+      empCount,
+      psCount,
+      advCount,
+      dedCount,
+      incCount,
+      totalPayrollOperations: psCount + advCount + dedCount + incCount,
+      manualParties,
+      partiesWithBalance,
       manualTreas,
       treasWithBal,
       totalAccounts: accounts.length
     };
   }, [
     invoices, purchases, salesReturns, purchaseReturns, vouchers, journalEntries,
-    printOrders, stockMovements, warehouseOperations, payrollSheets, parties,
-    inventory, warehouses, treasuries, accounts, cutoffDate, scope,
-    initialPartiesSet, initialInvSet, defaultWhSet, initialTreasurySet
+    printOrders, debtClearings, expenses, stockMovements, warehouseOperations, inventory,
+    warehouses, employees, payrollSheets, employeeAdvances, employeeDeductions,
+    employeeIncentives, parties, treasuries, accounts, cutoffDate, fromDate, scope,
+    initialPartiesSet, defaultWhSet, initialTreasurySet
   ]);
 
   // إجمالي السجلات التي سيتم حذفها أو تصفيرها
@@ -182,12 +232,18 @@ export const DatabaseZeroingSettings: React.FC = () => {
     if (options.resetVouchers) count += counts.vchCount;
     if (options.resetJournalEntries) count += counts.jeCount;
     if (options.resetPrintOrders) count += counts.poCount;
+    if (options.resetDebtClearings !== false) count += counts.dcCount;
+    if (options.resetExpenses !== false) count += counts.expCount;
+    // مخزون وأصناف
     if (options.resetStockMovements) count += counts.smCount;
     if (options.resetWarehouseOperations) count += counts.woCount;
-    if (options.resetPayroll) count += counts.psCount;
-    if (options.resetManualParties) count += counts.manualParties;
     if (options.resetManualInventoryItems) count += counts.manualItems;
     if (options.resetManualWarehouses) count += counts.manualWhs;
+    // موظفون ورواتب
+    if (options.resetEmployees) count += counts.empCount;
+    if (options.resetPayroll) count += counts.totalPayrollOperations;
+    // عملاء وخزائن
+    if (options.resetManualParties) count += counts.manualParties;
     if (options.resetManualTreasuries) count += counts.manualTreas;
     return count;
   }, [options, counts]);
@@ -196,6 +252,19 @@ export const DatabaseZeroingSettings: React.FC = () => {
   const handleSelectAll = () => {
     setOptions(prev => ({
       ...prev,
+      // موظفون
+      resetEmployees: true,
+      resetPayroll: true,
+      resetEmployeeAdvances: true,
+      resetEmployeeDeductions: true,
+      resetEmployeeIncentives: true,
+      // أصناف ومخزون
+      zeroInventoryStock: true,
+      resetManualInventoryItems: true,
+      resetStockMovements: true,
+      resetWarehouseOperations: true,
+      resetManualWarehouses: true,
+      // عمليات
       resetInvoices: true,
       resetPurchases: true,
       resetSalesReturns: true,
@@ -203,14 +272,12 @@ export const DatabaseZeroingSettings: React.FC = () => {
       resetVouchers: true,
       resetJournalEntries: true,
       resetPrintOrders: true,
-      resetStockMovements: true,
-      resetWarehouseOperations: true,
-      resetPayroll: true,
+      resetDebtClearings: true,
+      resetExpenses: true,
+      // أطراف
       resetManualParties: true,
       zeroPartyBalances: true,
-      zeroInventoryStock: true,
-      resetManualInventoryItems: true,
-      resetManualWarehouses: true,
+      // خزنات وحسابات
       zeroTreasuryBalances: true,
       resetManualTreasuries: true,
       zeroAccountBalances: true
@@ -219,10 +286,15 @@ export const DatabaseZeroingSettings: React.FC = () => {
 
   const handleSelectRecommendedLive = () => {
     // التوصية المثالية للاعتماد والبدء الفعلي:
-    // تصفير كل الحركات + تصفير كميات المخزون + تصفير أرصدة الذمم والديون والصناديق
-    // مع الإبقاء على الدليل والأصناف الأساسية للعمل المباشر
+    // تصفير كل الحركات والعمليات + تصفير كميات المخزون + تصفير أرصدة الذمم والديون والصناديق
+    // مع الإبقاء على الدليل والأصناف الأساسية وأسماء الموظفين للعمل الفوري
     setOptions(prev => ({
       ...prev,
+      resetEmployees: false, // الإبقاء على أسماء الموظفين
+      resetPayroll: true,    // تصفير مسيرات وسلف الرواتب السابقة
+      resetEmployeeAdvances: true,
+      resetEmployeeDeductions: true,
+      resetEmployeeIncentives: true,
       resetInvoices: true,
       resetPurchases: true,
       resetSalesReturns: true,
@@ -230,15 +302,16 @@ export const DatabaseZeroingSettings: React.FC = () => {
       resetVouchers: true,
       resetJournalEntries: true,
       resetPrintOrders: true,
-      resetStockMovements: true,
-      resetWarehouseOperations: true,
-      resetPayroll: true,
-      resetManualParties: false, // الإبقاء على العملاء
-      zeroPartyBalances: true,   // تصفير الأرصدة
-      zeroInventoryStock: true,  // تصفير كميات المخزون لجرد جديد
-      resetManualInventoryItems: false, // الإبقاء على الأصناف
+      resetDebtClearings: true,
+      resetExpenses: true,
+      resetStockMovements: true,      // تصفير كافة حركات الصرف والقبض والجرد
+      resetWarehouseOperations: true,// تصفير أذونات المستودعات
+      resetManualParties: false,     // الإبقاء على العملاء
+      zeroPartyBalances: true,       // تصفير أرصدة العملاء
+      zeroInventoryStock: true,      // تصفير كميات المخزون لبدء جرد فعلي (0)
+      resetManualInventoryItems: false, // الإبقاء على كرتات الأصناف
       resetManualWarehouses: false,
-      zeroTreasuryBalances: true, // تصفير رصيد الصندوق
+      zeroTreasuryBalances: true,    // تصفير رصيد الصندوق
       resetManualTreasuries: false,
       zeroAccountBalances: true
     }));
@@ -247,6 +320,11 @@ export const DatabaseZeroingSettings: React.FC = () => {
   const handleDeselectAll = () => {
     setOptions(prev => ({
       ...prev,
+      resetEmployees: false,
+      resetPayroll: false,
+      resetEmployeeAdvances: false,
+      resetEmployeeDeductions: false,
+      resetEmployeeIncentives: false,
       resetInvoices: false,
       resetPurchases: false,
       resetSalesReturns: false,
@@ -254,9 +332,10 @@ export const DatabaseZeroingSettings: React.FC = () => {
       resetVouchers: false,
       resetJournalEntries: false,
       resetPrintOrders: false,
+      resetDebtClearings: false,
+      resetExpenses: false,
       resetStockMovements: false,
       resetWarehouseOperations: false,
-      resetPayroll: false,
       resetManualParties: false,
       zeroPartyBalances: false,
       zeroInventoryStock: false,
@@ -271,21 +350,23 @@ export const DatabaseZeroingSettings: React.FC = () => {
   // شروط السماح بالتصفير
   const isConfirmInputValid = confirmInput.trim() === 'تصفير' || confirmInput.trim().toUpperCase() === 'RESET';
   const hasSelectedAny =
-    options.resetInvoices || options.resetPurchases || options.resetSalesReturns ||
-    options.resetPurchaseReturns || options.resetVouchers || options.resetJournalEntries ||
+    options.resetEmployees || options.resetPayroll || options.resetInvoices || options.resetPurchases ||
+    options.resetSalesReturns || options.resetPurchaseReturns || options.resetVouchers || options.resetJournalEntries ||
     options.resetPrintOrders || options.resetStockMovements || options.resetWarehouseOperations ||
-    options.resetPayroll || options.resetManualParties || options.zeroPartyBalances ||
-    options.zeroInventoryStock || options.resetManualInventoryItems || options.resetManualWarehouses ||
-    options.zeroTreasuryBalances || options.resetManualTreasuries || options.zeroAccountBalances;
+    options.resetDebtClearings || options.resetExpenses ||
+    options.resetManualParties || options.zeroPartyBalances || options.zeroInventoryStock ||
+    options.resetManualInventoryItems || options.resetManualWarehouses || options.zeroTreasuryBalances ||
+    options.resetManualTreasuries || options.zeroAccountBalances;
 
   const canExecute = isSystemAdmin && sessionBackupCompleted && isConfirmInputValid && hasSelectedAny && !isExecuting;
 
-  const handleExecuteZeroing = () => {
+  const handleExecuteZeroing = async () => {
     if (!canExecute) return;
 
     const confirmMsg =
-      `تحذير نهائي!\nهل أنت متأكد تماماً من تصفير قاعدة البيانات حتى تاريخ (${cutoffDate})؟\n` +
-      `سيتم حذف ${totalSelectedItemsToZero} حركة وسجل وتصفير الأرصدة المحددة بشكل نهائي لا رجعة فيه.\n` +
+      `تحذير نهائي!\nهل أنت متأكد تماماً من تصفير قاعدة البيانات ` +
+      (scope === 'all' ? 'لكافة التواريخ' : scope === 'up_to_date' ? `حتى تاريخ (${cutoffDate})` : scope === 'from_date' ? `بدءاً من تاريخ (${fromDate})` : `بين تاريخي (${fromDate} و ${cutoffDate})`) +
+      `؟\nسيتم حذف ${totalSelectedItemsToZero} حركة وسجل وتصفير الأرصدة المحددة بشكل نهائي لا رجعة فيه.\n` +
       `هل ترغب بالاستمرار؟`;
 
     if (!window.confirm(confirmMsg)) return;
@@ -293,6 +374,8 @@ export const DatabaseZeroingSettings: React.FC = () => {
     setIsExecuting(true);
     try {
       const res = performDatabaseZeroing(options);
+      await new Promise(resolve => setTimeout(resolve, 800)); // wait for react state to settle
+      await forceSyncNow(); // ensure the deletions are committed to firebase before showing success
       setExecutionResult(res);
       setShowResultModal(true);
       setConfirmInput('');
@@ -321,7 +404,7 @@ export const DatabaseZeroingSettings: React.FC = () => {
               </span>
             </div>
             <p className="text-slate-300 text-xs mt-1 leading-relaxed">
-              خاصية معتمدة لتصفير كافة العمليات والفواتير التجريبية والأرصدة إلى تاريخ معين، لإعادة تهيئة النظام والبدء الفعلي النظيف بعد مرحلة التجربة والتدريب.
+              خاصية معتمدة وشاملة لتصفير كافة العمليات التجريبية، فواتير المبيعات، كرتات وحركات الأصناف والمخزون، وبيانات ومستحقات الموظفين لبدء التشغيل الإنتاجي النظيف.
             </p>
           </div>
         </div>
@@ -421,30 +504,12 @@ export const DatabaseZeroingSettings: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* حقل اختيار التاريخ */}
-          <div className="space-y-1.5">
-            <label className="block text-slate-700 font-bold text-[11px] flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5 text-blue-600" />
-              <span>تصفير الحركات والبيانات المسجلة حتى تاريخ:</span>
-            </label>
-            <input
-              type="date"
-              value={cutoffDate}
-              onChange={(e) => setCutoffDate(e.target.value)}
-              disabled={!isSystemAdmin || scope === 'all'}
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono font-bold text-slate-800 focus:bg-white focus:border-blue-500 focus:outline-hidden disabled:opacity-50"
-            />
-            <p className="text-[10px] text-slate-500">
-              سيتم استهداف المعاملات والسجلات المنشأة في أو قبل هذا التاريخ.
-            </p>
-          </div>
-
           {/* نطاق التصفير */}
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 md:col-span-2">
             <label className="block text-slate-700 font-bold text-[11px]">
               نطاق سريان التصفير:
             </label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
               <label className={`p-2.5 rounded-lg border cursor-pointer flex items-center gap-2 transition-all ${
                 scope === 'up_to_date'
                   ? 'bg-blue-50 border-blue-300 text-blue-900 font-bold'
@@ -456,9 +521,41 @@ export const DatabaseZeroingSettings: React.FC = () => {
                   checked={scope === 'up_to_date'}
                   onChange={() => setScope('up_to_date')}
                   disabled={!isSystemAdmin}
-                  className="text-blue-600 cursor-pointer"
+                  className="text-blue-600 cursor-pointer shrink-0"
                 />
-                <span className="text-[11px]">حتى التاريخ المحدد فقط</span>
+                <span className="text-[11px] leading-tight">حتى التاريخ المحدد</span>
+              </label>
+
+              <label className={`p-2.5 rounded-lg border cursor-pointer flex items-center gap-2 transition-all ${
+                scope === 'from_date'
+                  ? 'bg-amber-50 border-amber-300 text-amber-900 font-bold'
+                  : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+              }`}>
+                <input
+                  type="radio"
+                  name="zeroScope"
+                  checked={scope === 'from_date'}
+                  onChange={() => setScope('from_date')}
+                  disabled={!isSystemAdmin}
+                  className="text-amber-600 cursor-pointer shrink-0"
+                />
+                <span className="text-[11px] leading-tight">بدءاً من التاريخ</span>
+              </label>
+
+              <label className={`p-2.5 rounded-lg border cursor-pointer flex items-center gap-2 transition-all ${
+                scope === 'date_range'
+                  ? 'bg-purple-50 border-purple-300 text-purple-900 font-bold'
+                  : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+              }`}>
+                <input
+                  type="radio"
+                  name="zeroScope"
+                  checked={scope === 'date_range'}
+                  onChange={() => setScope('date_range')}
+                  disabled={!isSystemAdmin}
+                  className="text-purple-600 cursor-pointer shrink-0"
+                />
+                <span className="text-[11px] leading-tight">بين تاريخين</span>
               </label>
 
               <label className={`p-2.5 rounded-lg border cursor-pointer flex items-center gap-2 transition-all ${
@@ -472,441 +569,423 @@ export const DatabaseZeroingSettings: React.FC = () => {
                   checked={scope === 'all'}
                   onChange={() => setScope('all')}
                   disabled={!isSystemAdmin}
-                  className="text-rose-600 cursor-pointer"
+                  className="text-rose-600 cursor-pointer shrink-0"
                 />
-                <span className="text-[11px]">تصفير شامل لكافة التواريخ</span>
+                <span className="text-[11px] leading-tight">تصفير شامل لكافة التواريخ</span>
               </label>
             </div>
-            <p className="text-[10px] text-slate-500">
-              {scope === 'up_to_date' ? 'يسمح بالإبقاء على أي عمليات تم إدخالها بعد تاريخ الاعتماد.' : 'سيتم تصفير كل السجلات التجريبية دون استثناء.'}
+            <p className="text-[10px] text-slate-500 font-light pt-1">
+              {scope === 'up_to_date' && 'سيتم تصفير أي عمليات تم إدخالها قبل أو في التاريخ المحدد (يُبقي على ما بعده).'}
+              {scope === 'from_date' && 'سيتم تصفير أي عمليات تم إدخالها في أو بعد التاريخ المحدد (يُبقي على ما قبله).'}
+              {scope === 'date_range' && 'سيتم تصفير أي عمليات تمت بين التاريخين المحددين فقط.'}
+              {scope === 'all' && 'سيتم تصفير كل السجلات التجريبية والعمليات دون استثناء.'}
             </p>
           </div>
+
+          {/* حقل اختيار التاريخ من */}
+          {(scope === 'from_date' || scope === 'date_range') && (
+            <div className="space-y-1.5">
+              <label className="block text-slate-700 font-bold text-[11px] flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                <span>بدءاً من تاريخ:</span>
+              </label>
+              <DateInput value={fromDate} onChange={(e) => setFromDate(e.target.value)}
+                disabled={!isSystemAdmin}
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono font-bold text-slate-800 focus:bg-white focus:border-amber-500 focus:outline-hidden disabled:opacity-50"
+              />
+            </div>
+          )}
+
+          {/* حقل اختيار التاريخ إلى */}
+          {(scope === 'up_to_date' || scope === 'date_range') && (
+            <div className="space-y-1.5">
+              <label className="block text-slate-700 font-bold text-[11px] flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                <span>حتى تاريخ (شاملاً):</span>
+              </label>
+              <DateInput value={cutoffDate} onChange={(e) => setCutoffDate(e.target.value)}
+                disabled={!isSystemAdmin}
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono font-bold text-slate-800 focus:bg-white focus:border-blue-500 focus:outline-hidden disabled:opacity-50"
+              />
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Step 3: Granular Item Selection */}
+      {/* Step 3: Comprehensive Zeroing Sections (Employees, Inventory & Stock Cards, Invoices, Accounts) */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs">
+            <div className="w-6 h-6 rounded-md bg-rose-50 text-rose-600 flex items-center justify-center font-bold text-xs">
               3
             </div>
             <div>
-              <h3 className="font-bold text-xs text-slate-900">
-                الخطوة الثالثة: اختيار المراد تصفيره بدقة (البنود والعمليات)
+              <h3 className="font-bold text-xs text-rose-900">
+                الخطوة الثالثة: تحديد بنود التصفير الشاملة (الموظفين، الأصناف والمخزون، الفواتير، الحسابات)
               </h3>
-              <p className="text-[10px] text-slate-500">حدد البنود التي ترغب بتصفيرها لبدء نسختك الفعلية:</p>
+              <p className="text-[10px] text-rose-700">تحكم دقيق في كل ما يخص الموظفين، كرتات وحركات الأصناف، وكافة العمليات المرتبطة</p>
             </div>
           </div>
 
-          {/* أزرار الاختيار السريع */}
+          {/* Quick Selection Buttons */}
           <div className="flex items-center gap-1.5 flex-wrap">
             <button
               type="button"
-              onClick={handleSelectRecommendedLive}
-              disabled={!isSystemAdmin}
-              className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-md font-bold text-[11px] flex items-center gap-1 cursor-pointer"
-              title="تصفير كل الحركات والكميات والديون مع الإبقاء على العملاء والأصناف والدليل"
-            >
-              <Sparkles className="w-3 h-3 text-amber-600" />
-              <span>توصية الاعتماد الفعلي</span>
-            </button>
-            <button
-              type="button"
               onClick={handleSelectAll}
-              disabled={!isSystemAdmin}
-              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-semibold text-[11px] cursor-pointer"
+              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-bold text-[11px] transition-colors cursor-pointer"
             >
               تحديد الكل
             </button>
             <button
               type="button"
+              onClick={handleSelectRecommendedLive}
+              className="px-2.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-md font-bold text-[11px] transition-colors cursor-pointer flex items-center gap-1"
+            >
+              <Sparkles className="w-3 h-3 text-emerald-600" />
+              <span>البدء الفعلي (الموصى به)</span>
+            </button>
+            <button
+              type="button"
               onClick={handleDeselectAll}
-              disabled={!isSystemAdmin}
-              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-semibold text-[11px] cursor-pointer"
+              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-md text-[11px] transition-colors cursor-pointer"
             >
               إلغاء التحديد
             </button>
           </div>
         </div>
 
-        {/* أقسام الاختيارات */}
+        {/* 4 Pillars Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-          {/* القسم 1: الحركات والعمليات المالية */}
-          <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 space-y-2.5">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-1.5 text-slate-900 font-bold">
-              <span className="flex items-center gap-1.5">
-                <Receipt className="w-4 h-4 text-blue-600" />
-                <span>1. الحركات والفواتير والعمليات المالية</span>
-              </span>
-              <span className="text-[10px] text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200 font-mono">
-                {counts.invCount + counts.purCount + counts.vchCount + counts.jeCount} حركة
+          
+          {/* SECTION 1: الموظفون والرواتب ومستحقاتهم بالكامل */}
+          <div className="bg-blue-50/60 border border-blue-200 rounded-xl p-3.5 space-y-3">
+            <div className="flex items-center justify-between pb-1.5 border-b border-blue-200/70">
+              <div className="flex items-center gap-2 font-bold text-xs text-blue-950">
+                <Users className="w-4 h-4 text-blue-600" />
+                <span>1. الموظفون والرواتب ومستحقاتهم بالكامل</span>
+              </div>
+              <span className="bg-blue-200/80 text-blue-900 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full">
+                {counts.empCount} موظف | {counts.totalPayrollOperations} حركة راتب وسلف
               </span>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
-                <span className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={options.resetInvoices}
-                    onChange={(e) => setOptions({ ...options, resetInvoices: e.target.checked })}
-                    disabled={!isSystemAdmin}
-                    className="w-4 h-4 text-rose-600 rounded-sm"
-                  />
-                  <span className="font-semibold text-slate-800 text-[11px]">فواتير المبيعات ونقاط البيع (POS)</span>
-                </span>
-                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
-                  {counts.invCount} فاتورة
-                </span>
+            <div className="space-y-2 text-[11px]">
+              {/* Reset Employees */}
+              <label className="flex items-start gap-2 cursor-pointer hover:bg-blue-100/50 p-1.5 rounded-lg transition-colors">
+                <input
+                  type="checkbox"
+                  checked={options.resetEmployees}
+                  onChange={(e) => setOptions(prev => ({ ...prev, resetEmployees: e.target.checked }))}
+                  disabled={!isSystemAdmin}
+                  className="rounded text-blue-600 mt-0.5 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-800">حذف أسماء وسجلات الموظفين بالكامل</div>
+                  <div className="text-slate-500 text-[10px]">
+                    حذف بطاقات الموظفين المسجلين ({counts.empCount} موظف مسجل) للبدء بإدخال كادر عمل جديد.
+                  </div>
+                </div>
               </label>
 
-              <label className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
-                <span className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={options.resetPurchases}
-                    onChange={(e) => setOptions({ ...options, resetPurchases: e.target.checked })}
-                    disabled={!isSystemAdmin}
-                    className="w-4 h-4 text-rose-600 rounded-sm"
-                  />
-                  <span className="font-semibold text-slate-800 text-[11px]">فواتير المشتريات ومشتريات الخامات</span>
-                </span>
-                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
-                  {counts.purCount} فاتورة
-                </span>
+              {/* Reset Payroll Sheets */}
+              <label className="flex items-start gap-2 cursor-pointer hover:bg-blue-100/50 p-1.5 rounded-lg transition-colors">
+                <input
+                  type="checkbox"
+                  checked={options.resetPayroll}
+                  onChange={(e) => setOptions(prev => ({ ...prev, resetPayroll: e.target.checked }))}
+                  disabled={!isSystemAdmin}
+                  className="rounded text-blue-600 mt-0.5 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-800">تصفير مسيرات وكشوفات الرواتب السابقة</div>
+                  <div className="text-slate-500 text-[10px]">
+                    حذف كافة مسيرات الرواتب الشهرية والأسبوعية واليومية ({counts.psCount} مسير راتب).
+                  </div>
+                </div>
               </label>
 
-              <label className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
-                <span className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={options.resetSalesReturns && options.resetPurchaseReturns}
-                    onChange={(e) => setOptions({ ...options, resetSalesReturns: e.target.checked, resetPurchaseReturns: e.target.checked })}
-                    disabled={!isSystemAdmin}
-                    className="w-4 h-4 text-rose-600 rounded-sm"
-                  />
-                  <span className="font-semibold text-slate-800 text-[11px]">مردودات المبيعات ومردودات المشتريات</span>
-                </span>
-                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
-                  {counts.srCount + counts.prCount} مردود
-                </span>
-              </label>
-
-              <label className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
-                <span className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={options.resetVouchers}
-                    onChange={(e) => setOptions({ ...options, resetVouchers: e.target.checked })}
-                    disabled={!isSystemAdmin}
-                    className="w-4 h-4 text-rose-600 rounded-sm"
-                  />
-                  <span className="font-semibold text-slate-800 text-[11px]">سندات القبض والصرف المالي</span>
-                </span>
-                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
-                  {counts.vchCount} سند
-                </span>
-              </label>
-
-              <label className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
-                <span className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={options.resetJournalEntries}
-                    onChange={(e) => setOptions({ ...options, resetJournalEntries: e.target.checked })}
-                    disabled={!isSystemAdmin}
-                    className="w-4 h-4 text-rose-600 rounded-sm"
-                  />
-                  <span className="font-semibold text-slate-800 text-[11px]">قيود اليومية المحاسبية وحركات الأستاذ</span>
-                </span>
-                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
-                  {counts.jeCount} قيد
-                </span>
-              </label>
-
-              <label className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
-                <span className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={options.resetPrintOrders}
-                    onChange={(e) => setOptions({ ...options, resetPrintOrders: e.target.checked })}
-                    disabled={!isSystemAdmin}
-                    className="w-4 h-4 text-rose-600 rounded-sm"
-                  />
-                  <span className="font-semibold text-slate-800 text-[11px]">أوامر تشغيل المطبعة والورشة</span>
-                </span>
-                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
-                  {counts.poCount} أمر
-                </span>
-              </label>
-
-              <label className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
-                <span className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={options.resetStockMovements && options.resetWarehouseOperations}
-                    onChange={(e) => setOptions({ ...options, resetStockMovements: e.target.checked, resetWarehouseOperations: e.target.checked })}
-                    disabled={!isSystemAdmin}
-                    className="w-4 h-4 text-rose-600 rounded-sm"
-                  />
-                  <span className="font-semibold text-slate-800 text-[11px]">حركات المخزون والمناقلات وعمليات المستودعات</span>
-                </span>
-                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
-                  {counts.smCount + counts.woCount} حركة
-                </span>
-              </label>
-
-              <label className="flex items-center justify-between p-1.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
-                <span className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={options.resetPayroll}
-                    onChange={(e) => setOptions({ ...options, resetPayroll: e.target.checked })}
-                    disabled={!isSystemAdmin}
-                    className="w-4 h-4 text-rose-600 rounded-sm"
-                  />
-                  <span className="font-semibold text-slate-800 text-[11px]">مسيرات الرواتب وسلف وخصومات الموظفين</span>
-                </span>
-                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
-                  {counts.psCount} مسير
-                </span>
-              </label>
+              {/* Advances, Deductions & Incentives */}
+              <div className="pr-6 space-y-1.5 pt-0.5 border-t border-blue-200/40 text-[10px] text-slate-600">
+                <div className="flex items-center justify-between">
+                  <span>• سلف الموظفين والقروض المسجلة:</span>
+                  <span className="font-mono font-bold text-blue-800">{counts.advCount} سلفة</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>• الخصومات والجزاءات المطبقة:</span>
+                  <span className="font-mono font-bold text-blue-800">{counts.dedCount} خصم</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>• المكافآت والحوافز الممنوحة:</span>
+                  <span className="font-mono font-bold text-blue-800">{counts.incCount} مكافأة</span>
+                </div>
+                <div className="text-slate-500 italic pt-0.5">
+                  (تتصفر تلقائياً مع كشوفات حسابات الموظفين عند تفعيل تصفير الرواتب)
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* القسم 2: العملاء والموردين والأطراف */}
-          <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 space-y-2.5 flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between border-b border-slate-200 pb-1.5 text-slate-900 font-bold">
-                <span className="flex items-center gap-1.5">
-                  <Users className="w-4 h-4 text-emerald-600" />
-                  <span>2. العملاء والموردين (الأطراف والذمم)</span>
-                </span>
-                <span className="text-[10px] text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200 font-mono">
-                  {parties.length} طرف مسجل
-                </span>
-              </div>
-
-              <div className="space-y-1.5 mt-2.5">
-                <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
-                  <span className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={options.resetManualParties}
-                      onChange={(e) => setOptions({ ...options, resetManualParties: e.target.checked })}
-                      disabled={!isSystemAdmin}
-                      className="w-4 h-4 text-rose-600 rounded-sm"
-                    />
-                    <div>
-                      <div className="font-semibold text-slate-800 text-[11px]">
-                        حذف أسماء العملاء والموردين المضافة يدوياً
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        حذف السجلات التجريبية المضافة والإبقاء على الأطراف النظامية
-                      </div>
-                    </div>
-                  </span>
-                  <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
-                    {counts.manualParties} مضاف
-                  </span>
-                </label>
-
-                <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
-                  <span className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={options.zeroPartyBalances}
-                      onChange={(e) => setOptions({ ...options, zeroPartyBalances: e.target.checked })}
-                      disabled={!isSystemAdmin}
-                      className="w-4 h-4 text-rose-600 rounded-sm"
-                    />
-                    <div>
-                      <div className="font-semibold text-slate-800 text-[11px]">
-                        تصفير أرصدة الذمم والمديونيات لجميع الأطراف
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        جعل كافة أرصدة العملاء والموردين = (0.00 ₪) لبدء حسابات نظيفة
-                      </div>
-                    </div>
-                  </span>
-                  <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
-                    {counts.partiesWithBalance} رصيد
-                  </span>
-                </label>
-              </div>
-            </div>
-
-            <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-[10px] text-emerald-900 mt-2">
-              💡 نصيحة: إذا كنت أدخلت عملاءك الحقيقيين بالفعل، يمكنك ترك خيار حذف الأسماء معطلاً وتفعيل تصفير الأرصدة فقط لبدء التعاملات المالية الفعلية.
-            </div>
-          </div>
-
-          {/* القسم 3: المخازن والأصناف والمستودعات */}
-          <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 space-y-2.5">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-1.5 text-slate-900 font-bold">
-              <span className="flex items-center gap-1.5">
+          {/* SECTION 2: الأصناف والكرتات المخزنية وحركات الصنف */}
+          <div className="bg-amber-50/60 border border-amber-200 rounded-xl p-3.5 space-y-3">
+            <div className="flex items-center justify-between pb-1.5 border-b border-amber-200/70">
+              <div className="flex items-center gap-2 font-bold text-xs text-amber-950">
                 <Boxes className="w-4 h-4 text-amber-600" />
-                <span>3. المخازن والأصناف والمستودعات</span>
-              </span>
-              <span className="text-[10px] text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200 font-mono">
-                {inventory.length} صنف مسجل
+                <span>2. الأصناف والكرتات المخزنية وكل ما يتعلق بالصنف</span>
+              </div>
+              <span className="bg-amber-200/80 text-amber-900 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full">
+                {counts.totalItems} صنف | {counts.smCount + counts.woCount} حركة مخزنية
               </span>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
-                <span className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={options.zeroInventoryStock}
-                    onChange={(e) => setOptions({ ...options, zeroInventoryStock: e.target.checked })}
-                    disabled={!isSystemAdmin}
-                    className="w-4 h-4 text-rose-600 rounded-sm"
-                  />
-                  <div>
-                    <div className="font-semibold text-slate-800 text-[11px]">
-                      تصفير كميات وأرصدة المخزون لكافة الأصناف (0.00)
-                    </div>
-                    <div className="text-[10px] text-slate-500">
-                      تصفير الكميات في كل المستودعات لتكون جاهزة للجرد الفعلي الافتتاحي
-                    </div>
+            <div className="space-y-2 text-[11px]">
+              {/* Zero Inventory Stocks */}
+              <label className="flex items-start gap-2 cursor-pointer hover:bg-amber-100/50 p-1.5 rounded-lg transition-colors">
+                <input
+                  type="checkbox"
+                  checked={options.zeroInventoryStock}
+                  onChange={(e) => setOptions(prev => ({ ...prev, zeroInventoryStock: e.target.checked }))}
+                  disabled={!isSystemAdmin}
+                  className="rounded text-amber-600 mt-0.5 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-800">تصفير كميات وأرصدة المخزون بالكامل (0.00)</div>
+                  <div className="text-slate-500 text-[10px]">
+                    تصفير كميات كافة الأصناف في جميع المستودعات لتصبح (0) لبدء جرد فعلي افتتاحي.
                   </div>
-                </span>
-                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
-                  {counts.itemsWithStock} صنف به كميات
-                </span>
+                </div>
               </label>
 
-              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
-                <span className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={options.resetManualInventoryItems}
-                    onChange={(e) => setOptions({ ...options, resetManualInventoryItems: e.target.checked })}
-                    disabled={!isSystemAdmin}
-                    className="w-4 h-4 text-rose-600 rounded-sm"
-                  />
-                  <div>
-                    <div className="font-semibold text-slate-800 text-[11px]">
-                      حذف الأصناف والمنتجات والخامات المضافة يدوياً
-                    </div>
-                    <div className="text-[10px] text-slate-500">
-                      حذف الأصناف التجريبية التي تمت إضافتها للتجربة
-                    </div>
+              {/* Reset Manual Inventory Items */}
+              <label className="flex items-start gap-2 cursor-pointer hover:bg-amber-100/50 p-1.5 rounded-lg transition-colors">
+                <input
+                  type="checkbox"
+                  checked={options.resetManualInventoryItems}
+                  onChange={(e) => setOptions(prev => ({ ...prev, resetManualInventoryItems: e.target.checked }))}
+                  disabled={!isSystemAdmin}
+                  className="rounded text-amber-600 mt-0.5 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-800">حذف كرتات الأصناف والمنتجات بالكامل</div>
+                  <div className="text-slate-500 text-[10px]">
+                    حذف بطاقات الأصناف والخامات التجريبية ({counts.manualItems} صنف) لإعادة إدخال دليل جديد.
                   </div>
-                </span>
-                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
-                  {counts.manualItems} صنف مضاف
-                </span>
+                </div>
               </label>
 
-              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
-                <span className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={options.resetManualWarehouses}
-                    onChange={(e) => setOptions({ ...options, resetManualWarehouses: e.target.checked })}
-                    disabled={!isSystemAdmin}
-                    className="w-4 h-4 text-rose-600 rounded-sm"
-                  />
-                  <div>
-                    <div className="font-semibold text-slate-800 text-[11px]">
-                      حذف المستودعات والمخازن الإضافية المضافة يدوياً
-                    </div>
-                    <div className="text-[10px] text-slate-500">
-                      الإبقاء على المستودعات الافتراضية للشركة
-                    </div>
+              {/* Stock Movements (Issue, Receipt, Adjust, Sale, Exchange) */}
+              <label className="flex items-start gap-2 cursor-pointer hover:bg-amber-100/50 p-1.5 rounded-lg transition-colors">
+                <input
+                  type="checkbox"
+                  checked={options.resetStockMovements}
+                  onChange={(e) => setOptions(prev => ({ ...prev, resetStockMovements: e.target.checked }))}
+                  disabled={!isSystemAdmin}
+                  className="rounded text-amber-600 mt-0.5 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-800">حذف كافة حركات الصنف والكرتات المخزنية</div>
+                  <div className="text-slate-500 text-[10px] space-y-0.5">
+                    <div>تشمل: صرف، قبض/توريد، جرد وتعديل، بيع، شراء، تبديل وتغيير، ومناقلات بين المستودعات ({counts.smCount} حركة).</div>
                   </div>
-                </span>
-                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
-                  {counts.manualWhs} مستودع مضاف
-                </span>
+                </div>
+              </label>
+
+              {/* Warehouse operations */}
+              <div className="pr-6 flex items-center justify-between text-[10px] text-slate-600 pt-0.5 border-t border-amber-200/40">
+                <span>• أذونات وعمليات المستودعات المرتبطة:</span>
+                <span className="font-mono font-bold text-amber-800">{counts.woCount} إذن وسجل</span>
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION 3: الفواتير والمبيعات والمشتريات والعمليات */}
+          <div className="bg-rose-50/60 border border-rose-200 rounded-xl p-3.5 space-y-3">
+            <div className="flex items-center justify-between pb-1.5 border-b border-rose-200/70">
+              <div className="flex items-center gap-2 font-bold text-xs text-rose-950">
+                <FileSpreadsheet className="w-4 h-4 text-rose-600" />
+                <span>3. الفواتير والعمليات التجارية والمالية</span>
+              </div>
+              <span className="bg-rose-200/80 text-rose-900 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full">
+                {counts.invCount + counts.purCount + counts.vchCount + counts.jeCount + counts.expCount + counts.dcCount} سجل مالي
+              </span>
+            </div>
+
+            <div className="space-y-2 text-[11px]">
+              {/* Sales Invoices */}
+              <label className="flex items-start gap-2 cursor-pointer hover:bg-rose-100/50 p-1.5 rounded-lg transition-colors">
+                <input
+                  type="checkbox"
+                  checked={options.resetInvoices}
+                  onChange={(e) => setOptions(prev => ({ ...prev, resetInvoices: e.target.checked }))}
+                  disabled={!isSystemAdmin}
+                  className="rounded text-rose-600 mt-0.5 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-800">فواتير المبيعات ونقاط البيع POS ومردوداتها</div>
+                  <div className="text-slate-500 text-[10px]">
+                    حذف {counts.invCount} فاتورة مبيعات و {counts.srCount} مردود مبيعات.
+                  </div>
+                </div>
+              </label>
+
+              {/* Purchases */}
+              <label className="flex items-start gap-2 cursor-pointer hover:bg-rose-100/50 p-1.5 rounded-lg transition-colors">
+                <input
+                  type="checkbox"
+                  checked={options.resetPurchases}
+                  onChange={(e) => setOptions(prev => ({ ...prev, resetPurchases: e.target.checked }))}
+                  disabled={!isSystemAdmin}
+                  className="rounded text-rose-600 mt-0.5 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-800">فواتير المشتريات ومشتريات الخامات ومردوداتها</div>
+                  <div className="text-slate-500 text-[10px]">
+                    حذف {counts.purCount} فاتورة مشتريات و {counts.prCount} مردود مشتريات.
+                  </div>
+                </div>
+              </label>
+
+              {/* Vouchers & Journal Entries */}
+              <label className="flex items-start gap-2 cursor-pointer hover:bg-rose-100/50 p-1.5 rounded-lg transition-colors">
+                <input
+                  type="checkbox"
+                  checked={options.resetVouchers && options.resetJournalEntries}
+                  onChange={(e) => setOptions(prev => ({ ...prev, resetVouchers: e.target.checked, resetJournalEntries: e.target.checked }))}
+                  disabled={!isSystemAdmin}
+                  className="rounded text-rose-600 mt-0.5 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-800">سندات القبض والصرف والقيود اليومية</div>
+                  <div className="text-slate-500 text-[10px]">
+                    حذف {counts.vchCount} سند قبض/صرف و {counts.jeCount} قيد محاسبي و {counts.poCount} أمر تشغيل مطبعة.
+                  </div>
+                </div>
+              </label>
+
+              {/* Operating Expenses */}
+              <label className="flex items-start gap-2 cursor-pointer hover:bg-rose-100/50 p-1.5 rounded-lg transition-colors">
+                <input
+                  type="checkbox"
+                  checked={options.resetExpenses !== false}
+                  onChange={(e) => setOptions(prev => ({ ...prev, resetExpenses: e.target.checked }))}
+                  disabled={!isSystemAdmin}
+                  className="rounded text-rose-600 mt-0.5 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-800">المصروفات والمصاريف التشغيلية بالكامل</div>
+                  <div className="text-slate-500 text-[10px]">
+                    حذف {counts.expCount} سجل مصروفات تشغيلية وصيانة ونثرية وإلغاء قيودها وسنداتها المرتبطة.
+                  </div>
+                </div>
+              </label>
+
+              {/* Debt Clearings */}
+              <label className="flex items-start gap-2 cursor-pointer hover:bg-rose-100/50 p-1.5 rounded-lg transition-colors">
+                <input
+                  type="checkbox"
+                  checked={options.resetDebtClearings !== false}
+                  onChange={(e) => setOptions(prev => ({ ...prev, resetDebtClearings: e.target.checked }))}
+                  disabled={!isSystemAdmin}
+                  className="rounded text-rose-600 mt-0.5 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-800">سجلات المقاصات وتسوية الديون المتبادلة</div>
+                  <div className="text-slate-500 text-[10px]">
+                    حذف {counts.dcCount} حركة تسوية ومقاصة مسجلة بين العملاء والموردين.
+                  </div>
+                </div>
               </label>
             </div>
           </div>
 
-          {/* القسم 4: الصناديق والخزنات والدليل المحاسبي */}
-          <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/50 space-y-2.5">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-1.5 text-slate-900 font-bold">
-              <span className="flex items-center gap-1.5">
-                <Wallet className="w-4 h-4 text-indigo-600" />
-                <span>4. الصناديق والخزنات والدليل المحاسبي</span>
-              </span>
-              <span className="text-[10px] text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200 font-mono">
-                {treasuries.length} خزنة / {accounts.length} حساب
+          {/* SECTION 4: العملاء والموردين والصناديق وشجرة الحسابات */}
+          <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-3.5 space-y-3">
+            <div className="flex items-center justify-between pb-1.5 border-b border-emerald-200/70">
+              <div className="flex items-center gap-2 font-bold text-xs text-emerald-950">
+                <Wallet className="w-4 h-4 text-emerald-600" />
+                <span>4. العملاء والموردين والصناديق وشجرة الحسابات</span>
+              </div>
+              <span className="bg-emerald-200/80 text-emerald-900 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full">
+                {counts.partiesWithBalance} عميل به رصيد | {counts.treasWithBal} خزينة بها رصيد
               </span>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
-                <span className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={options.zeroTreasuryBalances}
-                    onChange={(e) => setOptions({ ...options, zeroTreasuryBalances: e.target.checked })}
-                    disabled={!isSystemAdmin}
-                    className="w-4 h-4 text-rose-600 rounded-sm"
-                  />
-                  <div>
-                    <div className="font-semibold text-slate-800 text-[11px]">
-                      تصفير أرصدة الصناديق والخزنات وحذف حركاتها
-                    </div>
-                    <div className="text-[10px] text-slate-500">
-                      تصفير الرصيد النقدي والعملات المتعددة (₪ 0.00) لبدء إيداع رأس المال الفعلي
-                    </div>
+            <div className="space-y-2 text-[11px]">
+              {/* Zero Party Balances */}
+              <label className="flex items-start gap-2 cursor-pointer hover:bg-emerald-100/50 p-1.5 rounded-lg transition-colors">
+                <input
+                  type="checkbox"
+                  checked={options.zeroPartyBalances}
+                  onChange={(e) => setOptions(prev => ({ ...prev, zeroPartyBalances: e.target.checked }))}
+                  disabled={!isSystemAdmin}
+                  className="rounded text-emerald-600 mt-0.5 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-800">تصفير أرصدة الذمم والمديونيات للعملاء والموردين (0.00 ₪)</div>
+                  <div className="text-slate-500 text-[10px]">
+                    تصفير كشوف الحسابات والذمم المدينة والدائنة مع بقاء أسماء العملاء.
                   </div>
-                </span>
-                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
-                  {counts.treasWithBal} خزنة بها رصيد
-                </span>
+                </div>
               </label>
 
-              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
-                <span className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={options.resetManualTreasuries}
-                    onChange={(e) => setOptions({ ...options, resetManualTreasuries: e.target.checked })}
-                    disabled={!isSystemAdmin}
-                    className="w-4 h-4 text-rose-600 rounded-sm"
-                  />
-                  <div>
-                    <div className="font-semibold text-slate-800 text-[11px]">
-                      حذف الصناديق والحسابات البنكية المضافة يدوياً
-                    </div>
-                    <div className="text-[10px] text-slate-500">
-                      الإبقاء على الخزينة النقدية الرئيسية الافتراضية
-                    </div>
+              {/* Zero Treasury Balances */}
+              <label className="flex items-start gap-2 cursor-pointer hover:bg-emerald-100/50 p-1.5 rounded-lg transition-colors">
+                <input
+                  type="checkbox"
+                  checked={options.zeroTreasuryBalances}
+                  onChange={(e) => setOptions(prev => ({ ...prev, zeroTreasuryBalances: e.target.checked }))}
+                  disabled={!isSystemAdmin}
+                  className="rounded text-emerald-600 mt-0.5 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-800">تصفير أرصدة الصناديق والخزنات والبنوك (0.00 ₪)</div>
+                  <div className="text-slate-500 text-[10px]">
+                    تصفير أرصدة كافة الخزائن النقدية والتطبيقات البنكية لتكون 0.00 ₪.
                   </div>
-                </span>
-                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
-                  {counts.manualTreas} مضاف
-                </span>
+                </div>
               </label>
 
-              <label className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200 hover:border-slate-300 cursor-pointer">
-                <span className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={options.zeroAccountBalances}
-                    onChange={(e) => setOptions({ ...options, zeroAccountBalances: e.target.checked })}
-                    disabled={!isSystemAdmin}
-                    className="w-4 h-4 text-rose-600 rounded-sm"
-                  />
-                  <div>
-                    <div className="font-semibold text-slate-800 text-[11px]">
-                      تصفير أرصدة شجرة الحسابات في الدليل المحاسبي
-                    </div>
-                    <div className="text-[10px] text-slate-500">
-                      تصفير موازين الأصول والخصوم والإيرادات والمصروفات إلى 0.00
-                    </div>
+              {/* Zero Accounts */}
+              <label className="flex items-start gap-2 cursor-pointer hover:bg-emerald-100/50 p-1.5 rounded-lg transition-colors">
+                <input
+                  type="checkbox"
+                  checked={options.zeroAccountBalances}
+                  onChange={(e) => setOptions(prev => ({ ...prev, zeroAccountBalances: e.target.checked }))}
+                  disabled={!isSystemAdmin}
+                  className="rounded text-emerald-600 mt-0.5 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-800">تصفير أرصدة الدليل وشجرة الحسابات (0.00 ₪)</div>
+                  <div className="text-slate-500 text-[10px]">
+                    تهيئة ميزان المراجعة والميزانية العمومية للبدء الفعلي النظيف.
                   </div>
-                </span>
-                <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">
-                  {accounts.length} حساب
-                </span>
+                </div>
               </label>
+            </div>
+          </div>
+        </div>
+
+        {/* Protection Assurance Box */}
+        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+          <div className="flex items-center gap-2 text-slate-900 font-bold text-xs">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>العناصر الأساسية المحمية التي تبقى دائماً في النظام:</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-[10px] text-slate-700">
+            <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-2xs">
+              <strong className="text-emerald-700 block mb-0.5">العميل النقدي العام:</strong>
+              يبقى مسجلاً مع رصيد 0.00 ₪.
+            </div>
+            <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-2xs">
+              <strong className="text-emerald-700 block mb-0.5">الصندوق النقدي الرئيسي:</strong>
+              يبقى مسجلاً مع رصيد 0.00 ₪.
+            </div>
+            <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-2xs">
+              <strong className="text-emerald-700 block mb-0.5">المستودع الرئيسي:</strong>
+              يبقى مسجلاً مع كميات (0).
+            </div>
+            <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-2xs">
+              <strong className="text-emerald-700 block mb-0.5">الدليل المحاسبي:</strong>
+              تبقى الهيكلية كاملة مع رصيد 0.00 ₪.
             </div>
           </div>
         </div>
@@ -934,68 +1013,19 @@ export const DatabaseZeroingSettings: React.FC = () => {
         {/* Dynamic Summary Box */}
         <div className="bg-slate-800/90 border border-slate-700 p-3.5 rounded-xl space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-slate-200">
-            <span>ملخص ما سيتم تصفيره حتى ({scope === 'all' ? 'كافة التواريخ' : cutoffDate}):</span>
+            <span>
+              ملخص السجلات المستهدفة بالتصفير 
+              ({scope === 'all' ? 'لكافة التواريخ' : scope === 'up_to_date' ? `حتى ${cutoffDate}` : scope === 'from_date' ? `بدءاً من ${fromDate}` : `بين ${fromDate} و ${cutoffDate}`}):
+            </span>
             <span className="text-amber-400 font-mono text-sm">
               إجمالي السجلات والحركات المستهدفة: {totalSelectedItemsToZero} سجل
             </span>
           </div>
 
           <div className="flex flex-wrap gap-2 text-[11px] text-slate-300">
-            {options.resetInvoices && (
-              <span className="bg-slate-700/80 px-2 py-1 rounded border border-slate-600">
-                فواتير مبيعات: <strong>{counts.invCount}</strong>
-              </span>
-            )}
-            {options.resetPurchases && (
-              <span className="bg-slate-700/80 px-2 py-1 rounded border border-slate-600">
-                فواتير مشتريات: <strong>{counts.purCount}</strong>
-              </span>
-            )}
-            {options.resetVouchers && (
-              <span className="bg-slate-700/80 px-2 py-1 rounded border border-slate-600">
-                سندات قبض وصرف: <strong>{counts.vchCount}</strong>
-              </span>
-            )}
-            {options.resetJournalEntries && (
-              <span className="bg-slate-700/80 px-2 py-1 rounded border border-slate-600">
-                قيود يومية: <strong>{counts.jeCount}</strong>
-              </span>
-            )}
-            {options.resetPrintOrders && (
-              <span className="bg-slate-700/80 px-2 py-1 rounded border border-slate-600">
-                أوامر تشغيل: <strong>{counts.poCount}</strong>
-              </span>
-            )}
-            {options.resetManualParties && (
-              <span className="bg-slate-700/80 px-2 py-1 rounded border border-slate-600">
-                عملاء وموردين مضافين: <strong>{counts.manualParties}</strong>
-              </span>
-            )}
-            {options.zeroPartyBalances && (
-              <span className="bg-slate-700/80 px-2 py-1 rounded border border-slate-600">
-                تصفير مديونيات وذمم: <strong>{counts.partiesWithBalance} طرف</strong>
-              </span>
-            )}
-            {options.zeroInventoryStock && (
-              <span className="bg-slate-700/80 px-2 py-1 rounded border border-slate-600">
-                تصفير كميات المخزون: <strong>{counts.itemsWithStock} صنف</strong>
-              </span>
-            )}
-            {options.resetManualInventoryItems && (
-              <span className="bg-slate-700/80 px-2 py-1 rounded border border-slate-600">
-                أصناف مضافة يدوياً: <strong>{counts.manualItems}</strong>
-              </span>
-            )}
-            {options.zeroTreasuryBalances && (
-              <span className="bg-slate-700/80 px-2 py-1 rounded border border-slate-600">
-                تصفير أرصدة الصناديق: <strong>{counts.treasWithBal} خزنة</strong>
-              </span>
-            )}
-            {options.zeroAccountBalances && (
-              <span className="bg-slate-700/80 px-2 py-1 rounded border border-slate-600">
-                تصفير شجرة الحسابات: <strong>{counts.totalAccounts} حساب</strong>
-              </span>
-            )}
+            <span className="bg-slate-700/80 px-2 py-1 rounded border border-slate-600">
+              سيتم مسح كافة البيانات المسجلة ضمن النطاق الزمني المحدد باستثناء أساسيات النظام المحمية.
+            </span>
           </div>
         </div>
 
@@ -1043,7 +1073,7 @@ export const DatabaseZeroingSettings: React.FC = () => {
 
       {/* Result Modal */}
       {showResultModal && executionResult && (
-        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
               <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
@@ -1053,7 +1083,7 @@ export const DatabaseZeroingSettings: React.FC = () => {
                 <h3 className="text-base font-bold text-slate-900">
                   تم تصفير قاعدة البيانات بنجاح!
                 </h3>
-                <p className="text-xs text-slate-500">
+                <p className="text-[10px] text-slate-400 font-light">
                   النظام مهيأ الآن للبدء الفعلي والتشغيل الإنتاجي النظيف.
                 </p>
               </div>
@@ -1064,18 +1094,23 @@ export const DatabaseZeroingSettings: React.FC = () => {
                 تقرير تنفيذ عملية التصفير:
               </div>
               <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-700">
+                <div>سجلات موظفين محذوفة: <strong>{executionResult.summary.deletedEmployees}</strong></div>
+                <div>مسيرات رواتب محذوفة: <strong>{executionResult.summary.deletedPayrollSheets}</strong></div>
+                <div>سلف وخصومات محذوفة: <strong>{executionResult.summary.deletedEmployeeAdvances + executionResult.summary.deletedEmployeeDeductions}</strong></div>
+                <div>حركات مخزون محذوفة: <strong>{executionResult.summary.deletedStockMovements}</strong></div>
+                <div>أذونات مستودعات محذوفة: <strong>{executionResult.summary.deletedWarehouseOperations}</strong></div>
+                <div>أصناف تم تصفير كمياتها: <strong>{executionResult.summary.zeroedInventoryStocks}</strong></div>
+                <div>أصناف تم حذفها: <strong>{executionResult.summary.deletedManualItems}</strong></div>
                 <div>فواتير مبيعات محذوفة: <strong>{executionResult.summary.deletedInvoices}</strong></div>
                 <div>فواتير مشتريات محذوفة: <strong>{executionResult.summary.deletedPurchases}</strong></div>
                 <div>سندات مالية محذوفة: <strong>{executionResult.summary.deletedVouchers}</strong></div>
                 <div>قيود محاسبية محذوفة: <strong>{executionResult.summary.deletedJournalEntries}</strong></div>
-                <div>أوامر تشغيل محذوفة: <strong>{executionResult.summary.deletedPrintOrders}</strong></div>
-                <div>عملاء وموردين تم حذفهم: <strong>{executionResult.summary.deletedManualParties}</strong></div>
+                <div>مصروفات تشغيلية محذوفة: <strong>{executionResult.summary.deletedExpenses || 0}</strong></div>
+                <div>مقاصات ديون محذوفة: <strong>{executionResult.summary.deletedDebtClearings || 0}</strong></div>
                 <div>أرصدة أطراف تم تصفيرها: <strong>{executionResult.summary.zeroedPartyBalances}</strong></div>
-                <div>أصناف تم تصفير كمياتها: <strong>{executionResult.summary.zeroedInventoryStocks}</strong></div>
-                <div>أصناف مضافة تم حذفها: <strong>{executionResult.summary.deletedManualItems}</strong></div>
                 <div>خزنات تم تصفير رصيدها: <strong>{executionResult.summary.zeroedTreasuries}</strong></div>
               </div>
-              <div className="text-[10px] text-slate-500 pt-1 border-t border-slate-200 flex justify-between">
+              <div className="text-[9px] text-slate-400 font-light pt-1 border-t border-slate-200 flex justify-between">
                 <span>المنفذ: {executionResult.executedBy}</span>
                 <span>التاريخ: {new Date(executionResult.executedAt).toLocaleString('ar-SA')}</span>
               </div>

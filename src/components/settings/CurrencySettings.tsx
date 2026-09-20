@@ -123,7 +123,7 @@ export const CurrencySettings: React.FC = () => {
                 العملة الأساسية: الشيكل الفلسطيني (₪)
               </span>
             </div>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[10px] text-slate-400 font-light">
               تحديد العملات المتاحة في نقطة البيع والمشتريات وتحويل كل العمليات والقيود آلياً للشيكل الفلسطيني.
             </p>
           </div>
@@ -305,7 +305,7 @@ export const CurrencySettings: React.FC = () => {
 
       {/* Modal to add custom currency */}
       {isAddingCurrency && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-5 max-w-md w-full text-slate-800 space-y-4 animate-in fade-in zoom-in duration-150">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
               <h4 className="font-bold text-sm text-slate-900 flex items-center gap-2">

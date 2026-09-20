@@ -151,7 +151,7 @@ export const BarcodeBankModal: React.FC<BarcodeBankModalProps> = ({
   const categoryDef = selectedItem ? CATEGORY_DEFINITIONS[selectedItem.category] : null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+    <div className="fixed inset-0 z-[100] overflow-y-auto bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
       {/* Printable Area - Styles applied specifically for print */}
       <div className="print-only hidden print:block">
         <style dangerouslySetInnerHTML={{
@@ -292,7 +292,7 @@ export const BarcodeBankModal: React.FC<BarcodeBankModalProps> = ({
               <div className="text-sm font-black text-indigo-600 dark:text-indigo-400 mt-0.5">
                 {categoryDef?.name || 'عام'}
               </div>
-              <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+              <div className="text-[10px] text-slate-400 font-light font-mono mt-0.5">
                 البادئة: <span className="font-bold text-slate-700 dark:text-slate-300">{categoryDef?.prefix || 'ITEM'}</span>
               </div>
             </div>
@@ -609,7 +609,7 @@ export const BarcodeBankModal: React.FC<BarcodeBankModalProps> = ({
 
         {/* Footer Actions */}
         <div className="px-6 py-3.5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-          <div className="text-xs text-slate-500 dark:text-slate-400">
+          <div className="text-[10px] text-slate-400 font-light dark:text-slate-400">
             جاهز للطباعة على طابعات الباركود الحرارية (Xprinter, Zebra, Bixolon) أو طابعات A4 الليزرية
           </div>
           <div className="flex items-center gap-2.5">

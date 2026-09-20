@@ -57,7 +57,7 @@ export const ItemUnitSelector: React.FC<ItemUnitSelectorProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab('settings')}
-              className="text-[10px] text-slate-500 hover:text-blue-600 flex items-center gap-0.5 transition-colors cursor-pointer"
+              className="text-[9px] text-slate-400 font-light hover:text-blue-600 flex items-center gap-0.5 transition-colors cursor-pointer"
               title="إضافة أو تعديل وحدات القياس في إعدادات البرنامج"
             >
               <Settings2 className="w-2.5 h-2.5" />

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { DateInput } from '../components/common/DateInput';
 import { PrintJobOrder, PrintOrderStatus, PrintServiceType } from '../types';
 import { X, Save, Edit3, Layers, CheckCircle } from 'lucide-react';
 import { posSound } from '../utils/audio';
@@ -121,7 +122,7 @@ export const EditPrintOrderModal: React.FC<EditPrintOrderModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 text-slate-800 text-xs overflow-y-auto"
+      className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 text-slate-800 text-xs overflow-y-auto"
       dir="rtl"
     >
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-2xl flex flex-col max-h-[92vh] overflow-hidden my-auto">
@@ -347,7 +348,7 @@ export const EditPrintOrderModal: React.FC<EditPrintOrderModalProps> = ({
                 <label className="block text-rose-700 text-[11px] font-bold mb-1">المتبقي على العميل:</label>
                 <div className="w-full bg-slate-100 border border-slate-300 rounded-lg px-2 py-1 font-mono font-black text-xs text-left text-rose-700 flex items-center justify-between">
                   <span>{remaining.toFixed(2)}</span>
-                  <span className="text-[10px] text-slate-500 font-sans">{currencySymbol}</span>
+                  <span className="text-[9px] text-slate-400 font-light font-sans">{currencySymbol}</span>
                 </div>
               </div>
             </div>
@@ -377,11 +378,7 @@ export const EditPrintOrderModal: React.FC<EditPrintOrderModalProps> = ({
 
             <div>
               <label className="block text-slate-700 font-bold mb-1">موعد التسليم المتوقع:</label>
-              <input
-                type="date"
-                disabled={isDelivered}
-                value={deliveryDate}
-                onChange={e => setDeliveryDate(e.target.value)}
+              <DateInput disabled={isDelivered} value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)}
                 className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs focus:border-blue-500"
               />
             </div>

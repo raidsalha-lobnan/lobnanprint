@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import { Party, DebtClearingRecord } from '../types';
 import { tafqeet } from '../utils/tafqeet';
@@ -204,7 +205,7 @@ export const DebtClearingView: React.FC = () => {
       {/* Toast Notification */}
       {feedbackMessage && (
         <div
-          className={`fixed top-5 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl shadow-lg border flex items-center gap-2 text-xs font-bold transition-all ${
+          className={`fixed top-5 left-1/2 -translate-x-1/2 z-[200] px-5 py-3 rounded-xl shadow-lg border flex items-center gap-2 text-xs font-bold transition-all ${
             feedbackMessage.type === 'success'
               ? 'bg-emerald-600 text-white border-emerald-500'
               : 'bg-rose-600 text-white border-rose-500'
@@ -228,7 +229,7 @@ export const DebtClearingView: React.FC = () => {
             </span>
             <h1 className="text-xl font-bold text-slate-800">مقاصة وتسوية الديون بين عميل ومورد</h1>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-[10px] text-slate-400 font-light mt-1">
             تسوية الذمم المالية المتبادلة دون المساس بصناديق النقد والخزائن، مع إثبات القيود المزدوجة وإتاحة التعديل والحذف المحاسبي المتوازن.
           </p>
         </div>
@@ -256,7 +257,7 @@ export const DebtClearingView: React.FC = () => {
       {/* Overview Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[11px] text-slate-500 font-medium block">إجمالي مبالغ المقاصة المنفذة</span>
+          <span className="text-[10px] text-slate-400 font-light font-medium block">إجمالي مبالغ المقاصة المنفذة</span>
           <div className="flex items-baseline gap-2 mt-1">
             <strong className="text-xl font-mono font-bold text-indigo-600">
               {formatNumber(debtClearings.reduce((sum, c) => sum + (c.amount || 0), 0), 2)}
@@ -267,7 +268,7 @@ export const DebtClearingView: React.FC = () => {
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[11px] text-slate-500 font-medium block">أطراف مشتركة (عميل ومورد معاً)</span>
+          <span className="text-[10px] text-slate-400 font-light font-medium block">أطراف مشتركة (عميل ومورد معاً)</span>
           <div className="flex items-baseline gap-2 mt-1">
             <strong className="text-xl font-mono font-bold text-slate-800">
               {parties.filter(p => p.type === 'both').length}
@@ -278,7 +279,7 @@ export const DebtClearingView: React.FC = () => {
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[11px] text-slate-500 font-medium block">أثر المقاصة على الصناديق</span>
+          <span className="text-[10px] text-slate-400 font-light font-medium block">أثر المقاصة على الصناديق</span>
           <div className="flex items-baseline gap-2 mt-1">
             <strong className="text-xl font-mono font-bold text-emerald-600">
               معزولة عن الخزينة
@@ -301,7 +302,7 @@ export const DebtClearingView: React.FC = () => {
               className="w-full pl-3 pr-9 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
             />
           </div>
-          <div className="text-xs text-slate-500">
+          <div className="text-[10px] text-slate-400 font-light">
             عدد التسويات: <span className="font-bold text-slate-800 font-mono">{filteredHistory.length}</span>
           </div>
         </div>
@@ -389,7 +390,7 @@ export const DebtClearingView: React.FC = () => {
 
       {/* Execute / Edit Clearing Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95">
             <div className="p-4 bg-indigo-600 text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -509,7 +510,7 @@ export const DebtClearingView: React.FC = () => {
                     className="w-full p-2.5 border border-indigo-300 rounded-lg font-mono font-bold text-indigo-700 text-sm focus:ring-2 focus:ring-indigo-500"
                   />
                   {clearingAmount > 0 && (
-                    <p className="text-[10px] text-slate-500 mt-1">
+                    <p className="text-[9px] text-slate-400 font-light mt-1">
                       فقط {tafqeet(clearingAmount, settings.currency)}
                     </p>
                   )}
@@ -517,11 +518,7 @@ export const DebtClearingView: React.FC = () => {
 
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1">تاريخ المقاصة</label>
-                  <input
-                    type="date"
-                    required
-                    value={clearingDate}
-                    onChange={e => setClearingDate(e.target.value)}
+                  <DateInput required value={clearingDate} onChange={e => setClearingDate(e.target.value)}
                     className="w-full p-2.5 border border-slate-200 rounded-lg text-xs"
                   />
                 </div>
@@ -590,7 +587,7 @@ export const DebtClearingView: React.FC = () => {
 
       {/* Delete Confirmation Modal */}
       {recordToDelete && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center gap-3 text-rose-600">
               <div className="p-2.5 bg-rose-50 rounded-xl">
@@ -598,7 +595,7 @@ export const DebtClearingView: React.FC = () => {
               </div>
               <div>
                 <h3 className="font-bold text-sm text-slate-900">تأكيد حذف سند المقاصة</h3>
-                <p className="text-xs text-slate-500 font-mono mt-0.5">{recordToDelete.clearingNumber}</p>
+                <p className="text-[10px] text-slate-400 font-light font-mono mt-0.5">{recordToDelete.clearingNumber}</p>
               </div>
             </div>
 
@@ -643,7 +640,7 @@ export const DebtClearingView: React.FC = () => {
 
       {/* Official Print Modal for Settlement Document */}
       {selectedClearingForPrint && (
-        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white">
+        <div className="fixed inset-0 z-[100] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white">
           <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden print:border-none print:shadow-none">
             <div className="p-3 bg-slate-900 text-white flex items-center justify-between print:hidden">
               <span className="font-bold text-xs">معاينة وطباعة سند مقاصة رسمي</span>
@@ -670,7 +667,7 @@ export const DebtClearingView: React.FC = () => {
               <div className="flex items-center justify-between border-b-2 border-slate-800 pb-4">
                 <div>
                   <h2 className="text-base font-black text-slate-900">{settings.businessName}</h2>
-                  <p className="text-[11px] text-slate-500 mt-0.5">أنظمة المحاسبة والطباعة المتكاملة ERP</p>
+                  <p className="text-[10px] text-slate-400 font-light mt-0.5">أنظمة المحاسبة والطباعة المتكاملة ERP</p>
                   {settings.taxNumber && (
                     <p className="text-[10px] text-slate-400 font-mono">الرقم الضريبي: {settings.taxNumber}</p>
                   )}
@@ -679,7 +676,7 @@ export const DebtClearingView: React.FC = () => {
                   <span className="inline-block bg-indigo-50 border border-indigo-200 text-indigo-700 px-2.5 py-1 rounded font-bold text-xs">
                     {selectedClearingForPrint.clearingNumber}
                   </span>
-                  <div className="text-[11px] text-slate-500 mt-1">التاريخ: {selectedClearingForPrint.date}</div>
+                  <div className="text-[10px] text-slate-400 font-light mt-1">التاريخ: {selectedClearingForPrint.date}</div>
                 </div>
               </div>
 
@@ -702,7 +699,7 @@ export const DebtClearingView: React.FC = () => {
                     <strong className="text-sm font-bold text-slate-800 block mt-0.5">
                       {selectedClearingForPrint.customerName}
                     </strong>
-                    <span className="text-[10px] text-slate-500 block mt-1 font-mono">
+                    <span className="text-[9px] text-slate-400 font-light block mt-1 font-mono">
                       الرصيد المتبقي: {formatNumber(selectedClearingForPrint.customerNewBalance, 2)} {settings.currency}
                     </span>
                   </div>
@@ -712,7 +709,7 @@ export const DebtClearingView: React.FC = () => {
                     <strong className="text-sm font-bold text-slate-800 block mt-0.5">
                       {selectedClearingForPrint.supplierName}
                     </strong>
-                    <span className="text-[10px] text-slate-500 block mt-1 font-mono">
+                    <span className="text-[9px] text-slate-400 font-light block mt-1 font-mono">
                       الرصيد المتبقي: {formatNumber(Math.abs(selectedClearingForPrint.supplierNewBalance), 2)} {settings.currency}
                     </span>
                   </div>

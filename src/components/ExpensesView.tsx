@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import {
   DollarSign,
@@ -42,7 +43,9 @@ export const ExpensesView: React.FC = () => {
     accounts,
     treasuries,
     settings,
-    addJournalEntry,
+    expenses,
+    addExpense,
+    deleteExpense,
     createPaymentVoucher,
     vouchers
   } = useAccounting();
@@ -51,74 +54,6 @@ export const ExpensesView: React.FC = () => {
   const expenseAccounts = useMemo(() => {
     return accounts.filter(a => a.type === 'expense' || a.code.startsWith('5'));
   }, [accounts]);
-
-  // Persistent / Local list of expenses
-  const [expenses, setExpenses] = useState<ExpenseItem[]>([
-    {
-      id: 'exp-1',
-      date: new Date().toISOString().split('T')[0],
-      expenseAccountCode: '5203',
-      expenseAccountName: 'مصروفات الصيانة وقطع غيار الماكينات',
-      category: 'maintenance',
-      categoryName: 'صيانة ماكينات',
-      amount: 450,
-      paymentMethod: 'cash',
-      treasuryAccountCode: '1101',
-      treasuryName: 'الصندوق الرئيسي (كاش)',
-      beneficiary: 'فني صيانة ماكينات Heidelberg',
-      taxInvoiceNumber: 'INV-MT-8841',
-      notes: 'صيانة دورية للمقص الهيدروليكي وتبديل حساس الأمان',
-      createdAt: new Date().toISOString()
-    },
-    {
-      id: 'exp-2',
-      date: new Date().toISOString().split('T')[0],
-      expenseAccountCode: '5205',
-      expenseAccountName: 'مصروفات عمومية وتسويق',
-      category: 'hospitality',
-      categoryName: 'ضيافة وبوفيه',
-      amount: 180,
-      paymentMethod: 'cash',
-      treasuryAccountCode: '1101',
-      treasuryName: 'الصندوق الرئيسي (كاش)',
-      beneficiary: 'سوبرماركت المدينة',
-      taxInvoiceNumber: 'REC-992',
-      notes: 'شراء شاي وقهوة ومستلزمات نظافة للمطبعة والمكتبة',
-      createdAt: new Date().toISOString()
-    },
-    {
-      id: 'exp-3',
-      date: new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0],
-      expenseAccountCode: '5204',
-      expenseAccountName: 'مصروفات الكهرباء والماء والمرافق',
-      category: 'utilities',
-      categoryName: 'كهرباء ومرافق',
-      amount: 1250,
-      paymentMethod: 'bank_transfer',
-      treasuryAccountCode: '1102',
-      treasuryName: 'بنك فلسطين - جاري',
-      beneficiary: 'شركة توزيع الكهرباء',
-      taxInvoiceNumber: 'ELEC-2026-09',
-      notes: 'سداد فاتورة استهلاك كهرباء خط الورشة والمطبعة',
-      createdAt: new Date(Date.now() - 86400000 * 2).toISOString()
-    },
-    {
-      id: 'exp-4',
-      date: new Date(Date.now() - 86400000 * 5).toISOString().split('T')[0],
-      expenseAccountCode: '5205',
-      expenseAccountName: 'مصروفات عمومية وتسويق',
-      category: 'marketing',
-      categoryName: 'تسويق وإعلانات',
-      amount: 600,
-      paymentMethod: 'bank_transfer',
-      treasuryAccountCode: '1102',
-      treasuryName: 'بنك فلسطين - جاري',
-      beneficiary: 'وكالة الإعلان الرقمي',
-      taxInvoiceNumber: 'ADS-1049',
-      notes: 'حملة إعلانية ممولة على منصات التواصل لموسم المدارس والطباعة',
-      createdAt: new Date(Date.now() - 86400000 * 5).toISOString()
-    }
-  ]);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -193,8 +128,7 @@ export const ExpensesView: React.FC = () => {
       name: modalMethod === 'cash' ? 'الصندوق الرئيسي' : 'الحساب البنكي'
     };
 
-    const newExpense: ExpenseItem = {
-      id: `exp-${Date.now()}`,
+    addExpense({
       date: modalDate,
       expenseAccountCode: selectedAcc.code,
       expenseAccountName: selectedAcc.name,
@@ -206,48 +140,22 @@ export const ExpensesView: React.FC = () => {
       treasuryName: selectedTreasury.name,
       beneficiary: modalBeneficiary || 'مصروف نقدي عام',
       taxInvoiceNumber: modalTaxInvoiceNumber,
-      notes: modalNotes,
-      createdAt: new Date().toISOString()
-    };
-
-    // Automatically post balanced double journal entry
-    addJournalEntry({
-      date: modalDate,
-      reference: modalTaxInvoiceNumber || `EXP-${Date.now().toString().slice(-4)}`,
-      description: `سداد مصروف: ${selectedAcc.name} - ${modalBeneficiary || ''} (${modalNotes})`,
-      lines: [
-        {
-          accountCode: selectedAcc.code,
-          accountName: selectedAcc.name,
-          debit: modalAmount,
-          credit: 0,
-          description: `مصروف: ${modalNotes}`
-        },
-        {
-          accountCode: modalTreasuryCode,
-          accountName: selectedTreasury.name,
-          debit: 0,
-          credit: modalAmount,
-          description: `صرف من: ${selectedTreasury.name}`
-        }
-      ]
+      notes: modalNotes
     });
 
     // Also register in vouchers as a payment voucher
     createPaymentVoucher({
-      voucherNumber: `PV-${Date.now().toString().slice(-5)}`,
       type: 'payment',
       date: modalDate,
       partyId: 'expense-party',
       partyName: modalBeneficiary || selectedAcc.name,
       amount: modalAmount,
       paymentMethod: modalMethod,
-      accountCode: modalTreasuryCode,
+      accountCode: selectedAcc.code,
       treasuryAccountCode: modalTreasuryCode,
       description: `مصروف تشغيلي: ${selectedAcc.name} - ${modalNotes}`
     });
 
-    setExpenses(prev => [newExpense, ...prev]);
     setIsModalOpen(false);
     setModalAmount(0);
     setModalNotes('');
@@ -256,8 +164,8 @@ export const ExpensesView: React.FC = () => {
   };
 
   const handleDeleteExpense = (id: string) => {
-    if (window.confirm('هل أنت متأكد من حذف هذا المصروف؟')) {
-      setExpenses(prev => prev.filter(e => e.id !== id));
+    if (window.confirm('هل أنت متأكد من حذف هذا المصروف وإلغاء أثره المالي؟')) {
+      deleteExpense(id);
     }
   };
 
@@ -272,7 +180,7 @@ export const ExpensesView: React.FC = () => {
             </span>
             <h1 className="text-xl font-bold text-slate-800">المصروفات والمصاريف التشغيلية</h1>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-[10px] text-slate-400 font-light mt-1">
             تسجيل ومتابعة المصروفات العمومية والتشغيلية، فواتير الخدمات، الصيانة الدورية، والضيافة مع الترحيل المحاسبي اللحظي
           </p>
         </div>
@@ -289,7 +197,7 @@ export const ExpensesView: React.FC = () => {
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[11px] text-slate-500 font-medium block">إجمالي المصروفات المسجلة</span>
+          <span className="text-[10px] text-slate-400 font-light font-medium block">إجمالي المصروفات المسجلة</span>
           <div className="flex items-baseline gap-2 mt-1">
             <strong className="text-xl font-mono font-bold text-amber-600">
               {totalExpensesSum.toLocaleString('ar-SA')}
@@ -300,7 +208,7 @@ export const ExpensesView: React.FC = () => {
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[11px] text-slate-500 font-medium block">مصروفات هذا الشهر</span>
+          <span className="text-[10px] text-slate-400 font-light font-medium block">مصروفات هذا الشهر</span>
           <div className="flex items-baseline gap-2 mt-1">
             <strong className="text-xl font-mono font-bold text-slate-800">
               {thisMonthExpensesSum.toLocaleString('ar-SA')}
@@ -311,7 +219,7 @@ export const ExpensesView: React.FC = () => {
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[11px] text-slate-500 font-medium block">مصروفات اليوم</span>
+          <span className="text-[10px] text-slate-400 font-light font-medium block">مصروفات اليوم</span>
           <div className="flex items-baseline gap-2 mt-1">
             <strong className="text-xl font-mono font-bold text-slate-800">
               {todayExpensesSum.toLocaleString('ar-SA')}
@@ -322,7 +230,7 @@ export const ExpensesView: React.FC = () => {
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[11px] text-slate-500 font-medium block">صيانة الماكينات وقطع الغيار</span>
+          <span className="text-[10px] text-slate-400 font-light font-medium block">صيانة الماكينات وقطع الغيار</span>
           <div className="flex items-baseline gap-2 mt-1">
             <strong className="text-xl font-mono font-bold text-indigo-600">
               {maintenanceExpensesSum.toLocaleString('ar-SA')}
@@ -368,17 +276,11 @@ export const ExpensesView: React.FC = () => {
 
         <div className="flex items-center gap-2 text-xs text-slate-600">
           <span className="text-[11px] text-slate-400">من:</span>
-          <input
-            type="date"
-            value={fromDate}
-            onChange={e => setFromDate(e.target.value)}
+          <DateInput value={fromDate} onChange={e => setFromDate(e.target.value)}
             className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none"
           />
           <span className="text-[11px] text-slate-400">إلى:</span>
-          <input
-            type="date"
-            value={toDate}
-            onChange={e => setToDate(e.target.value)}
+          <DateInput value={toDate} onChange={e => setToDate(e.target.value)}
             className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none"
           />
           {(searchQuery || categoryFilter !== 'all' || fromDate || toDate) && (
@@ -480,7 +382,7 @@ export const ExpensesView: React.FC = () => {
 
       {/* New Expense Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95">
             <div className="p-4 bg-amber-600 text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -499,11 +401,7 @@ export const ExpensesView: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1">تاريخ المصروف</label>
-                  <input
-                    type="date"
-                    required
-                    value={modalDate}
-                    onChange={e => setModalDate(e.target.value)}
+                  <DateInput required value={modalDate} onChange={e => setModalDate(e.target.value)}
                     className="w-full p-2 border border-slate-200 rounded-lg text-xs"
                   />
                 </div>

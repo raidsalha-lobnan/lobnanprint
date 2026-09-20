@@ -50,7 +50,7 @@ export const InvoicesView: React.FC = () => {
           </div>
           <div>
             <h2 className="text-lg font-bold text-slate-900">سجل فواتير المبيعات</h2>
-            <p className="text-xs text-slate-500">فواتير نقاط البيع السريعة، وأوامر مطبوعات المطبعة المعتمدة</p>
+            <p className="text-[10px] text-slate-400 font-light">فواتير نقاط البيع السريعة، وأوامر مطبوعات المطبعة المعتمدة</p>
           </div>
         </div>
 

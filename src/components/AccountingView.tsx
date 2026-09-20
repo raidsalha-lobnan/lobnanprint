@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import { Account, AccountType, JournalEntry } from '../types';
 import {
@@ -134,7 +135,7 @@ export const AccountingView: React.FC = () => {
           </div>
           <div>
             <h2 className="text-sm font-bold text-slate-900">النظام المحاسبي ودفاتر اليومية والأستاذ</h2>
-            <p className="text-[11px] text-slate-500">نظام القيد المزدوج المتوازن، شجرة الحسابات، وميزان المراجعة</p>
+            <p className="text-[10px] text-slate-400 font-light">نظام القيد المزدوج المتوازن، شجرة الحسابات، وميزان المراجعة</p>
           </div>
         </div>
 
@@ -380,7 +381,7 @@ export const AccountingView: React.FC = () => {
         <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
           <div className="p-2.5 border-b border-slate-200 bg-slate-50/60">
             <h3 className="font-bold text-xs text-slate-900">ميزان المراجعة بالأرصدة (Trial Balance)</h3>
-            <p className="text-[11px] text-slate-500">مراجعة مطابقة إجمالي الأرصدة المدينة والدائنة لكافة الحسابات</p>
+            <p className="text-[10px] text-slate-400 font-light">مراجعة مطابقة إجمالي الأرصدة المدينة والدائنة لكافة الحسابات</p>
           </div>
 
           <div className="overflow-x-auto">
@@ -438,7 +439,7 @@ export const AccountingView: React.FC = () => {
 
       {/* Modal: Manual Journal Entry */}
       {showNewEntryModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3">
           <div className="bg-white rounded-lg max-w-2xl w-full p-4 shadow-xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <h3 className="font-bold text-xs text-slate-900 mb-3 flex items-center gap-1.5">
               <BookOpenCheck className="w-4 h-4 text-blue-600" />
@@ -449,11 +450,7 @@ export const AccountingView: React.FC = () => {
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1 text-[11px]">تاريخ القيد:</label>
-                  <input
-                    type="date"
-                    required
-                    value={entryDate}
-                    onChange={e => setEntryDate(e.target.value)}
+                  <DateInput required value={entryDate} onChange={e => setEntryDate(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 text-xs font-mono"
                   />
                 </div>
@@ -580,7 +577,7 @@ export const AccountingView: React.FC = () => {
 
       {/* Modal: Add Account to Chart */}
       {showNewAccountModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3">
           <div className="bg-white rounded-lg max-w-sm w-full p-4 shadow-xl border border-slate-200">
             <h3 className="font-bold text-xs text-slate-900 mb-3">إضافة حساب جديد إلى دليل الحسابات</h3>
             <form onSubmit={handleSaveAccount} className="space-y-3 text-xs">

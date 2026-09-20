@@ -153,7 +153,7 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
     activeInvoiceCurrency ||
     currencies.find(c => c.code === currentInvCurrencyCode) || {
       code: 'ILS',
-      name: 'شيكل فلسطيني',
+      name: 'شيكل',
       symbol: '₪',
       rateAgainstBase: 1.0,
       isBase: true,
@@ -228,7 +228,7 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
 
   return (
     <div
-      className={`relative bg-[#122b49] p-2 rounded-xl border border-blue-700/60 shadow-md flex flex-col gap-1.5 text-xs text-white ${
+      className={`relative bg-[#122b49] p-1 rounded-lg  shadow-md flex flex-col gap-1.5 text-xs text-white ${
         isEditMode ? 'ring-2 ring-amber-400 bg-[#122b49]/95' : ''
       }`}
     >
@@ -255,10 +255,10 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
       {/* ========================================================================= */}
       {/* 1. السطر الأول: الخصم + عملة الفاتورة وسعر الصرف + سطر الملاحظات */}
       {/* ========================================================================= */}
-      <div className="bg-[#18385e] px-2.5 py-1.5 rounded-lg border border-blue-600/50 flex flex-wrap items-center gap-2">
-        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
           {/* الخصم */}
-          <div className="flex items-center gap-1 bg-[#122b49] px-2 py-0.5 rounded border border-rose-500/40">
+          <div className="flex items-center gap-1 bg-[#122b49] px-2 py-0.5 rounded ">
             <Tag className="w-3.5 h-3.5 text-rose-400 shrink-0" />
             <span className="text-[11px] text-rose-200 font-bold">خصم:</span>
             <div className="flex items-center">
@@ -295,7 +295,7 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
           </div>
 
           {/* شارة عملة الفاتورة */}
-          <div className="flex items-center gap-1.5 bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-md border border-amber-500/40 font-bold">
+          <div className="flex items-center gap-1.5 bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-md  font-bold">
             <Coins className="w-3.5 h-3.5 text-amber-300 shrink-0" />
             <span className="text-[11px]">عملة الفاتورة:</span>
           </div>
@@ -316,7 +316,7 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
           </div>
 
           {/* سعر الصرف (التلقائي 1 للشيكل) */}
-          <div className="flex items-center gap-1 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/30">
+          <div className="flex items-center gap-1 bg-amber-400/10 px-2 py-0.5 rounded ">
             <span className="text-[11px] text-amber-200 font-bold">سعر الصرف:</span>
             <input
               type="number"
@@ -348,7 +348,7 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
         </div>
 
         {/* سطر الملاحظات المرفق بالدفع مرتفع بجانب سعر الصرف */}
-        <div className="flex-1 min-w-[200px] flex items-center gap-1.5 bg-[#0f2845]/80 px-2 py-0.5 rounded-md border border-blue-500/30">
+        <div className="flex-1 min-w-[200px] flex items-center gap-1.5 bg-[#0f2845]/80 px-2 py-0.5 rounded-md ">
           <div className="flex items-center gap-1 text-blue-200 font-bold shrink-0">
             <FileText className="w-3.5 h-3.5 text-blue-300" />
             <span className="text-[11px]">ملاحظات:</span>
@@ -366,9 +366,9 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
       {/* ========================================================================= */}
       {/* 2. السطر المدمج: الدفع النقدي والدفع البنكي في سطر واحد بخانات مصغرة وأنيقة */}
       {/* ========================================================================= */}
-      <div className="bg-[#153457] px-2 py-1.5 rounded-lg border border-blue-600/40 grid grid-cols-1 lg:grid-cols-2 gap-2 items-center text-xs">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-1.5 items-center text-xs">
         {/* قسم الدفع النقدي */}
-        <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 bg-[#0f2845]/80 p-1 rounded-md border border-emerald-500/30">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 bg-[#0f2845]/80 p-1 rounded-md ">
           {/* شارة نقدي */}
           <div className="flex items-center gap-1 text-emerald-400 font-bold shrink-0">
             <div className="p-0.5 bg-emerald-500/20 rounded">
@@ -409,12 +409,12 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
                 const found = currencies.find(c => c.code === code);
                 onChangeCashExchangeRate(code === 'ILS' ? 1.0 : found?.rateAgainstBase || 1.0);
               }}
-              className="w-16 bg-white text-slate-900 font-bold px-1 py-0.5 rounded text-[11px] border border-slate-300 cursor-pointer shadow-2xs"
+              className="min-w-[84px] sm:min-w-[96px] bg-white text-slate-900 font-black px-1.5 py-0.5 rounded text-xs border border-emerald-400 cursor-pointer shadow-2xs focus:ring-1 focus:ring-emerald-400"
               title="عملة الدفع النقدي"
             >
               {currencies.map(c => (
                 <option key={c.code} value={c.code}>
-                  {c.symbol} {c.code}
+                  {c.symbol} {c.name ? `${c.name}` : c.code}
                 </option>
               ))}
             </select>
@@ -455,7 +455,7 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
         </div>
 
         {/* قسم الدفع البنكي */}
-        <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 bg-[#0f2845]/80 p-1 rounded-md border border-blue-500/30">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 bg-[#0f2845]/80 p-1 rounded-md ">
           {/* شارة بنكي */}
           <div className="flex items-center gap-1 text-blue-300 font-bold shrink-0">
             <div className="p-0.5 bg-blue-500/20 rounded">
@@ -496,12 +496,12 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
                 const found = currencies.find(c => c.code === code);
                 onChangeBankExchangeRate(code === 'ILS' ? 1.0 : found?.rateAgainstBase || 1.0);
               }}
-              className="w-16 bg-white text-slate-900 font-bold px-1 py-0.5 rounded text-[11px] border border-slate-300 cursor-pointer shadow-2xs"
+              className="min-w-[84px] sm:min-w-[96px] bg-white text-slate-900 font-black px-1.5 py-0.5 rounded text-xs border border-blue-400 cursor-pointer shadow-2xs focus:ring-1 focus:ring-blue-400"
               title="عملة الدفع البنكي"
             >
               {currencies.map(c => (
                 <option key={c.code} value={c.code}>
-                  {c.symbol} {c.code}
+                  {c.symbol} {c.name ? `${c.name}` : c.code}
                 </option>
               ))}
             </select>
@@ -532,7 +532,7 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
               className="w-full bg-white text-slate-900 font-bold px-1.5 py-0.5 rounded text-[11px] border border-slate-300 cursor-pointer shadow-2xs truncate"
               title="الحساب البنكي أو نقطة البيع / الشبكة"
             >
-              {treasuries.map(t => (
+              {treasuries.filter(t => t.type !== 'cash_box').map(t => (
                 <option key={t.id} value={t.accountCode}>
                   {t.name}
                 </option>

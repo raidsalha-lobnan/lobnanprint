@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { DateInput } from '../../components/common/DateInput';
 import { useAccounting } from '../../context/AccountingContext';
 import { Party, PaymentVoucher } from '../../types';
 import { X, Receipt, Check, Printer, DollarSign, Calendar, Landmark, User, FileText } from 'lucide-react';
@@ -37,6 +38,10 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
   const [treasuryCode, setTreasuryCode] = useState<string>('1101');
   const [voucherDate, setVoucherDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState<string>('دفعة سداد حساب من العميل');
+  const [transferReference, setTransferReference] = useState<string>('');
+  const [chequeNumber, setChequeNumber] = useState<string>('');
+  const [chequeBank, setChequeBank] = useState<string>('');
+  const [chequeDueDate, setChequeDueDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [createdVoucher, setCreatedVoucher] = useState<PaymentVoucher | null>(null);
 
   // Active currency
@@ -72,6 +77,10 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
       }
 
       setCurrencyCode(settings.baseCurrencyCode || 'ILS');
+      setTransferReference('');
+      setChequeNumber('');
+      setChequeBank('');
+      setChequeDueDate(new Date().toISOString().split('T')[0]);
       setCreatedVoucher(null);
     }
   }, [isOpen, defaultParty, defaultSubCustomerName, defaultAmount, parties, settings.baseCurrencyCode]);
@@ -113,13 +122,17 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
       amount: amtNum,
       paymentMethod,
       accountCode: treasuryCode,
-      description: `${description}${subCustomerName ? ` [زبون فرعي: ${subCustomerName}]` : ''}`,
+      description: description.trim() || 'دفعة سداد حساب من العميل',
       currency: currencyCode,
       currencySymbol: activeCurrency.symbol,
       exchangeRate: rate,
       baseAmount: baseAmt,
-      subCustomerName: subCustomerName || undefined,
-      treasuryAccountCode: treasuryCode
+      subCustomerName: subCustomerName.trim() || undefined,
+      treasuryAccountCode: treasuryCode,
+      transferReference: paymentMethod === 'bank_transfer' ? transferReference.trim() || undefined : undefined,
+      chequeNumber: paymentMethod === 'cheque' ? chequeNumber.trim() || undefined : undefined,
+      chequeBank: paymentMethod === 'cheque' ? chequeBank.trim() || undefined : undefined,
+      chequeDueDate: paymentMethod === 'cheque' ? chequeDueDate : undefined
     };
 
     createPaymentVoucher(newVoucher);
@@ -139,7 +152,7 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-2xs flex items-center justify-center p-3 text-slate-800 text-xs" dir="rtl">
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-2xs flex items-center justify-center p-3 text-slate-800 text-xs" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-lg flex flex-col overflow-hidden">
         {/* Header */}
         <div className="bg-[#1f4a7c] text-white px-5 py-3.5 flex items-center justify-between border-b border-[#143254]">
@@ -268,14 +281,57 @@ export const ReceiptVoucherModal: React.FC<ReceiptVoucherModalProps> = ({
             </div>
           </div>
 
+          {/* Bank Transfer Details */}
+          {paymentMethod === 'bank_transfer' && (
+            <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-200">
+              <label className="block font-bold text-blue-900 mb-1">رقم الحوالة / المرجع البنكي (اختياري):</label>
+              <input
+                type="text"
+                value={transferReference}
+                onChange={e => setTransferReference(e.target.value)}
+                placeholder="مثال: REF-983724"
+                className="w-full bg-white border border-blue-300 rounded-lg px-2.5 py-1.5 text-xs font-mono"
+              />
+            </div>
+          )}
+
+          {/* Cheque Details */}
+          {paymentMethod === 'cheque' && (
+            <div className="bg-amber-50/70 p-3 rounded-xl border border-amber-200 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div>
+                <label className="block font-bold text-amber-900 mb-1">رقم الشيك:</label>
+                <input
+                  type="text"
+                  value={chequeNumber}
+                  onChange={e => setChequeNumber(e.target.value)}
+                  placeholder="رقم الشيك"
+                  className="w-full bg-white border border-amber-300 rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-amber-900 mb-1">البنك المسحوب عليه:</label>
+                <input
+                  type="text"
+                  value={chequeBank}
+                  onChange={e => setChequeBank(e.target.value)}
+                  placeholder="اسم البنك"
+                  className="w-full bg-white border border-amber-300 rounded-lg px-2.5 py-1.5 text-xs"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-amber-900 mb-1">تاريخ الاستحقاق:</label>
+                <DateInput value={chequeDueDate} onChange={e => setChequeDueDate(e.target.value)}
+                  className="w-full bg-white border border-amber-300 rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                />
+              </div>
+            </div>
+          )}
+
           {/* Date & Statement Description */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="block font-bold text-slate-700 mb-1">تاريخ السند:</label>
-              <input
-                type="date"
-                value={voucherDate}
-                onChange={e => setVoucherDate(e.target.value)}
+              <DateInput value={voucherDate} onChange={e => setVoucherDate(e.target.value)}
                 className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono"
               />
             </div>

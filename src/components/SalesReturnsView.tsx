@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import { SalesReturn, SalesReturnItem } from '../types';
 import { PrintHeader } from './common/PrintHeader';
@@ -248,7 +249,7 @@ export const SalesReturnsView: React.FC = () => {
             </span>
             <h1 className="text-xl font-bold text-slate-800">مرتجع فواتير المبيعات (إشعارات دائنة)</h1>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-[10px] text-slate-400 font-light mt-1">
             إدارة مردودات المبيعات وإصدار الإشعارات الدائنة الضريبية وإرجاع الأصناف للمخزن مع تسوية حسابات العملاء والصندوق
           </p>
         </div>
@@ -270,7 +271,7 @@ export const SalesReturnsView: React.FC = () => {
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[11px] text-slate-500 font-medium block">إجمالي قيمة المرتجعات</span>
+          <span className="text-[10px] text-slate-400 font-light font-medium block">إجمالي قيمة المرتجعات</span>
           <div className="flex items-baseline gap-2 mt-1">
             <strong className="text-xl font-mono font-bold text-rose-600">
               {totalReturnsAmount.toLocaleString('ar-SA')}
@@ -281,7 +282,7 @@ export const SalesReturnsView: React.FC = () => {
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[11px] text-slate-500 font-medium block">مرتجعات الشهر الجاري</span>
+          <span className="text-[10px] text-slate-400 font-light font-medium block">مرتجعات الشهر الجاري</span>
           <div className="flex items-baseline gap-2 mt-1">
             <strong className="text-xl font-mono font-bold text-slate-800">
               {currentMonthReturns.toLocaleString('ar-SA')}
@@ -292,7 +293,7 @@ export const SalesReturnsView: React.FC = () => {
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[11px] text-slate-500 font-medium block">تسويات أرصدة العملاء</span>
+          <span className="text-[10px] text-slate-400 font-light font-medium block">تسويات أرصدة العملاء</span>
           <div className="flex items-baseline gap-2 mt-1">
             <strong className="text-xl font-mono font-bold text-blue-600">
               {creditOffsetsTotal.toLocaleString('ar-SA')}
@@ -303,7 +304,7 @@ export const SalesReturnsView: React.FC = () => {
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[11px] text-slate-500 font-medium block">مبالغ مستردة نقدياً / بنكياً</span>
+          <span className="text-[10px] text-slate-400 font-light font-medium block">مبالغ مستردة نقدياً / بنكياً</span>
           <div className="flex items-baseline gap-2 mt-1">
             <strong className="text-xl font-mono font-bold text-emerald-600">
               {cashRefundsTotal.toLocaleString('ar-SA')}
@@ -345,17 +346,11 @@ export const SalesReturnsView: React.FC = () => {
 
         <div className="flex items-center gap-2 text-xs text-slate-600">
           <span className="text-[11px] text-slate-400">من:</span>
-          <input
-            type="date"
-            value={fromDate}
-            onChange={e => setFromDate(e.target.value)}
+          <DateInput value={fromDate} onChange={e => setFromDate(e.target.value)}
             className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none"
           />
           <span className="text-[11px] text-slate-400">إلى:</span>
-          <input
-            type="date"
-            value={toDate}
-            onChange={e => setToDate(e.target.value)}
+          <DateInput value={toDate} onChange={e => setToDate(e.target.value)}
             className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none"
           />
           {(searchQuery || settlementFilter !== 'all' || fromDate || toDate) && (
@@ -456,7 +451,7 @@ export const SalesReturnsView: React.FC = () => {
 
       {/* MODAL: CREATE SALES RETURN */}
       {showNewReturnModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-2xs flex items-center justify-center p-3 text-slate-800 text-xs overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-2xs flex items-center justify-center p-3 text-slate-800 text-xs overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden">
             {/* Modal Header */}
             <div className="bg-gradient-to-r from-rose-700 to-rose-900 text-white px-5 py-4 flex items-center justify-between">
@@ -522,10 +517,7 @@ export const SalesReturnsView: React.FC = () => {
 
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1">تاريخ المرتجع: *</label>
-                  <input
-                    type="date"
-                    value={returnDate}
-                    onChange={e => setReturnDate(e.target.value)}
+                  <DateInput value={returnDate} onChange={e => setReturnDate(e.target.value)}
                     required
                     className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
                   />
@@ -539,7 +531,7 @@ export const SalesReturnsView: React.FC = () => {
                     <Package className="w-4 h-4 text-rose-600" />
                     <span>البنود والأصناف المرتجعة</span>
                   </h4>
-                  <span className="text-[11px] text-slate-500">
+                  <span className="text-[10px] text-slate-400 font-light">
                     ستعاد هذه الكميات تلقائياً إلى المخزن عند اعتماد المرتجع
                   </span>
                 </div>
@@ -692,7 +684,7 @@ export const SalesReturnsView: React.FC = () => {
                       />
                       <div>
                         <span className="font-semibold text-slate-800 block">رصيد دائن في حساب العميل</span>
-                        <span className="text-[11px] text-slate-500 block">يتم خصم المبلغ من مديونية العميل كإشعار دائن رسمي</span>
+                        <span className="text-[10px] text-slate-400 font-light block">يتم خصم المبلغ من مديونية العميل كإشعار دائن رسمي</span>
                       </div>
                     </label>
 
@@ -706,7 +698,7 @@ export const SalesReturnsView: React.FC = () => {
                       />
                       <div>
                         <span className="font-semibold text-slate-800 block">استرداد نقدي فوري من الصندوق (الكاشير)</span>
-                        <span className="text-[11px] text-slate-500 block">يتم صرف المبلغ نقداً للعميل وخصمه من رصيد الصندوق</span>
+                        <span className="text-[10px] text-slate-400 font-light block">يتم صرف المبلغ نقداً للعميل وخصمه من رصيد الصندوق</span>
                       </div>
                     </label>
 
@@ -720,7 +712,7 @@ export const SalesReturnsView: React.FC = () => {
                       />
                       <div>
                         <span className="font-semibold text-slate-800 block">تحويل بنكي مسترد</span>
-                        <span className="text-[11px] text-slate-500 block">يتم خصم المبلغ من الحساب البنكي وتحويله لحساب العميل</span>
+                        <span className="text-[10px] text-slate-400 font-light block">يتم خصم المبلغ من الحساب البنكي وتحويله لحساب العميل</span>
                       </div>
                     </label>
                   </div>
@@ -776,7 +768,7 @@ export const SalesReturnsView: React.FC = () => {
                       </span>
                     </div>
 
-                    <div className="text-[11px] text-slate-500 pt-1">
+                    <div className="text-[10px] text-slate-400 font-light pt-1">
                       {returnTotal > 0 ? tafqeet(returnTotal, settings.currency || 'ريال سعودي', 'هللة') : ''}
                     </div>
                   </div>
@@ -800,7 +792,7 @@ export const SalesReturnsView: React.FC = () => {
 
       {/* MODAL: PRINT SALES RETURN / CREDIT NOTE */}
       {selectedSalesReturnForPrint && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto print:p-0 print:bg-white print:static print:h-auto">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto print:p-0 print:bg-white print:static print:h-auto">
           <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh] print:max-h-none print:shadow-none print:border-none print:w-full">
             {/* Controls Bar (hidden during print) */}
             <div className="bg-slate-900 text-white px-5 py-3 flex items-center justify-between print:hidden">

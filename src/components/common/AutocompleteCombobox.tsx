@@ -563,7 +563,7 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
                         </div>
 
                         {item.subText && (
-                          <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                          <div className="text-[9px] text-slate-400 font-light truncate mt-0.5">
                             {item.subText}
                           </div>
                         )}

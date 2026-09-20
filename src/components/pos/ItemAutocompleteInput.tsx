@@ -343,7 +343,7 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
                     <AlertCircle className="w-4 h-4" />
                     <span>لم يتم العثور على صنف مطابق لـ "{value}"</span>
                   </div>
-                  <p className="text-[11px] text-slate-500 mb-3">
+                  <p className="text-[10px] text-slate-400 font-light mb-3">
                     يمكنك إبقاء الاسم كما كتبته أو إضافة صنف جديد للمخزون فوراً.
                   </p>
                   {onQuickAdd && (
@@ -424,7 +424,7 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
                           </span>
                         </div>
 
-                        <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500 font-mono">
+                        <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-400 font-light font-mono">
                           {item.barcode && (
                             <span className="flex items-center gap-0.5 text-slate-600">
                               <span className="text-[10px] text-slate-400">باركود:</span>

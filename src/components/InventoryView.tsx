@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { InventoryItem, ItemCategory, AdditionalBarcode, BarcodeFormat, CustomerSpecialPrice } from '../types';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
+import ManageCategoriesModal from "./ManageCategoriesModal";
 import { BarcodeBankModal } from './BarcodeBankModal';
 import { StockMovementModal } from './StockMovementModal';
 import { ItemUnitSelector } from './ItemUnitSelector';
@@ -54,6 +55,7 @@ export const InventoryView: React.FC = () => {
   const {
     inventory,
     addInventoryItem,
+    deleteInventoryItem,
     updateInventoryItem,
     adjustStock,
     settings,
@@ -78,7 +80,7 @@ export const InventoryView: React.FC = () => {
   const activeCurrency = useMemo(() => {
     return currencies.find(c => c.code === selectedCurrencyCode) || currencies.find(c => c.isBase) || {
       code: 'ILS',
-      name: 'شيكل فلسطيني',
+      name: 'شيكل',
       symbol: '₪',
       rateAgainstBase: 1.0,
       isBase: true,
@@ -96,6 +98,7 @@ export const InventoryView: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [showCategoriesModal, setShowCategoriesModal] = useState(false);
 
   // Barcode Bank Modal State
   const [showBarcodeBankModal, setShowBarcodeBankModal] = useState(false);
@@ -328,7 +331,7 @@ export const InventoryView: React.FC = () => {
   const filteredItems = useMemo(() => {
     return inventory.filter(it => {
       const matchCat = categoryFilter === 'all' || it.category === categoryFilter;
-      const isService = it.category === 'copy_scan';
+      const isService = it.category === 'copy_scan' || it.category === 'services' || it.id === 'srv-delivery' || it.id === 'srv-delivery-mobile' || it.barcode === 'DELIVERY' || it.name === 'خدمة توصيل' || it.name?.trim().startsWith('توصيل');
       const isLowStock = !isService && it.stockQuantity <= it.minAlertQuantity;
       if (filterOnlyLowStock && !isLowStock) return false;
       if (filterOnlyFavorites && !it.isFavorite) return false;
@@ -360,7 +363,7 @@ export const InventoryView: React.FC = () => {
   const rawMaterialsValue = inventory
     .filter(it => it.category === 'print_raw')
     .reduce((acc, it) => acc + (it.stockQuantity * it.purchasePrice), 0);
-  const lowStockCount = inventory.filter(it => it.category !== 'copy_scan' && it.stockQuantity <= it.minAlertQuantity).length;
+  const lowStockCount = inventory.filter(it => it.category !== 'copy_scan' && it.category !== 'services' && it.id !== 'srv-delivery' && it.id !== 'srv-delivery-mobile' && it.barcode !== 'DELIVERY' && it.name !== 'خدمة توصيل' && !it.name?.trim().startsWith('توصيل') && it.stockQuantity <= it.minAlertQuantity).length;
 
   // Real-time SKU uniqueness check to guarantee no duplicate SKU exists in the system
   const skuValidation = useMemo(() => {
@@ -423,6 +426,18 @@ export const InventoryView: React.FC = () => {
       setFormBarcode(formCode || `ITEM-${Date.now().toString().slice(-6)}`);
     }
     posSound.playSuccessBeep();
+  };
+
+
+  const handleDeleteItem = (it: InventoryItem) => {
+    if (window.confirm('هل أنت متأكد من رغبتك في حذف الصنف: ' + it.name + '؟')) {
+      const res = deleteInventoryItem(it.id);
+      if (res.success) {
+         alert(res.message);
+      } else {
+         alert(res.message);
+      }
+    }
   };
 
   const handleOpenEdit = (it: InventoryItem) => {
@@ -572,7 +587,23 @@ export const InventoryView: React.FC = () => {
     setShowAddModal(false);
   };
 
+  
+  
+  const allCategories = useMemo(() => {
+    return settings.categories || [];
+  }, [settings.categories]);
+
+
+  const getCategoryDetails = (catId: string) => {
+    return allCategories.find(c => c.id === catId) || CATEGORY_DEFINITIONS['stationery'];
+  };
+
   const getCategoryBadge = (cat: ItemCategory) => {
+    const details = getCategoryDetails(cat);
+    if (details && details.color) {
+      return { label: details.name, class: details.color };
+    }
+    // Fallbacks
     switch (cat) {
       case 'books':
         return { label: 'كتب وروايات', class: 'bg-emerald-50 text-emerald-700' };
@@ -583,9 +614,10 @@ export const InventoryView: React.FC = () => {
       case 'copy_scan':
         return { label: 'خدمات تصوير', class: 'bg-purple-50 text-purple-700' };
       default:
-        return { label: 'أخرى', class: 'bg-slate-50 text-slate-700' };
+        return { label: details?.name || 'أخرى', class: 'bg-slate-50 text-slate-700' };
     }
   };
+
 
   return (
     <div className="space-y-4">
@@ -685,6 +717,15 @@ export const InventoryView: React.FC = () => {
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           {/* Action Buttons Group */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Manage Categories Button */}
+            <button
+              type="button"
+              onClick={() => setShowCategoriesModal(true)}
+              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-xs transition-colors cursor-pointer shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>إدارة التصنيفات</span>
+            </button>
             {/* Primary Add Button */}
             <button
               type="button"
@@ -810,11 +851,9 @@ export const InventoryView: React.FC = () => {
                 className="bg-transparent border-0 text-xs text-slate-800 font-semibold focus:outline-none cursor-pointer"
               >
                 <option value="all">كافة التصنيفات ({inventory.length})</option>
-                <option value="stationery">قرطاسية ومكتبية (STAT)</option>
-                <option value="books">كتب وروايات ومناهج (BOOK)</option>
-                <option value="print_raw">خامات ومواد مطبعة (RAW)</option>
-                <option value="copy_scan">خدمات تصوير وتجليد (CPY)</option>
-                <option value="shields_gifts">دروع وهدايا تذكارية (GFT)</option>
+                {allCategories.map(cat => (
+                  <option key={cat.id} value={cat.id}>{cat.name} ({cat.prefix})</option>
+                ))}
               </select>
             </div>
 
@@ -942,7 +981,7 @@ export const InventoryView: React.FC = () => {
           <div className="bg-white p-12 rounded-xl border border-slate-200 text-center text-slate-500 shadow-xs">
             <Boxes className="w-12 h-12 mx-auto text-slate-300 mb-3" />
             <h4 className="font-bold text-sm text-slate-800">لا توجد أصناف مطابقة للبحث أو التصفية الحالية</h4>
-            <p className="text-xs text-slate-500 mt-1">جرب تغيير كلمات البحث أو إلغاء تفعيل عوامل التصفية</p>
+            <p className="text-[10px] text-slate-400 font-light mt-1">جرب تغيير كلمات البحث أو إلغاء تفعيل عوامل التصفية</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
@@ -1012,7 +1051,7 @@ export const InventoryView: React.FC = () => {
                   {/* Stock & Prices Details */}
                   <div className="px-3.5 py-2.5 bg-slate-50/80 border-t border-b border-slate-100 space-y-1.5 text-xs">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] text-slate-500">الرصيد المتاح:</span>
+                      <span className="text-[10px] text-slate-400 font-light">الرصيد المتاح:</span>
                       <span
                         className={`font-mono font-bold text-xs px-2 py-0.5 rounded ${
                           isService
@@ -1026,7 +1065,7 @@ export const InventoryView: React.FC = () => {
                       </span>
                     </div>
                     <div className="flex items-center justify-between font-mono">
-                      <span className="text-[11px] text-slate-500 font-sans">سعر البيع:</span>
+                      <span className="text-[10px] text-slate-400 font-light font-sans">سعر البيع:</span>
                       <span className="font-bold text-blue-600 text-xs">
                         {item.sellingPrice.toLocaleString('ar-SA')} ₪
                         {selectedCurrencyCode !== 'ILS' && (
@@ -1145,7 +1184,7 @@ export const InventoryView: React.FC = () => {
                       <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                         <td className="p-2.5 font-mono">
                           <div className="font-bold text-blue-600">{item.code}</div>
-                          <div className="text-[10px] text-slate-500">{item.barcode || '—'}</div>
+                          <div className="text-[9px] text-slate-400 font-light">{item.barcode || '—'}</div>
                           {((item.barcodeEntries && item.barcodeEntries.length > 0) || (item.additionalBarcodes && item.additionalBarcodes.length > 0)) && (
                             <div className="mt-1 flex flex-wrap gap-1">
                               <button
@@ -1302,7 +1341,7 @@ export const InventoryView: React.FC = () => {
                             <div>
                               <div>{lineTotalCost.toLocaleString('ar-SA')} ₪</div>
                               {selectedCurrencyCode !== 'ILS' && (
-                                <div className="text-[10px] text-slate-500 font-bold">
+                                <div className="text-[9px] text-slate-400 font-light font-bold">
                                   ≈ {(lineTotalCost / dailyExchangeRate).toLocaleString('ar-SA', { maximumFractionDigits: 2 })} {activeCurrency.symbol}
                                 </div>
                               )}
@@ -1351,6 +1390,14 @@ export const InventoryView: React.FC = () => {
                             >
                               <Edit2 className="w-3.5 h-3.5 text-blue-600" />
                             </button>
+                            {/* Delete Item Button */}
+                            <button
+                              onClick={() => handleDeleteItem(item)}
+                              className="p-1.5 text-slate-500 hover:text-red-600 rounded hover:bg-red-50 cursor-pointer transition"
+                              title="حذف الصنف"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -1365,7 +1412,7 @@ export const InventoryView: React.FC = () => {
 
       {/* Modal: Add or Edit Item */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3">
           <div className="bg-white rounded-lg max-w-xl w-full p-4 shadow-xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-2.5 border-b border-slate-200 mb-3">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
@@ -1400,11 +1447,9 @@ export const InventoryView: React.FC = () => {
                     onChange={e => handleCategoryChange(e.target.value as ItemCategory)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500 font-medium"
                   >
-                    <option value="stationery">قرطاسية وأدوات مكتبية ومدرسية (STAT)</option>
-                    <option value="books">كتب وروايات ومراجع ومناهج (BOOK)</option>
-                    <option value="print_raw">خامات مطبعة (أوراق، أحبار، رولات) (RAW)</option>
-                    <option value="copy_scan">خدمات تصوير وتجليد (CPY)</option>
-                    <option value="shields_gifts">دروع وهدايا تذكارية ومخصصة (GFT)</option>
+                    {allCategories.map(cat => (
+                      <option key={cat.id} value={cat.id}>{cat.name} ({cat.prefix})</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -1415,7 +1460,7 @@ export const InventoryView: React.FC = () => {
                     <label className="block text-slate-700 font-semibold text-[11px] flex items-center gap-1">
                       <span>كود الصنف (SKU):</span>
                       <span className="text-[10px] font-mono text-blue-600 bg-blue-50 px-1 py-0.2 rounded border border-blue-200">
-                        {CATEGORY_DEFINITIONS[formCategory]?.prefix || 'ITEM'}
+                        {getCategoryDetails(formCategory)?.prefix || 'ITEM'}
                       </span>
                     </label>
                     <button
@@ -1460,8 +1505,8 @@ export const InventoryView: React.FC = () => {
                       )}
                     </div>
                   ) : (
-                    <div className="flex items-center justify-between text-[10px] text-slate-500 mt-0.5">
-                      <span>تسلسلي: {CATEGORY_DEFINITIONS[formCategory]?.prefix || 'ITEM'}-0001</span>
+                    <div className="flex items-center justify-between text-[9px] text-slate-400 font-light mt-0.5">
+                      <span>تسلسلي: {getCategoryDetails(formCategory)?.prefix || 'ITEM'}-0001</span>
                       {formCode.trim() && (
                         <span className="text-emerald-600 font-semibold flex items-center gap-0.5">
                           <CheckCircle2 className="w-2.5 h-2.5" />
@@ -1554,7 +1599,7 @@ export const InventoryView: React.FC = () => {
                     </div>
                     <div>
                       <h4 className="font-bold text-slate-800 text-xs">إدارة الباركودات المتعددة والبديلة للصنف</h4>
-                      <p className="text-[10px] text-slate-500">
+                      <p className="text-[9px] text-slate-400 font-light">
                         يمكنك إضافة باركود كرتونة، باركود حبة، أو باركود مورد إضافي. أي باركود يتم مسحه في نقاط البيع أو المخزن سيستدعي هذا الصنف تلقائياً.
                       </p>
                     </div>
@@ -1718,7 +1763,7 @@ export const InventoryView: React.FC = () => {
                     <DollarSign className="w-4 h-4 text-emerald-600" />
                     <h4 className="text-xs font-bold text-slate-800">أسعار البيع والتسعير المتعدد:</h4>
                   </div>
-                  <span className="text-[10px] text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
+                  <span className="text-[9px] text-slate-400 font-light bg-white px-2 py-0.5 rounded border border-slate-200">
                     العملة: {settings.currency} (₪)
                   </span>
                 </div>
@@ -1825,7 +1870,7 @@ export const InventoryView: React.FC = () => {
                       +{(formSellingPrice - formPurchasePrice).toFixed(2)} ₪
                     </span>
                     {formPurchasePrice > 0 && (
-                      <span className="text-[10px] text-slate-500">
+                      <span className="text-[9px] text-slate-400 font-light">
                         ({(((formSellingPrice - formPurchasePrice) / formPurchasePrice) * 100).toFixed(1)}%)
                       </span>
                     )}
@@ -2104,7 +2149,7 @@ export const InventoryView: React.FC = () => {
                       </span>
                     </div>
                   </label>
-                  <span className="text-[10px] text-slate-500">
+                  <span className="text-[9px] text-slate-400 font-light">
                     يظهر في نافذة الوصول السريع بالكاشير مع الصورة
                   </span>
                 </div>
@@ -2148,7 +2193,7 @@ export const InventoryView: React.FC = () => {
 
       {/* Quick Customer Special Prices Viewer Modal */}
       {viewingSpecialPricesItem && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-2xl max-w-xl w-full p-5 shadow-2xl border border-amber-200 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
@@ -2159,7 +2204,7 @@ export const InventoryView: React.FC = () => {
                   <h3 className="font-bold text-slate-900 text-sm">
                     الأسعار الخاصة للعملاء للصنف
                   </h3>
-                  <p className="text-xs text-slate-500 font-sans">
+                  <p className="text-[10px] text-slate-400 font-light font-sans">
                     {viewingSpecialPricesItem.name} ({viewingSpecialPricesItem.code})
                   </p>
                 </div>
@@ -2264,6 +2309,13 @@ export const InventoryView: React.FC = () => {
           </div>
         </div>
       )}
+
+      
+      {/* Manage Categories Modal */}
+      <ManageCategoriesModal
+        isOpen={showCategoriesModal}
+        onClose={() => setShowCategoriesModal(false)}
+      />
 
       {/* Stock Movement Ledger & Stock Card Modal */}
       <StockMovementModal

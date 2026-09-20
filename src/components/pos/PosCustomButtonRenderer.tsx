@@ -49,7 +49,7 @@ interface PosCustomButtonRendererProps {
 }
 
 // Icon mapper for dynamic icon lookup
-export function renderPosIcon(iconName: string, className: string = 'w-3.5 h-3.5') {
+export function renderPosIcon(iconName: string, className: string = 'w-4 h-4') {
   switch (iconName) {
     case 'Save':
       return <Save className={className} />;
@@ -111,7 +111,7 @@ export function renderPosIcon(iconName: string, className: string = 'w-3.5 h-3.5
 // Get tailwind classes based on color scheme and location
 export function getButtonColorClasses(color: PosButtonColorScheme, location: string, isEditMode: boolean = false) {
   if (location === 'top_toolbar') {
-    return 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 shadow-2xs';
+    return 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-300 hover:border-blue-400 shadow-2xs hover:shadow-xs';
   }
 
   // Bottom action bar or quick grid
@@ -226,9 +226,9 @@ export const PosCustomButtonRenderer: React.FC<PosCustomButtonRendererProps> = (
           }
         }}
         title={`${button.subLabel || button.label}${button.shortcut ? ` (${button.shortcut})` : ''}`}
-        className={`font-bold transition-all cursor-pointer flex items-center justify-center gap-1 active:scale-95 ${
+        className={`font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-95 ${
           isTopToolbar
-            ? 'px-1.5 py-1 text-[11px] rounded shadow-2xs whitespace-nowrap'
+            ? 'px-2.5 py-1 h-8 text-xs rounded-lg shadow-2xs whitespace-nowrap'
             : isQuickGrid
             ? 'px-2.5 py-1.5 text-xs rounded-xl shadow-xs whitespace-nowrap'
             : 'px-2.5 py-1.5 text-xs rounded-xl shadow-xs whitespace-nowrap'
@@ -236,12 +236,12 @@ export const PosCustomButtonRenderer: React.FC<PosCustomButtonRendererProps> = (
       >
         {renderPosIcon(
           button.iconName,
-          isTopToolbar ? 'w-3 h-3 text-blue-700' : 'w-3.5 h-3.5'
+          isTopToolbar ? 'w-3.5 h-3.5 text-blue-600' : 'w-4 h-4'
         )}
         <span>{button.label}</span>
         {button.shortcut && !isTopToolbar && (
-          <span className="hidden xl:inline text-[9px] opacity-75 font-mono px-1 py-0.2 bg-black/20 rounded">
-            {button.shortcut}
+          <span className="hidden lg:flex text-[9px] opacity-90 font-mono px-1.5 py-0.5 bg-black/20 rounded font-black tracking-tight items-center justify-center">
+            {button.shortcut.replace(/Enter/ig, '↵')}
           </span>
         )}
       </button>

@@ -121,7 +121,7 @@ export const CalculatorModal: React.FC<CalculatorModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-80 overflow-hidden text-slate-800">
         {/* Header */}
         <div className="bg-slate-800 text-white px-4 py-3 flex items-center justify-between">
@@ -139,7 +139,7 @@ export const CalculatorModal: React.FC<CalculatorModalProps> = ({
 
         {/* Display */}
         <div className="bg-slate-950 p-4 text-left font-mono">
-          <div className="text-xs text-slate-500 h-4">
+          <div className="text-[10px] text-slate-400 font-light h-4">
             {prevValue !== null && operation ? `${prevValue} ${operation}` : ''}
           </div>
           <div className="text-3xl font-black text-emerald-400 truncate tracking-wider">

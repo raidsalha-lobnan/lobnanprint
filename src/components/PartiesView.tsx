@@ -120,7 +120,7 @@ export const PartiesView: React.FC = () => {
 
   const handleSaveParty = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !phone.trim()) return;
+    if (!name.trim()) return;
 
     if (editingPartyId) {
       updateParty(editingPartyId, {
@@ -243,7 +243,7 @@ export const PartiesView: React.FC = () => {
           </div>
           <div>
             <h2 className="text-sm font-bold text-slate-900">دليل العملاء والموردين وكشوف الحساب</h2>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[10px] text-slate-400 font-light">
               إدارة البيانات التجارية، الحدود الائتمانية، الديون السابقة، واستخراج كشوف الحسابات المستمرة A4
             </p>
           </div>
@@ -271,7 +271,7 @@ export const PartiesView: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
         <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-[11px] text-slate-500 font-semibold block">إجمالي ديون العملاء المستحقة (لنا):</span>
+            <span className="text-[10px] text-slate-400 font-light font-semibold block">إجمالي ديون العملاء المستحقة (لنا):</span>
             <div className="text-base font-black text-amber-700 mt-0.5 font-mono">
               {totalReceivables.toLocaleString('ar-SA', { minimumFractionDigits: 2 })}{' '}
               <span className="text-[11px] font-normal text-slate-500">{settings.currency}</span>
@@ -285,7 +285,7 @@ export const PartiesView: React.FC = () => {
 
         <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex items-center justify-between">
           <div>
-            <span className="text-[11px] text-slate-500 font-semibold block">مستحقات الموردين وشركات الورق (علينا):</span>
+            <span className="text-[10px] text-slate-400 font-light font-semibold block">مستحقات الموردين وشركات الورق (علينا):</span>
             <div className="text-base font-black text-rose-600 mt-0.5 font-mono">
               {totalPayables.toLocaleString('ar-SA', { minimumFractionDigits: 2 })}{' '}
               <span className="text-[11px] font-normal text-slate-500">{settings.currency}</span>
@@ -306,7 +306,7 @@ export const PartiesView: React.FC = () => {
               <span>{exceededCount}</span>
               <span className="text-[11px] font-normal text-slate-600">عميل تجاوزوا الحد المسموح</span>
             </div>
-            <span className="text-[10px] text-slate-500">حماية السيولة وتجنب الديون المعدومة</span>
+            <span className="text-[9px] text-slate-400 font-light">حماية السيولة وتجنب الديون المعدومة</span>
           </div>
           <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
             exceededCount > 0 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-50 text-emerald-600'
@@ -495,7 +495,7 @@ export const PartiesView: React.FC = () => {
                     </h3>
 
                     {/* Quick Details List */}
-                    <div className="space-y-1 text-xs text-slate-500 pt-2 mt-2 border-t border-slate-100">
+                    <div className="space-y-1 text-[10px] text-slate-400 font-light pt-2 mt-2 border-t border-slate-100">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
                           <Phone className="w-3 h-3 text-slate-400" />
@@ -515,7 +515,7 @@ export const PartiesView: React.FC = () => {
                       )}
 
                       {party.address && (
-                        <div className="text-[11px] text-slate-500 truncate" title={party.address}>
+                        <div className="text-[10px] text-slate-400 font-light truncate" title={party.address}>
                           {party.address}
                         </div>
                       )}
@@ -552,7 +552,7 @@ export const PartiesView: React.FC = () => {
                   {/* Financial Balance & Action Buttons */}
                   <div className="pt-2.5 border-t border-slate-100 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] text-slate-500 font-semibold">الرصيد الجاري المستمر:</span>
+                      <span className="text-[10px] text-slate-400 font-light font-semibold">الرصيد الجاري المستمر:</span>
                       <span
                         className={`font-mono font-bold text-xs ${
                           isDebit ? 'text-amber-700' : isCredit ? 'text-rose-600' : 'text-emerald-600'
@@ -674,7 +674,7 @@ export const PartiesView: React.FC = () => {
                       <div>{party.phone}</div>
                       <div className="text-[10px] text-slate-400 font-sans">{party.city || '-'}</div>
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-[10px] text-slate-500">
+                    <td className="py-2.5 px-3 font-mono text-[9px] text-slate-400 font-light">
                       <div>{party.commercialRegister ? `س.ت: ${party.commercialRegister}` : ''}</div>
                       <div>{party.taxNumber ? `ض: ${party.taxNumber}` : ''}</div>
                     </td>
@@ -737,7 +737,7 @@ export const PartiesView: React.FC = () => {
 
       {/* Modal: Add / Edit Party */}
       {showPartyModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
           <div className="bg-white rounded-xl max-w-lg w-full p-4 shadow-xl border border-slate-200 my-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-3">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
@@ -818,7 +818,7 @@ export const PartiesView: React.FC = () => {
                     title="رقم تسلسلي موحد يصدره البرنامج تلقائياً ولا يمكن تغييره أو تكراره"
                   />
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1">
+                <p className="text-[9px] text-slate-400 font-light mt-1">
                   💡 يصدر هذا الرقم التسلسلي آلياً بنظام تسلسلي مستمر وفريد، ولا يمكن تغييره أو تكراره لضمان دقة قيود المحاسبة ومطابقة الكاشير.
                 </p>
               </div>
@@ -854,11 +854,10 @@ export const PartiesView: React.FC = () => {
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1 text-[11px]">
-                    رقم الجوال / الهاتف <span className="text-rose-500">*</span>
+                    رقم الجوال / الهاتف
                   </label>
                   <input
                     type="text"
-                    required
                     value={phone}
                     onChange={e => setPhone(e.target.value)}
                     placeholder="059xxxxxxx"
@@ -1011,13 +1010,13 @@ export const PartiesView: React.FC = () => {
 
       {/* Modal: Voucher (سند قبض / سند صرف) */}
       {voucherModalParty && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3">
           <div className="bg-white rounded-xl max-w-sm w-full p-4 shadow-xl border border-slate-200">
             <h3 className="font-bold text-xs text-slate-900 mb-1 flex items-center gap-1.5">
               <Receipt className="w-4 h-4 text-blue-600" />
               <span>{voucherType === 'receipt' ? 'تحرير سند قبض مالي (استلام)' : 'تحرير سند صرف مالي (دفع)'}</span>
             </h3>
-            <p className="text-[11px] text-slate-500 mb-3">
+            <p className="text-[10px] text-slate-400 font-light mb-3">
               الطرف: <strong className="text-slate-900">{voucherModalParty.name}</strong> • الرصيد الحالي: {Math.abs(voucherModalParty.balance).toLocaleString('ar-SA')} {settings.currency}
             </p>
 

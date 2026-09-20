@@ -1,8 +1,9 @@
 import React from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { tafqeet } from '../utils/tafqeet';
-import { Printer, X, Receipt, CheckCircle, Building2, Calendar, FileText, DollarSign, User } from 'lucide-react';
+import { Printer, X, Receipt } from 'lucide-react';
 import { PrintHeader } from './common/PrintHeader';
+import { ReportSignatures } from './common/ReportSignatures';
 
 export const VoucherPrintModal: React.FC = () => {
   const { selectedVoucherForPrint, setSelectedVoucherForPrint, settings, treasuries, parties } = useAccounting();
@@ -13,13 +14,30 @@ export const VoucherPrintModal: React.FC = () => {
   const isPayment = voucher.type === 'payment';
   const party = parties.find(p => p.id === voucher.partyId);
 
-  // Treasury name if any
+  // Treasury / Account name
   const treasury = treasuries.find(t => t.accountCode === voucher.accountCode || t.accountCode === voucher.treasuryAccountCode);
   const treasuryName = treasury?.name || (voucher.paymentMethod === 'cash' ? 'الصندوق الرئيسي' : 'الحساب البنكي');
 
-  // Amount in words
-  const currName = voucher.currency === 'USD' ? 'دولار أمريكي' : voucher.currency === 'JOD' ? 'دينار أردني' : 'شيكل فلسطيني';
-  const fracName = voucher.currency === 'USD' ? 'سنت' : voucher.currency === 'JOD' ? 'فلس' : 'أغورة';
+  // Currency & fraction names for Tafqeet
+  const getCurrencyNames = (currCode?: string) => {
+    switch (currCode) {
+      case 'USD':
+        return { name: 'دولار أمريكي', frac: 'سنت' };
+      case 'JOD':
+        return { name: 'دينار أردني', frac: 'فلس' };
+      case 'EUR':
+        return { name: 'يورو', frac: 'سنت' };
+      case 'SAR':
+        return { name: 'ريال سعودي', frac: 'هللة' };
+      case 'EGP':
+        return { name: 'جنيه مصري', frac: 'قرش' };
+      case 'ILS':
+      default:
+        return { name: 'شيكل', frac: 'أغورة' };
+    }
+  };
+
+  const { name: currName, frac: fracName } = getCurrencyNames(voucher.currency || settings.baseCurrencyCode);
   const amountWords = tafqeet(voucher.amount, currName, fracName);
 
   const handlePrint = () => {
@@ -29,40 +47,107 @@ export const VoucherPrintModal: React.FC = () => {
   const getPaymentMethodLabel = (method: string) => {
     switch (method) {
       case 'cash':
-        return 'نقداً (كاش)';
+        return 'نقداً';
       case 'bank_transfer':
-        return 'تحويل بنكي';
+        return 'تحويل بنكي / إيداع';
       case 'cheque':
-        return 'شيك بنكي';
+        return 'شيك مصرفي';
       default:
         return method;
     }
   };
 
+  // Format date display (e.g. 2026 / 09 / 13)
+  const formattedDate = (() => {
+    if (!voucher.date) return new Date().toISOString().split('T')[0];
+    const parts = voucher.date.split('-');
+    if (parts.length === 3) {
+      return `${parts[0]} / ${parts[1]} / ${parts[2]}`;
+    }
+    return voucher.date;
+  })();
+
+  // Party and Sub-Customer display (without code)
+  const partyDisplayName = (() => {
+    let name = voucher.partyName || (party ? party.name : 'عميل عام');
+    if (voucher.subCustomerName) {
+      name += ` - ${voucher.subCustomerName}`;
+    }
+    return name;
+  })();
+
+  // Currency symbol
+  const currencySymbol = voucher.currencySymbol || (voucher.currency === 'USD' ? '$' : voucher.currency === 'JOD' ? 'د.أ' : voucher.currency === 'SAR' ? 'ر.س' : settings.currency || '₪');
+
+  // Combined Notes & Payment Details String:
+  // يكتب ملاحظة السند أولاً ثم آلية الدفع (نقدي / بنكي) مع تفاصيل الحساب
+  const notesAndPaymentDetails = (() => {
+    // 1. Payment detail string
+    let payStr = '';
+    if (voucher.paymentMethod === 'cash') {
+      payStr = isPayment ? `نقدي - صرف من: ${treasuryName}` : `نقدي - إيداع في: ${treasuryName}`;
+    } else if (voucher.paymentMethod === 'bank_transfer') {
+      const refStr = voucher.transferReference ? ` (رقم الحوالة: ${voucher.transferReference})` : '';
+      payStr = isPayment ? `بنكي - صرف من: ${treasuryName}${refStr}` : `بنكي - إيداع في: ${treasuryName}${refStr}`;
+    } else if (voucher.paymentMethod === 'cheque') {
+      const chqParts: string[] = ['شيك بنكي'];
+      if (voucher.chequeNumber) chqParts.push(`رقم: ${voucher.chequeNumber}`);
+      if (voucher.chequeBank) chqParts.push(`بنك: ${voucher.chequeBank}`);
+      if (voucher.chequeDueDate) chqParts.push(`استحقاق: ${voucher.chequeDueDate}`);
+      chqParts.push(isPayment ? `مسحوب على: ${treasuryName}` : `مودع في: ${treasuryName}`);
+      payStr = chqParts.join(' - ');
+    } else {
+      // card / electronic
+      payStr = isPayment ? `بطاقة / شبكة - صرف من: ${treasuryName}` : `بطاقة / شبكة - إيداع في: ${treasuryName}`;
+    }
+
+    // 2. Note / Description if present
+    const note = voucher.description ? voucher.description.trim() : '';
+    const genericDescriptions = [
+      'سند تحصيل نقدية',
+      'سند صرف نقدية',
+      'سند قبض نقدي',
+      'دفعة سداد حساب من العميل',
+      'سند قبض مالي',
+      'سند صرف مالي'
+    ];
+
+    if (note && !genericDescriptions.includes(note)) {
+      return `${note} - ${payStr}`;
+    }
+
+    return payStr;
+  })();
+
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto print:p-0 print:bg-white print:static print:h-auto">
-      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh] print:max-h-none print:shadow-none print:border-none print:w-full">
-        {/* Controls Bar (hidden during print) */}
-        <div className="bg-slate-900 text-white px-5 py-3 flex items-center justify-between print:hidden">
-          <div className="flex items-center gap-2">
-            <Receipt className="w-5 h-5 text-amber-400" />
-            <h3 className="font-bold text-sm">معاينة وطباعة {isPayment ? 'سند الصرف' : 'سند القبض'}</h3>
-            <span className="font-mono text-xs bg-slate-800 text-slate-200 px-2 py-0.5 rounded border border-slate-700">
-              {voucher.voucherNumber}
-            </span>
+    <div className="fixed inset-0 z-[100] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 overflow-y-auto print:p-0 print:m-0 print:bg-white print:static print:h-auto print:overflow-visible print-modal-container" dir="rtl">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden flex flex-col max-h-[95vh] print:max-h-none print:shadow-none print:border-none print:w-full print:rounded-none print:overflow-visible">
+        
+        {/* Top Control Bar (Hidden when printing) */}
+        <div className="bg-slate-900 text-white px-5 py-3 flex items-center justify-between print:hidden border-b border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 bg-blue-600 text-white rounded-lg">
+              <Receipt className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm">{isPayment ? 'معاينة سند الصرف' : 'معاينة سند القبض'}</h3>
+              <span className="font-mono text-xs text-blue-300">
+                {voucher.voucherNumber}
+              </span>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               onClick={handlePrint}
-              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
             >
               <Printer className="w-4 h-4" />
               <span>طباعة السند</span>
             </button>
             <button
               onClick={() => setSelectedVoucherForPrint(null)}
-              className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+              className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -70,123 +155,81 @@ export const VoucherPrintModal: React.FC = () => {
         </div>
 
         {/* Printable Voucher Paper */}
-        <div className="p-6 sm:p-8 flex-1 overflow-y-auto print:p-0 print:overflow-visible text-slate-900 text-right font-sans">
-          {/* Official Company Header (Full Header banner if uploaded, or standard logo & details) */}
-          <PrintHeader
-            title={isPayment ? 'سند صرف نقدية / بنك' : 'سند قبض نقدية / بنك'}
-            subtitle={isPayment ? 'Official Payment Voucher' : 'Official Receipt Voucher'}
-            docNumber={voucher.voucherNumber}
-            docDate={voucher.date}
-            badge={isPayment ? 'سند صرف رسمي' : 'سند قبض رسمي'}
-          />
+        <div className="p-6 sm:p-10 flex-1 overflow-y-auto print:p-0 print:m-0 print:overflow-visible text-slate-950 font-sans bg-white select-none printable-paper print-document">
+          
+          {/* 1. الهيدر المرفق بالبرنامج (Official Header) */}
+          <div className="mb-4">
+            <PrintHeader showBorder={false} />
+          </div>
 
-          {/* Amount Ribbon Box */}
-          <div className="bg-slate-50 border border-slate-300 rounded-xl p-3.5 mb-5 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-600">المبلغ:</span>
-              <div className="bg-white border border-slate-300 px-3 py-1 rounded-lg font-mono text-lg font-black text-slate-950 shadow-2xs">
-                {voucher.amount.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {voucher.currencySymbol || settings.currency || '₪'}
-              </div>
+          {/* 2. عنوان السند في الوسط وتحته مباشرة رقم السند دون كلمة رقم السند */}
+          <div className="text-center my-3 sm:my-4">
+            <div className="inline-block bg-black text-white px-10 py-1.5 sm:py-2 rounded-lg font-black text-base sm:text-xl tracking-wider shadow-xs">
+              {isPayment ? 'سند صرف' : 'سند قبض'}
             </div>
-
-            <div className="text-xs text-slate-700 max-w-sm truncate text-left font-semibold">
-              فقط: <span className="text-slate-900 font-bold underline decoration-slate-400 underline-offset-4">{amountWords}</span>
+            <div className="mt-1.5 font-mono font-bold text-sm sm:text-base text-slate-900 tracking-wider">
+              {voucher.voucherNumber}
             </div>
           </div>
 
-          {/* Detailed Voucher Body Fields */}
-          <div className="space-y-3.5 text-xs text-slate-800 border border-slate-200 rounded-xl p-4 bg-white">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-              <span className="text-slate-500 font-bold min-w-[120px]">
-                {isPayment ? 'يصرف إلى السيد / السادة:' : 'وصلنا من السيد / السادة:'}
+          {/* 3. شريط المبلغ والعملة (في اليمين) والتاريخ (في اليسار) */}
+          <div className="flex items-end justify-between gap-4 mt-4 mb-6 pb-3 border-b border-slate-200">
+            {/* جهة اليمين: العملة والخانة فيها المبلغ مع رمز العملة */}
+            <div className="flex flex-col items-start text-right">
+              <span className="text-xs font-bold text-slate-700 mb-1">{currName}</span>
+              <div className="border-2 border-black rounded-full px-6 py-1.5 min-w-[150px] sm:min-w-[170px] text-center bg-white shadow-2xs">
+                <span className="font-mono font-black text-lg sm:text-xl text-black">
+                  {voucher.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currencySymbol}
+                </span>
+              </div>
+            </div>
+
+            {/* جهة اليسار: التاريخ */}
+            <div className="flex items-center gap-2 text-sm sm:text-base font-bold pb-2 text-left">
+              <span className="text-black font-black">التاريخ:</span>
+              <span className="font-mono font-bold tracking-wider text-slate-900">
+                {formattedDate}
               </span>
-              <div className="flex-1 font-bold text-sm text-slate-950 flex items-center justify-between">
-                <span>{voucher.partyName}</span>
-                {party?.code && (
-                  <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded text-slate-600 font-normal">
-                    كود: {party.code}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-              <span className="text-slate-500 font-bold min-w-[120px]">طريقة الدفع والحساب:</span>
-              <div className="flex-1 font-medium text-slate-800 flex flex-wrap items-center gap-2">
-                <span className="bg-slate-100 px-2.5 py-1 rounded font-bold text-slate-800 border border-slate-200">
-                  {getPaymentMethodLabel(voucher.paymentMethod)}
-                </span>
-                <span className="text-slate-600">
-                  من خزينة / حساب: <strong className="text-slate-800">{treasuryName}</strong>
-                </span>
-                {voucher.paymentMethod === 'cheque' && voucher.chequeNumber && (
-                  <span className="bg-amber-50 border border-amber-200 text-amber-900 px-2 py-0.5 rounded text-[11px]">
-                    شيك رقم: <strong className="font-mono">{voucher.chequeNumber}</strong>
-                    {voucher.chequeBank && ` - بنك: ${voucher.chequeBank}`}
-                    {voucher.chequeDueDate && ` - استحقاق: ${voucher.chequeDueDate}`}
-                  </span>
-                )}
-                {voucher.paymentMethod === 'bank_transfer' && voucher.transferReference && (
-                  <span className="bg-blue-50 border border-blue-200 text-blue-900 px-2 py-0.5 rounded text-[11px]">
-                    رقم الحوالة: <strong className="font-mono">{voucher.transferReference}</strong>
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-start justify-between pt-0.5">
-              <span className="text-slate-500 font-bold min-w-[120px] pt-1">وذلك عن (البيان):</span>
-              <div className="flex-1 bg-slate-50 p-2.5 rounded-lg border border-slate-200 leading-relaxed font-medium">
-                {voucher.description || 'سداد مستحقات مالية على الحساب'}
-              </div>
-            </div>
-
-            {/* ملاحظة القبض والصرف تظهر دائماً مع السند بشكل أفقي كملاحظة مرتبطة بسند القبض / الصرف */}
-            <div className={`border rounded-xl p-3 text-xs flex items-start gap-2 shadow-2xs ${
-              isPayment ? 'bg-amber-50/70 border-amber-200 text-amber-950' : 'bg-blue-50/70 border-blue-200 text-blue-950'
-            }`}>
-              <FileText className={`w-4 h-4 shrink-0 mt-0.5 ${isPayment ? 'text-amber-700' : 'text-blue-700'}`} />
-              <div className="flex-1">
-                <span className="font-bold ml-1.5">
-                  {isPayment ? 'ملاحظة مرتبطة بسند الصرف:' : 'ملاحظة مرتبطة بسند القبض:'}
-                </span>
-                <span className="text-slate-800 font-medium whitespace-pre-wrap">
-                  {voucher.description || (voucher as any).notes || (isPayment ? 'سند صرف ودفع معتمد' : 'سند تحصيل وقبض معتمد')}
-                </span>
-              </div>
             </div>
           </div>
 
-          {/* Signatures Section */}
-          <div className="mt-8 pt-4 border-t border-slate-200 grid grid-cols-4 gap-4 text-center text-xs">
-            <div className="space-y-6">
-              <span className="font-bold text-slate-700 block">منظم السند / المحاسب</span>
-              <div className="border-b border-dotted border-slate-400 w-24 mx-auto pb-4" />
-            </div>
-
-            <div className="space-y-6">
-              <span className="font-bold text-slate-700 block">مراجع الحسابات</span>
-              <div className="border-b border-dotted border-slate-400 w-24 mx-auto pb-4" />
-            </div>
-
-            <div className="space-y-6">
-              <span className="font-bold text-slate-700 block">اعتماد الإدارة / المشرف</span>
-              <div className="border-b border-dotted border-slate-400 w-24 mx-auto pb-4" />
-            </div>
-
-            <div className="space-y-6">
-              <span className="font-bold text-slate-700 block">
-                {isPayment ? 'توقيع المستلم' : 'توقيع المستلم / الدافع'}
+          {/* 4. بنود السند - أسطر نظيفة بدون أسطر نقاط */}
+          <div className="space-y-4 my-6 text-sm sm:text-[15px]">
+            
+            {/* السطر الأول: إستلمت من / يصرف إلى (دون كود العميل) */}
+            <div className="flex items-baseline gap-2 py-1">
+              <span className="font-black text-black whitespace-nowrap text-base min-w-[100px]">
+                {isPayment ? 'صرفت إلى /' : 'إستلمت من /'}
               </span>
-              <div className="border-b border-dotted border-slate-400 w-24 mx-auto pb-4" />
+              <span className="font-bold text-slate-900 flex-1 px-1 text-right text-base sm:text-lg">
+                {partyDisplayName}
+              </span>
             </div>
+
+            {/* السطر الثاني: مبلغ وقدره / */}
+            <div className="flex items-baseline gap-2 py-1">
+              <span className="font-black text-black whitespace-nowrap text-base min-w-[100px]">
+                مبلغ وقدره /
+              </span>
+              <span className="font-bold text-slate-900 flex-1 px-1 text-right">
+                {amountWords}
+              </span>
+            </div>
+
+            {/* السطر الثالث: ملاحظات / (ملاحظة السند متبوعة بآلية الدفع) */}
+            <div className="flex items-baseline gap-2 py-1">
+              <span className="font-black text-black whitespace-nowrap text-base min-w-[100px]">
+                ملاحظات /
+              </span>
+              <span className="font-bold text-slate-900 flex-1 px-1 text-right leading-relaxed">
+                {notesAndPaymentDetails}
+              </span>
+            </div>
+
           </div>
 
-          {/* Footer notice */}
-          <div className="mt-6 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 font-mono">
-            <span>سند مالي إلكتروني معتمد من النظام</span>
-            <span>تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}</span>
-          </div>
+          {/* 5. التوقيعات والختم (Signatures & Stamp Section) */}
+          <ReportSignatures columns={2} rightLabel={isPayment ? 'توقيع المستلم' : 'توقيع المحاسب / المستلم'} leftLabel="الختم والاعتماد" />
         </div>
       </div>
     </div>

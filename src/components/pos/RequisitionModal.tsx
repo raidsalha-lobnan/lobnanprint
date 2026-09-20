@@ -69,7 +69,7 @@ export const RequisitionModal: React.FC<RequisitionModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden text-slate-800">
         <div className="bg-blue-800 text-white px-5 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-2">

@@ -1,4 +1,7 @@
+import { ManualInvoiceView } from './components/ManualInvoiceView';
 import React, { useEffect } from 'react';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { TelegramBotIntegration } from './components/TelegramBotIntegration';
 import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { Navbar } from './components/Navbar';
 import { HomeScreenView } from './components/HomeScreenView';
@@ -6,6 +9,7 @@ import { DashboardView } from './components/DashboardView';
 import { PosView } from './components/PosView';
 import { PrintOrdersView } from './components/PrintOrdersView';
 import { InvoicesView } from './components/InvoicesView';
+import { SpecialInvoiceView } from './components/SpecialInvoiceView';
 import { InventoryView } from './components/InventoryView';
 import { PurchasesView } from './components/PurchasesView';
 import { AccountingView } from './components/AccountingView';
@@ -38,7 +42,35 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
 
 const MainLayout: React.FC = () => {
-  const { activeTab, settings, setActiveTab, hasPermission } = useAccounting();
+  const {
+    activeTab,
+    settings,
+    setActiveTab,
+    hasPermission,
+    selectedInvoiceForPrint,
+    selectedInvoiceForLifecycle,
+    selectedJobForPrint,
+    selectedVoucherForPrint,
+    selectedPayrollSheetForPrint,
+    selectedPartyForStatement,
+    selectedEmployeeForStatement,
+    selectedPurchaseForPrint,
+    selectedReturnForPrint,
+    selectedSalesReturnForPrint,
+  } = useAccounting();
+
+  const isPrintModalActive = Boolean(
+    selectedInvoiceForPrint ||
+    selectedInvoiceForLifecycle ||
+    selectedJobForPrint ||
+    selectedVoucherForPrint ||
+    selectedPayrollSheetForPrint ||
+    selectedPartyForStatement ||
+    selectedEmployeeForStatement ||
+    selectedPurchaseForPrint ||
+    selectedReturnForPrint ||
+    selectedSalesReturnForPrint
+  );
 
   // Enforce screen permissions
   React.useEffect(() => {
@@ -51,9 +83,12 @@ const MainLayout: React.FC = () => {
           return hasPermission('view_pos');
         case 'print_orders':
           return hasPermission('view_print_orders');
-        case 'invoices':
-        case 'sales_returns':
-          return hasPermission('view_invoices');
+              case 'manual_invoices':
+        return <ManualInvoiceView />;
+      case 'invoices':
+      case 'special_invoice':
+      case 'sales_returns':
+        return hasPermission('view_invoices');
         case 'inventory':
         case 'warehouses':
         case 'purchases':
@@ -173,6 +208,8 @@ const MainLayout: React.FC = () => {
         return <PrintOrdersView />;
       case 'invoices':
         return <InvoicesView />;
+      case 'special_invoice':
+        return <SpecialInvoiceView />;
       case 'sales_returns':
         return <SalesReturnsView />;
       case 'receipt_vouchers':
@@ -245,28 +282,28 @@ const MainLayout: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-[#f8fafc] text-[#0f172a] font-sans selection:bg-blue-500 selection:text-white" dir="rtl">
-      {/* Top Header & Horizontal Menu Bar (سطر القوائم العرضي في أقصى أعلى البرنامج) */}
-      <Navbar />
+    <div className={`flex flex-col ${(activeTab === 'pos') ? 'h-screen overflow-hidden' : 'min-h-screen'} bg-[#f8fafc] text-[#0f172a] font-sans selection:bg-blue-500 selection:text-white print:h-auto print:bg-white print:overflow-visible ${isPrintModalActive ? 'print-modal-is-active' : ''}`} dir="rtl">
+      {/* Top Header & Horizontal Menu Bar - ALWAYS hidden during print */}
+      <div className={`print:hidden ${activeTab !== 'pos' ? 'sticky top-0 z-[100]' : ''}`}>
+        <Navbar />
+      </div>
 
-      {/* Main Content Area - Full width with zero margins/padding when on POS for maximum cashier screen space */}
-      <main className={activeTab === 'pos' ? "flex-1 min-h-0 w-full p-0 flex flex-col overflow-hidden" : "flex-1 p-4 lg:p-6 overflow-y-auto w-full"}>
+      {/* Main Content Area - Hidden during print if any print modal is open */}
+      <main className={`${(activeTab === 'pos' || activeTab === 'manual_invoices' || activeTab === 'special_invoice') ? "flex-1 min-h-0 w-full p-0 flex flex-col overflow-hidden" : "flex-1 p-4 lg:p-6 pb-12 w-full flex flex-col overflow-y-auto"} ${isPrintModalActive ? "print:hidden" : "print:p-0 print:m-0 print:overflow-visible print:h-auto print:max-h-none"}`}>
         <ErrorBoundary fallbackTitle="حدث تنبيه في عرض هذه الشاشة">
           {renderContent()}
         </ErrorBoundary>
       </main>
 
-      {/* High Density Status Footer (Hidden on POS to maximize screen height) */}
+      {/* High Density Status Footer - ALWAYS hidden during print */}
       {activeTab !== 'pos' && (
-        <footer className="h-7 bg-slate-800 text-slate-400 text-[10px] flex items-center justify-between px-5 shrink-0 border-t border-slate-700 select-none">
-          <div className="flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>نظام المحاسبة الشامل - {settings.businessName} (إصدار الإنتاج v2.4)</span>
+        <footer className="print:hidden h-7 bg-slate-800 text-slate-400 text-[10px] flex items-center justify-between px-3 sm:px-5 shrink-0 border-t border-slate-700 select-none overflow-hidden fixed bottom-0 w-full z-[100]">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+            <span className="truncate">متصل: خادم سحابي آمن</span>
           </div>
-          <div className="flex items-center gap-4 text-slate-400">
-            <span>الرقم الضريبي: {settings.taxNumber}</span>
-            <span className="hidden sm:inline">متصل: خادم سحابي آمن</span>
-            <span>آخر مزامنة: الآن</span>
+          <div className="flex items-center shrink-0">
+            <span className="truncate">آخر مزامنة: الآن</span>
           </div>
         </footer>
       )}
@@ -279,6 +316,8 @@ const MainLayout: React.FC = () => {
       <PurchasePrintModal />
       <VoucherPrintModal />
       <TransactionLifecycleModal />
+      <OfflineIndicator />
+        <TelegramBotIntegration />
     </div>
   );
 };
@@ -286,16 +325,38 @@ const MainLayout: React.FC = () => {
 export default function App() {
   const [firebaseUser, setFirebaseUser] = React.useState<User | null>(null);
   const [localUserId, setLocalUserId] = React.useState<string | null>(() => {
-    return localStorage.getItem('alnoor_press_accounting_v1_current_user_id') || 'usr-1';
+    return localStorage.getItem('alnoor_press_accounting_v1_current_user_id');
   });
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
+    let unsubs: (() => void) | undefined;
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setFirebaseUser(u);
       setLoading(false);
+      
+      if (u && u.email) {
+        unsubs = onSnapshot(doc(db, 'userSessions', u.email.toLowerCase()), (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            const currentSession = localStorage.getItem('active_session_id');
+            if (data.sessionId && currentSession && data.sessionId !== currentSession) {
+              // Forced logout: another device logged in
+              auth.signOut();
+              localStorage.removeItem('alnoor_press_accounting_v1_current_user_id');
+              localStorage.removeItem('active_session_id');
+              window.location.reload();
+            }
+          }
+        });
+      } else {
+        if (unsubs) unsubs();
+      }
     });
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (unsubs) unsubs();
+    };
   }, []);
 
   const isAuth = !!firebaseUser || !!localUserId;

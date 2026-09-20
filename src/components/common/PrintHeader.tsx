@@ -22,8 +22,8 @@ interface PrintHeaderProps {
  * PrintHeader Component
  * 
  * القواعد الصارمة المعتمدة بحسب طلب المستخدم:
- * 1. في حال تم رفع "هيدر كامل" (headerImageUrl): يتم اعتماده كترويسة رسمية كاملة لكل الكشوفات والأوراق المطبوعة.
- * 2. في حال عدم رفع هيدر: يتم استخدام اللوقو (logoUrl) مع اسم المنشأة والبيانات الرسمية والضريبية (العناوين والهواتف المتعددة).
+ * 1. في حال تم رفع "هيدر كامل" (headerImageUrl / letterheadUrl): يتم اعتماده كترويسة رسمية كاملة لكل الكشوفات والأوراق المطبوعة.
+ * 2. في حال عدم رفع هيدر: يتم استخدام اللوقو (logoUrl / logo) مع اسم المنشأة والبيانات الرسمية والضريبية (العناوين والهواتف المتعددة).
  * 3. الكاشير الحراري: له مكون خاص ThermalReceiptHeader يستخدم دائماً اللوقو والبيانات المكتوبة (العناوين والهواتف).
  */
 export const PrintHeader: React.FC<PrintHeaderProps> = ({
@@ -41,10 +41,14 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
   showBorder = true,
 }) => {
   const { settings: contextSettings } = useAccounting();
-  const settings = { ...contextSettings, ...(overrideSettings || {}) };
+  const settings: any = { ...contextSettings, ...(overrideSettings || {}) };
 
-  const hasFullHeader = Boolean(settings.headerImageUrl && settings.headerImageUrl.trim());
-  const hasLogo = Boolean(settings.logoUrl && settings.logoUrl.trim());
+  const headerImageUrl = settings.headerImageUrl || settings.letterheadUrl || settings.headerImage || '';
+  const logoUrl = settings.logoUrl || settings.logo || '';
+  const businessName = settings.businessName || settings.name || 'المنشأة التجارية';
+
+  const hasFullHeader = Boolean(headerImageUrl && headerImageUrl.trim());
+  const hasLogo = Boolean(logoUrl && logoUrl.trim());
 
   // Addresses list (supports multiple addresses or single address string)
   const addressesList = (
@@ -53,7 +57,7 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
       : settings.address
       ? [settings.address]
       : []
-  ).filter(a => a && a.trim());
+  ).filter((a: any) => a && a.trim());
 
   // Phones list (supports multiple phones or single phone string)
   const phonesList = (
@@ -62,18 +66,18 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
       : settings.phone
       ? [settings.phone]
       : []
-  ).filter(p => p && p.trim());
+  ).filter((p: any) => p && p.trim());
 
   // CASE 1: Full Header Image is Uploaded (اعتماد الهيدر الكامل)
   if (hasFullHeader) {
     return (
-      <header className={`w-full mb-4 print:mb-3 ${className}`}>
+      <div className={`print-header w-full mb-4 print:mb-3 print:block ${className}`} data-component="print-header">
         {/* Full Header Banner Image */}
         <div className="w-full overflow-hidden rounded-lg border border-slate-200/60 print:border-none print:rounded-none bg-white">
           <img
-            src={settings.headerImageUrl}
-            alt={settings.businessName || 'ترويسة رسمية'}
-            className="w-full max-h-40 sm:max-h-48 md:max-h-56 object-contain object-center print:max-h-44 mx-auto"
+            src={headerImageUrl}
+            alt={businessName || 'ترويسة رسمية'}
+            className="w-full max-h-40 sm:max-h-48 md:max-h-56 object-contain object-center print:max-h-44 mx-auto block"
           />
         </div>
 
@@ -115,21 +119,21 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
             </div>
           </div>
         )}
-      </header>
+      </div>
     );
   }
 
   // CASE 2: Standard Header (Logo + Company Name + Official Tax Data + Multiple Addresses & Phones)
   return (
-    <header className={`w-full mb-4 print:mb-3 ${showBorder ? 'border-b-2 border-slate-900 pb-4' : ''} ${className}`}>
+    <div className={`print-header w-full mb-4 print:mb-3 print:block ${showBorder ? 'border-b-2 border-slate-900 pb-4' : ''} ${className}`} data-component="print-header">
       <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
         {/* Right side: Logo and Company Info */}
         <div className="flex items-start gap-3.5 flex-1 min-w-0">
           {hasLogo ? (
             <div className="shrink-0 w-20 h-20 sm:w-24 sm:h-24 bg-white border border-slate-200 rounded-xl p-1.5 flex items-center justify-center shadow-2xs overflow-hidden">
               <img
-                src={settings.logoUrl}
-                alt={settings.businessName}
+                src={logoUrl}
+                alt={businessName}
                 className="w-full h-full object-contain object-center"
               />
             </div>
@@ -144,10 +148,10 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
 
           <div className="min-w-0 flex-1">
             <h1 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight leading-snug">
-              {settings.businessName || settings.name || 'المنشأة التجارية'}
+              {businessName}
             </h1>
             {settings.businessNameEn && (
-              <p className="text-[11px] text-slate-500 font-mono -mt-0.5">{settings.businessNameEn}</p>
+              <p className="text-[10px] text-slate-400 font-light font-mono -mt-0.5">{settings.businessNameEn}</p>
             )}
             {(settings.activityType || settings.description) && (
               <p className="text-xs text-slate-600 font-medium mt-0.5">
@@ -157,15 +161,15 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
 
             {/* Official Registration & Tax Numbers */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-700 font-mono mt-1.5">
-              {settings.taxNumber && (
+              {(settings.taxNumber && settings.showTaxNumberInPrints !== false) && (
                 <span className="inline-flex items-center gap-1 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 font-bold">
                   <Hash className="w-3 h-3 text-slate-500" />
                   <span>الرقم الضريبي: {settings.taxNumber}</span>
                 </span>
               )}
-              {settings.crNumber && (
+              {((settings.crNumber || settings.commercialRegister) && settings.showCrNumberInPrints !== false) && (
                 <span className="inline-flex items-center gap-1 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                  <span>س.ت: {settings.crNumber}</span>
+                  <span>س.ت: {settings.crNumber || settings.commercialRegister}</span>
                 </span>
               )}
             </div>
@@ -175,7 +179,7 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
               <div className="flex items-start gap-1.5 text-[11px] text-slate-700 mt-1">
                 <Phone className="w-3 h-3 text-slate-500 shrink-0 mt-0.5" />
                 <div className="flex flex-wrap gap-x-2 gap-y-0.5 font-mono">
-                  {phonesList.map((p, idx) => (
+                  {phonesList.map((p: any, idx: number) => (
                     <span key={idx} className="after:content-['|'] last:after:content-none after:mr-2 after:text-slate-300">
                       {p}
                     </span>
@@ -189,7 +193,7 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
               <div className="flex items-start gap-1.5 text-[11px] text-slate-600 mt-1">
                 <MapPin className="w-3 h-3 text-slate-500 shrink-0 mt-0.5" />
                 <div className="flex flex-col gap-0.5">
-                  {addressesList.map((addr, idx) => (
+                  {addressesList.map((addr: any, idx: number) => (
                     <span key={idx} className="leading-tight">
                       {addressesList.length > 1 ? `• ${addr}` : addr}
                     </span>
@@ -211,7 +215,7 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
           )}
 
           {subtitle && (
-            <p className="text-[11px] text-slate-500 font-medium mb-1 text-left">{subtitle}</p>
+            <p className="text-[10px] text-slate-400 font-light font-medium mb-1 text-left">{subtitle}</p>
           )}
 
           <div className="text-[11px] text-slate-600 font-mono space-y-0.5 text-left">
@@ -234,7 +238,7 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
           {rightAction && <div className="mt-2">{rightAction}</div>}
         </div>
       </div>
-    </header>
+    </div>
   );
 };
 
@@ -308,8 +312,8 @@ export const ThermalReceiptHeader: React.FC<ThermalReceiptHeaderProps> = ({
 
       {/* Tax and CR */}
       <div className="text-[10px] font-bold text-slate-900">
-        {settings.taxNumber && <div>الرقم الضريبي: {settings.taxNumber}</div>}
-        {settings.crNumber && <div>سجل تجاري: {settings.crNumber}</div>}
+        {(settings.taxNumber && settings.showTaxNumberInPrints !== false) && <div>الرقم الضريبي: {settings.taxNumber}</div>}
+        {(settings.crNumber && settings.showCrNumberInPrints !== false) && <div>سجل تجاري: {settings.crNumber}</div>}
       </div>
 
       {/* Multiple Phones on Thermal */}

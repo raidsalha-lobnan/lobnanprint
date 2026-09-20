@@ -386,7 +386,7 @@ export const PosCustomerSearchInput: React.FC<PosCustomerSearchInputProps> = ({
                         </div>
 
                         {/* Extra metadata: phone, city */}
-                        <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5 truncate">
+                        <div className="flex items-center gap-2 text-[9px] text-slate-400 font-light mt-0.5 truncate">
                           {cust.phone && (
                             <span className="flex items-center gap-0.5">
                               <Phone className="w-2.5 h-2.5 text-slate-400" />

@@ -15,6 +15,8 @@ import {
   Lock
 } from 'lucide-react';
 import { posSound } from '../../utils/audio';
+import { getBinaryAttachment, downloadBlobFile, saveBinaryAttachment } from '../../utils/fileStorage';
+import { uploadFileToGoogleDrive, getSavedDriveToken } from '../../services/googleDriveService';
 
 interface WorkshopAttachmentModalProps {
   isOpen: boolean;
@@ -48,8 +50,25 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
   // Active preview defaults to the first attachment if available
   const activeAttachment = selectedPreview || (attachments.length > 0 ? attachments[0] : null);
 
-  const handleDownload = (att: LineAttachment) => {
+  const handleDownload = async (att: LineAttachment) => {
     posSound.click();
+
+    // 1. Check local lossless binary storage first
+    if (att.localBlobId) {
+      const stored = await getBinaryAttachment(att.localBlobId);
+      if (stored?.blob) {
+        downloadBlobFile(stored.blob, att.name);
+        return;
+      }
+    }
+
+    // 2. Check Google Drive link
+    if (att.driveDownloadLink || att.driveWebViewLink) {
+      window.open(att.driveDownloadLink || att.driveWebViewLink, '_blank');
+      return;
+    }
+
+    // 3. Check dataUrl
     if (att.data) {
       const link = document.createElement('a');
       link.href = att.data;
@@ -57,53 +76,69 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-    } else {
-      // Create a dummy text/file blob for simulation if data URL is not embedded
-      const sampleBlob = new Blob([`ملف أمر طباعة رقم: ${invoiceNumber}\nاسم الصنف: ${item.itemName}\nاسم الملف: ${att.name}\nتاريخ الرفع: ${att.uploadedAt || 'غير محدد'}\nبواسطة: ${att.uploadedBy || 'المستخدم'}`], {
-        type: att.type || 'text/plain;charset=utf-8'
-      });
-      const url = URL.createObjectURL(sampleBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = att.name;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      return;
     }
+
+    // 4. Fallback info file
+    const sampleBlob = new Blob([`ملف أمر طباعة رقم: ${invoiceNumber}\nاسم الصنف: ${item.itemName}\nاسم الملف: ${att.name}\nتاريخ الرفع: ${att.uploadedAt || 'غير محدد'}\nبواسطة: ${att.uploadedBy || 'المستخدم'}`], {
+      type: att.type || 'text/plain;charset=utf-8'
+    });
+    downloadBlobFile(sampleBlob, att.name);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      const now = new Date();
-      const newAtt: LineAttachment = {
-        id: 'att-rev-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        data: dataUrl,
-        uploadedAt: now.toLocaleDateString('ar-EG') + ' ' + now.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true }),
-        isOriginal: false, // نسخة معدلة وليست أصلية
-        uploadedBy: currentUserName || 'فني الورشة'
-      };
+    const attId = 'att-rev-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+    const now = new Date();
 
-      onAddAttachment(itemIndex, newAtt);
-      setSelectedPreview(newAtt);
-      posSound.beep();
-      setFeedbackMsg({
-        type: 'success',
-        text: `تم إرفاق النسخة المعدلة "${file.name}" بنجاح`
+    // Save locally to high fidelity binary DB
+    await saveBinaryAttachment(attId, file, file.name, file.type);
+
+    let previewDataUrl: string | undefined = undefined;
+    if (file.type.startsWith('image/') && file.size < 300 * 1024) {
+      previewDataUrl = await new Promise((res) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => res(ev.target?.result as string);
+        reader.onerror = () => res(undefined);
+        reader.readAsDataURL(file);
       });
-      setTimeout(() => setFeedbackMsg(null), 4000);
+    }
+
+    const newAtt: LineAttachment = {
+      id: attId,
+      name: file.name,
+      size: file.size,
+      type: file.type || 'application/octet-stream',
+      data: previewDataUrl,
+      localBlobId: attId,
+      storageType: 'local',
+      uploadedAt: now.toLocaleDateString('ar-EG') + ' ' + now.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true }),
+      isOriginal: false, // نسخة معدلة وليست أصلية
+      uploadedBy: currentUserName || 'فني الورشة'
     };
 
-    // If file is large or binary, read as data URL
-    reader.readAsDataURL(file);
+    // If Google Drive token exists, upload in background
+    if (getSavedDriveToken()) {
+      uploadFileToGoogleDrive(file, file.name)
+        .then((res) => {
+          newAtt.driveFileId = res.fileId;
+          newAtt.driveWebViewLink = res.webViewLink;
+          newAtt.driveDownloadLink = res.webContentLink;
+          newAtt.storageType = 'drive';
+        })
+        .catch((err) => console.warn('Drive upload error:', err));
+    }
+
+    onAddAttachment(itemIndex, newAtt);
+    setSelectedPreview(newAtt);
+    posSound.beep();
+    setFeedbackMsg({
+      type: 'success',
+      text: `تم إرفاق النسخة المعدلة "${file.name}" بجودة أصلية 100% بنجاح`
+    });
+    setTimeout(() => setFeedbackMsg(null), 4000);
 
     // Reset input
     if (fileInputRef.current) {
@@ -152,7 +187,7 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
       <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-4xl overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
@@ -228,7 +263,7 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
                 <span className="text-xs font-bold text-slate-800">
                   إعادة إرفاق / رفع ملف معدل
                 </span>
-                <span className="text-[11px] text-slate-500">
+                <span className="text-[10px] text-slate-400 font-light">
                   (بروفة جديدة، تصحيح قياسات، أو تعديل تصميم)
                 </span>
               </label>
@@ -240,7 +275,7 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
                 <span className="text-xs font-bold text-slate-700">
                   قائمة المرفقات ({attachments.length}):
                 </span>
-                <span className="text-[11px] text-slate-500">
+                <span className="text-[10px] text-slate-400 font-light">
                   انقر على الملف للمعاينة والتنزيل
                 </span>
               </div>
@@ -252,98 +287,91 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
                   <p className="text-[11px] mt-1 text-slate-500">يمكنك رفع بروفة أو نسخة معدلة من الزر أعلاه</p>
                 </div>
               ) : (
-                <div className="space-y-2 max-h-[340px] overflow-y-auto pr-0.5">
-                  {attachments.map((att) => {
-                    const isSelected = activeAttachment?.id === att.id;
-                    const isOriginal = att.isOriginal !== false;
-
-                    return (
-                      <div
-                        key={att.id}
-                        onClick={() => setSelectedPreview(att)}
-                        className={`p-2.5 rounded-lg border text-right cursor-pointer transition-all ${
-                          isSelected
-                            ? 'bg-blue-50/80 border-blue-400 ring-1 ring-blue-300'
-                            : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2 overflow-hidden">
-                            <div
-                              className={`w-7 h-7 rounded shrink-0 flex items-center justify-center text-xs ${
-                                isOriginal ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'
-                              }`}
-                            >
-                              <File className="w-3.5 h-3.5" />
-                            </div>
-                            <div className="truncate">
-                              <p className="text-xs font-bold text-slate-800 truncate" title={att.name}>
-                                {att.name}
-                              </p>
-                              <p className="text-[10px] text-slate-500">
-                                {formatFileSize(att.size)} • {att.uploadedAt || 'تاريخ غير محدد'}
-                              </p>
+                <div className="space-y-4 max-h-[340px] overflow-y-auto pr-0.5">
+                  {/* Original Attachments */}
+                  {attachments.filter(a => a.isOriginal !== false).length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-[10px] font-bold text-slate-500 mb-1 flex items-center gap-1"><Lock className="w-3 h-3"/> المرفقات الأصلية</h4>
+                      {attachments.filter(a => a.isOriginal !== false).map((att) => {
+                        const isSelected = activeAttachment?.id === att.id;
+                        return (
+                          <div
+                            key={att.id}
+                            onClick={() => setSelectedPreview(att)}
+                            className={`p-2.5 rounded-lg border text-right cursor-pointer transition-all ${
+                              isSelected ? 'bg-amber-50/80 border-amber-400 ring-1 ring-amber-300' : 'bg-white border-slate-200 hover:border-amber-300 hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="flex flex-col gap-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center gap-2 overflow-hidden">
+                                  <div className="w-7 h-7 rounded shrink-0 flex items-center justify-center text-xs bg-amber-100 text-amber-800">
+                                    <File className="w-3.5 h-3.5" />
+                                  </div>
+                                  <div className="truncate">
+                                    <p className="text-xs font-bold text-slate-800 truncate" title={att.name}>{att.name}</p>
+                                    <p className="text-[9px] text-slate-400 font-light">{formatFileSize(att.size)} • {att.uploadedAt || 'تاريخ غير محدد'}</p>
+                                  </div>
+                                </div>
+                                <span className="shrink-0 text-[9px] bg-amber-100 text-amber-900 border border-amber-300 font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                                  <Lock className="w-2.5 h-2.5" /><span>أصلي محمي</span>
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-[10px] pt-2 border-t border-slate-100">
+                                <span className="text-slate-500 truncate">بواسطة: {att.uploadedByUserName || att.uploadedBy || 'المستخدم'}</span>
+                                <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                  <button type="button" onClick={() => handleDownload(att)} className="p-1 text-blue-600 hover:bg-blue-100 rounded" title="تنزيل الملف"><Download className="w-3.5 h-3.5" /></button>
+                                </div>
+                              </div>
                             </div>
                           </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
-                          {/* Original vs Revised Badge */}
-                          {isOriginal ? (
-                            <span
-                              className="shrink-0 text-[9px] bg-amber-100 text-amber-900 border border-amber-300 font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5"
-                              title="مرفق أصلي محمي من الحذف"
-                            >
-                              <Lock className="w-2.5 h-2.5" />
-                              <span>أصلي محمي</span>
-                            </span>
-                          ) : (
-                            <span
-                              className="shrink-0 text-[9px] bg-sky-100 text-sky-900 border border-sky-300 font-bold px-1.5 py-0.5 rounded"
-                              title="نسخة معدلة / بروفة"
-                            >
-                              معدل
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Uploader and Action Row */}
-                        <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px]">
-                          <span className="text-slate-500 truncate max-w-[170px]">
-                            بواسطة: {att.uploadedBy || 'المستخدم'}
-                          </span>
-
-                          <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                            <button
-                              type="button"
-                              onClick={() => handleDownload(att)}
-                              className="p-1 text-blue-600 hover:bg-blue-100 rounded transition-colors"
-                              title="تنزيل الملف"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* DELETE BUTTON: STRICTLY DISALLOWED for original attachments */}
-                            {isOriginal ? (
-                              <span
-                                className="text-slate-300 p-1 cursor-not-allowed"
-                                title="لا يمكن حذف المرفقات الأصلية المعتمدة"
-                              >
-                                <Lock className="w-3.5 h-3.5 text-slate-400" />
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleDelete(att)}
-                                className="p-1 text-rose-500 hover:bg-rose-100 rounded transition-colors"
-                                title="حذف النسخة المعدلة"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
+                  {/* New Attachments */}
+                  {attachments.filter(a => a.isOriginal === false).length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-[10px] font-bold text-sky-600 mb-1 flex items-center gap-1 text-emerald-600"><CheckCircle2 className="w-3 h-3"/> مرفقات جديدة</h4>
+                      {attachments.filter(a => a.isOriginal === false).map((att) => {
+                        const isSelected = activeAttachment?.id === att.id;
+                        return (
+                          <div
+                            key={att.id}
+                            onClick={() => setSelectedPreview(att)}
+                            className={`p-2.5 rounded-lg border text-right cursor-pointer transition-all ${
+                              isSelected ? 'bg-sky-50/80 border-sky-400 ring-1 ring-sky-300' : 'bg-emerald-50 border-emerald-200 hover:border-emerald-300'
+                            }`}
+                          >
+                            <div className="flex flex-col gap-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center gap-2 overflow-hidden">
+                                  <div className="w-7 h-7 rounded shrink-0 flex items-center justify-center text-xs bg-emerald-100 text-emerald-800">
+                                    <File className="w-3.5 h-3.5" />
+                                  </div>
+                                  <div className="truncate">
+                                    <p className="text-xs font-bold text-slate-800 truncate" title={att.name}>{att.name}</p>
+                                    <p className="text-[9px] text-slate-400 font-light">{formatFileSize(att.size)} • {att.uploadedAt || 'تاريخ غير محدد'}</p>
+                                  </div>
+                                </div>
+                                <span className="shrink-0 text-[9px] bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                                  مرفق جديد
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-[10px] pt-2 border-t border-emerald-200/50">
+                                <span className="text-emerald-700 font-semibold truncate">تم الإرفاق بواسطة: {att.uploadedByUserName || att.uploadedBy || 'المستخدم'}</span>
+                                <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                  <button type="button" onClick={() => handleDownload(att)} className="p-1 text-blue-600 hover:bg-blue-100 rounded" title="تنزيل الملف"><Download className="w-3.5 h-3.5" /></button>
+                                  <button type="button" onClick={() => handleDelete(att)} className="p-1 text-rose-500 hover:bg-rose-100 rounded" title="حذف النسخة المعدلة"><Trash2 className="w-3.5 h-3.5" /></button>
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -387,7 +415,7 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
                       <h4 className="text-sm font-bold text-slate-800 break-all max-w-sm px-2">
                         {activeAttachment.name}
                       </h4>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-[10px] text-slate-400 font-light">
                         {activeAttachment.type || 'ملف رقمي'} • {formatFileSize(activeAttachment.size)}
                       </p>
                     </div>

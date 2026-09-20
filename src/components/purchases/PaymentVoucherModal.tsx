@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { DateInput } from '../../components/common/DateInput';
 import { useAccounting } from '../../context/AccountingContext';
 import { Party, PaymentVoucher } from '../../types';
 import { AutocompleteCombobox } from '../common/AutocompleteCombobox';
@@ -211,7 +212,7 @@ export const PaymentVoucherModal: React.FC<PaymentVoucherModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
       <div className="bg-white rounded-xl max-w-2xl w-full p-5 shadow-2xl border border-slate-200 max-h-[92vh] overflow-y-auto my-auto text-right font-sans">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-4">
@@ -223,7 +224,7 @@ export const PaymentVoucherModal: React.FC<PaymentVoucherModalProps> = ({
               <h3 className="font-bold text-sm text-slate-900">
                 {voucherToEdit ? 'تعديل سند صرف للمورد' : 'تحرير سند صرف جديد للمورد'}
               </h3>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[10px] text-slate-400 font-light">
                 سند صرف نقدية أو بنكي رسمي للمورد مع خيارات السداد المتعددة والطباعة
               </p>
             </div>
@@ -244,7 +245,7 @@ export const PaymentVoucherModal: React.FC<PaymentVoucherModalProps> = ({
               <Lock className="w-4 h-4 text-slate-400" />
               <div>
                 <span className="text-xs font-bold text-slate-800 block">رقم سند الصرف التسلسلي (غير قابل للتكرار):</span>
-                <span className="text-[10px] text-slate-500">ترميز نظامي خاص بسندات الصرف PAY مع ترقيم تلقائي متسلسل</span>
+                <span className="text-[9px] text-slate-400 font-light">ترميز نظامي خاص بسندات الصرف PAY مع ترقيم تلقائي متسلسل</span>
               </div>
             </div>
 
@@ -281,11 +282,7 @@ export const PaymentVoucherModal: React.FC<PaymentVoucherModalProps> = ({
             <div>
               <label className="block text-slate-700 font-medium mb-1">تاريخ تحرير السند:</label>
               <div className="relative">
-                <input
-                  type="date"
-                  required
-                  value={voucherDate}
-                  onChange={e => setVoucherDate(e.target.value)}
+                <DateInput required value={voucherDate} onChange={e => setVoucherDate(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 text-xs font-mono focus:bg-white focus:ring-2 focus:ring-rose-500"
                 />
               </div>
@@ -481,11 +478,7 @@ export const PaymentVoucherModal: React.FC<PaymentVoucherModalProps> = ({
 
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1 text-[11px]">تاريخ استحقاق الشيك:</label>
-                  <input
-                    type="date"
-                    required
-                    value={chequeDueDate}
-                    onChange={e => setChequeDueDate(e.target.value)}
+                  <DateInput required value={chequeDueDate} onChange={e => setChequeDueDate(e.target.value)}
                     className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-xs font-mono"
                   />
                 </div>

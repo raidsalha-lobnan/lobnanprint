@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { DateInput } from '../../components/common/DateInput';
 import { useAccounting } from '../../context/AccountingContext';
 import { Party, PaymentVoucher } from '../../types';
 import { X, Receipt, Printer, Calendar, Search, Filter, ArrowDownLeft, FileText, CheckCircle2 } from 'lucide-react';
@@ -57,7 +58,7 @@ export const CustomerReceiptsLedgerModal: React.FC<CustomerReceiptsLedgerModalPr
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-2xs flex items-center justify-center p-3 text-slate-800 text-xs print:p-0 print:bg-white" dir="rtl">
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-2xs flex items-center justify-center p-3 text-slate-800 text-xs print:p-0 print:bg-white" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-4xl flex flex-col max-h-[92vh] overflow-hidden print:border-none print:shadow-none print:max-w-none">
         {/* Header Controls (Hidden during print) */}
         <div className="bg-[#1f4a7c] text-white px-5 py-3.5 flex items-center justify-between border-b border-[#143254] print:hidden">
@@ -127,17 +128,11 @@ export const CustomerReceiptsLedgerModal: React.FC<CustomerReceiptsLedgerModalPr
 
           <div className="flex items-center gap-2">
             <span className="text-slate-600 font-semibold text-[11px]">من تاريخ:</span>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={e => setFromDate(e.target.value)}
+            <DateInput value={fromDate} onChange={e => setFromDate(e.target.value)}
               className="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs font-mono"
             />
             <span className="text-slate-600 font-semibold text-[11px]">إلى:</span>
-            <input
-              type="date"
-              value={toDate}
-              onChange={e => setToDate(e.target.value)}
+            <DateInput value={toDate} onChange={e => setToDate(e.target.value)}
               className="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs font-mono"
             />
             {(fromDate || toDate) && (
@@ -302,7 +297,7 @@ export const CustomerReceiptsLedgerModal: React.FC<CustomerReceiptsLedgerModalPr
 
         {/* Footer */}
         <div className="bg-slate-50 px-5 py-3 border-t border-slate-200 flex items-center justify-between print:hidden">
-          <span className="text-[11px] text-slate-500">
+          <span className="text-[10px] text-slate-400 font-light">
             * هذا الكشف معتمد من واقع قيود وسندات القبض المسجلة في النظام.
           </span>
           <button

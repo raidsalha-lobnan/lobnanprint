@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import {
   History,
@@ -297,7 +298,7 @@ export const AuditLogView: React.FC = () => {
             </span>
             <h1 className="text-xl font-bold text-slate-800">سجل العمليات والرقابة الداخلية (Audit Trail)</h1>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-[10px] text-slate-400 font-light mt-1">
             توثيق لحظي وتاريخي شامل لكافة الحركات المالية والفواتير وسندات القبض والصرف وحركات المخزون والمستخدمين
           </p>
         </div>
@@ -323,7 +324,7 @@ export const AuditLogView: React.FC = () => {
       {/* KPI Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[11px] text-slate-500 font-medium block">إجمالي السجلات المؤرشفة</span>
+          <span className="text-[10px] text-slate-400 font-light font-medium block">إجمالي السجلات المؤرشفة</span>
           <div className="flex items-baseline gap-2 mt-1">
             <strong className="text-xl font-mono font-bold text-slate-900">
               {allLogs.length.toLocaleString('ar-SA')}
@@ -334,7 +335,7 @@ export const AuditLogView: React.FC = () => {
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[11px] text-slate-500 font-medium block">حركات المبيعات والتحصيل</span>
+          <span className="text-[10px] text-slate-400 font-light font-medium block">حركات المبيعات والتحصيل</span>
           <div className="flex items-baseline gap-2 mt-1">
             <strong className="text-xl font-mono font-bold text-emerald-600">
               {allLogs.filter(l => l.category === 'sales').length.toLocaleString('ar-SA')}
@@ -345,7 +346,7 @@ export const AuditLogView: React.FC = () => {
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[11px] text-slate-500 font-medium block">حركات المخازن والتوريد</span>
+          <span className="text-[10px] text-slate-400 font-light font-medium block">حركات المخازن والتوريد</span>
           <div className="flex items-baseline gap-2 mt-1">
             <strong className="text-xl font-mono font-bold text-indigo-600">
               {allLogs.filter(l => l.category === 'inventory' || l.category === 'purchases').length.toLocaleString('ar-SA')}
@@ -356,7 +357,7 @@ export const AuditLogView: React.FC = () => {
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-[11px] text-slate-500 font-medium block">حركات المالية والخزائن</span>
+          <span className="text-[10px] text-slate-400 font-light font-medium block">حركات المالية والخزائن</span>
           <div className="flex items-baseline gap-2 mt-1">
             <strong className="text-xl font-mono font-bold text-blue-600">
               {allLogs.filter(l => l.category === 'finance' || l.category === 'payroll').length.toLocaleString('ar-SA')}
@@ -400,17 +401,11 @@ export const AuditLogView: React.FC = () => {
 
         <div className="flex items-center gap-2 text-xs text-slate-600">
           <span className="text-[11px] text-slate-400">من:</span>
-          <input
-            type="date"
-            value={fromDate}
-            onChange={e => setFromDate(e.target.value)}
+          <DateInput value={fromDate} onChange={e => setFromDate(e.target.value)}
             className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none"
           />
           <span className="text-[11px] text-slate-400">إلى:</span>
-          <input
-            type="date"
-            value={toDate}
-            onChange={e => setToDate(e.target.value)}
+          <DateInput value={toDate} onChange={e => setToDate(e.target.value)}
             className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none"
           />
           {(searchQuery || categoryFilter !== 'all' || fromDate || toDate) && (

@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { PWAInstallButton } from './PWAInstallButton';
+import { MobileNavigationModal } from './MobileNavigationModal';
 import { useAccounting } from '../context/AccountingContext';
 import {
   LayoutDashboard,
@@ -34,7 +36,11 @@ import {
   RefreshCw,
   Database,
   CheckCircle2,
-  HardDrive
+  HardDrive,
+  Menu,
+  ArrowRight,
+  ArrowLeft,
+  X
 } from 'lucide-react';
 
 interface SubMenuItem {
@@ -57,6 +63,10 @@ export const Navbar: React.FC = () => {
   const {
     activeTab,
     setActiveTab,
+    goBack,
+    canGoBack,
+    currencies,
+    updateCurrencyRate,
     settings,
     stats,
     exportDataJSON,
@@ -83,6 +93,7 @@ export const Navbar: React.FC = () => {
     hasPermission
   } = useAccounting();
 
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<{ message: string; success: boolean } | null>(null);
 
   const handleManualSync = async () => {
@@ -139,7 +150,7 @@ export const Navbar: React.FC = () => {
         {
           id: 'home',
           label: '1. الشاشة الرئيسية',
-          sublabel: 'اختصارات سريعة للعمليات الدائمة (كاشير، كشوف حسابات، فواتير وأوامر تشغيل مع إمكانية التخصيص)',
+          sublabel: 'اختصارات سريعة للعمليات الدائمة وكشوف الحسابات والفواتير',
           icon: Sparkles,
           badge: 'سريعة ومخصصة',
           badgeColor: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
@@ -147,7 +158,7 @@ export const Navbar: React.FC = () => {
         {
           id: 'dashboard',
           label: '2. لوحة المعلومات',
-          sublabel: 'استعراض الأرصدة الشاملة (الصندوق اليومي، المبيعات، البنوك، الأرباح والمؤشرات المالية)',
+          sublabel: 'الأرصدة الشاملة وحركة المبيعات والصندوق والمؤشرات المالية',
           icon: LayoutDashboard,
           badge: 'الأرصدة والتحليلات',
           badgeColor: 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
@@ -163,15 +174,15 @@ export const Navbar: React.FC = () => {
         {
           id: 'pos',
           label: '1. الكاشير / نقطة البيع',
-          sublabel: 'نقاط البيع السريعة والتحصيل الفوري والفواتير النقدية والآجلة',
+          sublabel: 'نقاط البيع السريعة والتحصيل الفوري والنقدي والآجل',
           icon: ShoppingCart,
           badge: 'سريع',
           badgeColor: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
         },
         {
           id: 'print_orders',
-          label: '2. أوامر الطباعة والورشة أو طلبات الطباعة والورشة',
-          sublabel: 'إدارة أوامر التصنيع والطباعة، تذاكر العمل ومراحل الإنجاز والتسليم',
+          label: '2. أوامر الطباعة والورشة',
+          sublabel: 'إدارة أوامر التصنيع وتذاكر العمل ومراحل الإنجاز والتسليم',
           icon: Printer,
           badge: (stats?.pendingPrintJobs ?? 0) > 0 ? `${stats.pendingPrintJobs}` : null,
           badgeColor: 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
@@ -179,19 +190,19 @@ export const Navbar: React.FC = () => {
         {
           id: 'parties',
           label: '3. العملاء',
-          sublabel: 'بيانات العملاء، المديونيات، أرصدة الذمم وكشوف الحسابات التفصيلية',
+          sublabel: 'بيانات العملاء وأرصدة الذمم والمديونيات وكشوف الحساب',
           icon: Users
         },
         {
           id: 'invoices',
           label: '4. فواتير المبيعات',
-          sublabel: 'إدارة واستعراض وطباعة فواتير المبيعات المعتمدة وحالات الدفع والتحصيل',
+          sublabel: 'استعراض وطباعة فواتير المبيعات المعتمدة والتحصيل',
           icon: FileText
         },
         {
           id: 'sales_returns',
           label: '5. مرتجع فواتير المبيعات',
-          sublabel: 'إصدار إشعارات دائنة ضريبية، استرداد المبالغ وإرجاع البضائع للمخزن',
+          sublabel: 'إصدار إشعارات دائنة واسترداد المبالغ وإرجاع البضائع للمخزن',
           icon: RotateCcw,
           badge: (stats?.salesReturnsCount ?? 0) > 0 ? `${stats.salesReturnsCount}` : null,
           badgeColor: 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
@@ -199,8 +210,14 @@ export const Navbar: React.FC = () => {
         {
           id: 'receipt_vouchers',
           label: '6. سند قبض',
-          sublabel: 'تحرير وطباعة سندات القبض المالية وتحصيل الدفعات النقدية والبنكية',
+          sublabel: 'تحرير وطباعة سندات القبض وتحصيل الدفعات المالية',
           icon: Receipt
+        },
+        {
+          id: 'special_invoice',
+          label: '7. فاتورة مبيعات خاصة',
+          sublabel: 'إنشاء وطباعة فاتورة مبيعات خاصة بتصميم مخصص',
+          icon: FileText
         }
       ]
     },
@@ -213,13 +230,13 @@ export const Navbar: React.FC = () => {
         {
           id: 'purchases_suppliers',
           label: '1. الموردين',
-          sublabel: 'سجل الموردين، أرصدة الالتزامات والمستحقات، والبيانات الضريبية',
+          sublabel: 'سجل الموردين وأرصدة الالتزامات والمستحقات الضريبية',
           icon: Truck
         },
         {
           id: 'purchases_invoices',
           label: '2. فاتورة شراء',
-          sublabel: 'تسجيل فواتير شراء الخامات والورق والمستلزمات وتحديث المخزون',
+          sublabel: 'تسجيل فواتير شراء الخامات والمستلزمات وتحديث المخزون',
           icon: FileText
         },
         {
@@ -231,13 +248,13 @@ export const Navbar: React.FC = () => {
         {
           id: 'payment_vouchers',
           label: '4. سند صرف',
-          sublabel: 'صرف مستحقات الموردين والعهد وتسديد الدفعات النقدية والبنكية',
+          sublabel: 'صرف مستحقات الموردين والعهد وتسديد الدفعات المالية',
           icon: Wallet
         },
         {
           id: 'expenses',
           label: '5. المصروفات',
-          sublabel: 'تسجيل مصروفات الإيجار، الكهرباء، الرواتب والتشغيل مع الترحيل المحاسبي',
+          sublabel: 'تسجيل مصروفات الإيجار والكهرباء والرواتب والتشغيل اليومي',
           icon: ArrowRightLeft
         }
       ]
@@ -251,7 +268,7 @@ export const Navbar: React.FC = () => {
         {
           id: 'inventory',
           label: '1. قائمة الأصناف وبطاقات المخزون',
-          sublabel: 'بطاقات الأصناف، ألواح الورق، الأحبار، حدود الأمان والجرد الدوري',
+          sublabel: 'بطاقات الأصناف وألواح الورق والأحبار وحدود الأمان والجرد',
           icon: Boxes,
           badge: stats.lowStockCount > 0 ? `${stats.lowStockCount} نواقص` : null,
           badgeColor: 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
@@ -259,7 +276,7 @@ export const Navbar: React.FC = () => {
         {
           id: 'warehouses',
           label: '2. حركات وأذون المخازن',
-          sublabel: 'أذون الصرف والتوريد والتحويلات المخزنية بين الفروع والمستودعات',
+          sublabel: 'أذون الصرف والتوريد والتحويلات المخزنية بين الفروع',
           icon: PackageCheck
         }
       ]
@@ -273,7 +290,7 @@ export const Navbar: React.FC = () => {
         {
           id: 'employees',
           label: '1. سجل الموظفين وبيانات العمل',
-          sublabel: 'سجلات العاملين، الأقسام، الرواتب والبيانات الشخصية',
+          sublabel: 'سجلات العاملين والأقسام والرواتب والبيانات الشخصية',
           icon: Users,
           badge: stats.totalEmployeesCount > 0 ? `${stats.totalEmployeesCount}` : null,
           badgeColor: 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
@@ -281,7 +298,7 @@ export const Navbar: React.FC = () => {
         {
           id: 'employees_adjustments',
           label: '2. السلف والاستقطاعات والمكافآت',
-          sublabel: 'تسجيل سلف الموظفين، الخصومات الشهرية والحوافز والمكافآت',
+          sublabel: 'تسجيل سلف الموظفين والخصومات الشهرية والحوافز المالية',
           icon: Wallet
         },
         {
@@ -315,7 +332,7 @@ export const Navbar: React.FC = () => {
         {
           id: 'warehouses',
           label: '2. المخازن والمستودعات',
-          sublabel: 'المستودعات المتعددة، التحويلات المخزنية، وأذون الصرف والتوريد',
+          sublabel: 'المستودعات المتعددة والتحويلات وأذون الصرف والتوريد',
           icon: PackageCheck,
           badge: warehouseOperations.length > 0 ? `${warehouseOperations.length}` : null,
           badgeColor: 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
@@ -323,7 +340,7 @@ export const Navbar: React.FC = () => {
         {
           id: 'treasuries',
           label: '3. الصناديق والعملات',
-          sublabel: 'حركة الخزينة النقدية، الحسابات البنكية، وأسعار صرف العملات',
+          sublabel: 'حركة الخزينة النقدية والحسابات البنكية وأسعار العملات',
           icon: Wallet,
           badge: stats.treasuriesCount > 0 ? `${stats.treasuriesCount}` : null,
           badgeColor: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
@@ -331,13 +348,13 @@ export const Navbar: React.FC = () => {
         {
           id: 'debt_clearing',
           label: '4. مقاصة بين عميل ومورد',
-          sublabel: 'تسوية المديونيات المتبادلة بين طرف عميل ومورد بقيد محاسبي آلي',
+          sublabel: 'تسوية المديونيات المتبادلة بين طرف عميل ومورد بقيد آلي',
           icon: ArrowRightLeft
         },
         {
           id: 'accounting',
           label: '5. القيود ودفتر الأستاذ',
-          sublabel: 'القيود المحاسبية المزدوجة المتوازنة، دليل الحسابات، وميزان المراجعة',
+          sublabel: 'القيود المحاسبية المزدوجة ودليل الحسابات وميزان المراجعة',
           icon: BookOpenCheck,
           badge: 'مزدوج',
           badgeColor: 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
@@ -353,61 +370,61 @@ export const Navbar: React.FC = () => {
         {
           id: 'report_customer_statement',
           label: '1. كشف حساب تفصيلي عميل',
-          sublabel: 'اختيار العميل الرئيسي أو العميل الرئيسي والفرعي',
+          sublabel: 'كشف حركة حساب العميل الرئيسي والفرعي والأرصدة',
           icon: Users
         },
         {
           id: 'report_customer_items',
           label: '2. كشف حساب الأصناف للعميل',
-          sublabel: 'تجميع الأصناف المتشابهة للفترة المحددة للعميل الرئيسي أو الفرعي',
+          sublabel: 'تجميع أصناف العميل للفترة المحددة ومعدلات الشراء',
           icon: Boxes
         },
         {
           id: 'report_supplier_statement',
           label: '3. كشف حساب تفصيلي مورد',
-          sublabel: 'اختيار المورد الرئيسي أو المورد الرئيسي والفرعي',
+          sublabel: 'كشف حركة حساب المورد الرئيسي والفرعي والدفعات',
           icon: Truck
         },
         {
           id: 'report_supplier_items',
           label: '4. كشف حساب الأصناف للمورد',
-          sublabel: 'تجميع الأصناف والخامات المتشابهة للفترة المحددة للمورد المحدد',
+          sublabel: 'تجميع خامات وأصناف المورد للفترة المحددة',
           icon: Boxes
         },
         {
           id: 'report_receipt_vouchers',
           label: '5. كشف تفصيلي سندات القبض',
-          sublabel: 'تفاصيل التحصيلات والمقبوضات النقدية والبنكية حسب الخزينة',
+          sublabel: 'تفاصيل التحصيلات والمقبوضات النقدية والبنكية بالخزائن',
           icon: Receipt
         },
         {
           id: 'report_payment_vouchers',
           label: '6. كشف تفصيلي سندات الصرف',
-          sublabel: 'تفاصيل المدفوعات والمنصرفات النقدية والبنكية للموردين والمصاريف',
+          sublabel: 'تفاصيل المدفوعات والمنصرفات النقدية والبنكية والمصاريف',
           icon: Wallet
         },
         {
           id: 'report_employee_statement',
           label: '7. كشف حساب تفصيلي موظف',
-          sublabel: 'استحقاقات الموظف، السلف، الاستقطاعات، والحوافز وصافي المستحق',
+          sublabel: 'استحقاقات الموظف والسلف والاستقطاعات وصافي المستحق',
           icon: UserCheck
         },
         {
           id: 'report_payroll_sheets',
           label: '8. كشف رواتب الموظفين',
-          sublabel: 'مسيرات الرواتب الشهرية الشاملة والمبالغ المصروفة والمعتمدة',
+          sublabel: 'مسيرات الرواتب الشهرية الشاملة والمبالغ المعتمدة',
           icon: FileText
         },
         {
           id: 'report_treasuries_movement',
           label: '9. كشف تفصيلي للصناديق',
-          sublabel: 'تفاصيل حركة الصناديق والتدفقات النقدية والبنكية الداخلة والخارجة',
+          sublabel: 'حركة الصناديق والتدفقات النقدية والبنكية الداخلة والخارجة',
           icon: Wallet
         },
         {
           id: 'reports',
           label: '10. المركز الشامل للتقارير والتحليلات',
-          sublabel: 'لوحة التقارير المركزية والضرائب وقوائم الدخل والمبيعات والمشتريات',
+          sublabel: 'لوحة التقارير المركزية والضرائب وقوائم الدخل والمبيعات',
           icon: BarChart3
         }
       ]
@@ -421,7 +438,7 @@ export const Navbar: React.FC = () => {
         {
           id: 'users_permissions',
           label: '1. المستخدمون والصلاحيات',
-          sublabel: 'إدارة حسابات المستخدمين، الأدوار، والصلاحيات الأمنية للنظام',
+          sublabel: 'إدارة حسابات المستخدمين والأدوار والصلاحيات الأمنية',
           icon: ShieldCheck,
           badge: users.length > 0 ? `${users.length}` : null,
           badgeColor: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
@@ -429,13 +446,13 @@ export const Navbar: React.FC = () => {
         {
           id: 'settings_general',
           label: '2. البيانات الرسمية والضريبة',
-          sublabel: 'اسم المنشأة، السجل التجاري، الرقم الضريبي، العملة والترويسة',
+          sublabel: 'اسم المنشأة والسجل التجاري والرقم الضريبي والعملة',
           icon: Settings
         },
         {
           id: 'settings_sql',
-          label: '3. التشغيل المحلي وربط خادم sql',
-          sublabel: 'إعدادات الاتصال المباشر بقاعدة بيانات SQL المحلية والمزامنة',
+          label: '3. التشغيل المحلي وربط خادم SQL',
+          sublabel: 'إعدادات الاتصال المباشر بقاعدة بيانات SQL المحلية',
           icon: Layers
         },
         {
@@ -574,38 +591,66 @@ export const Navbar: React.FC = () => {
     <header className="sticky top-0 z-50 bg-[#0f172a] text-slate-200 shadow-md border-b border-slate-700/80 shrink-0 select-none overflow-visible">
       {/* Top Utility & Brand Bar */}
       <div className="h-13 px-3 sm:px-6 flex items-center justify-between border-b border-slate-800/80 text-xs">
-        {/* Brand Header */}
-        <div className="flex items-center gap-3 min-w-0">
-          <div
-            className="flex items-center gap-2 cursor-pointer hover:opacity-90 transition"
-            onClick={() => setActiveTab('home')}
-            title="الانتقال إلى الشاشة الرئيسية"
+        {/* Brand Header & Compact Global Controls */}
+        <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
+          {/* Back Button (عودة للشاشة السابقة أو شاشة الاختصارات السريعة) */}
+          <button
+            type="button"
+            onClick={goBack}
+            className={`h-7 px-1.5 rounded-md flex items-center gap-1 text-[11px] font-bold transition-all shrink-0 cursor-pointer border ${
+              canGoBack
+                ? 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700 hover:text-white shadow-xs active:scale-95'
+                : 'bg-slate-900/60 text-slate-500 border-slate-800/80 cursor-not-allowed opacity-60'
+            }`}
+            title="رجوع للشاشة السابقة أو الرئيسية"
+            disabled={!canGoBack}
           >
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-700 rounded-lg flex items-center justify-center text-white font-black text-base shrink-0 shadow-sm">
+            <ArrowRight className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span className="hidden sm:inline">رجوع</span>
+          </button>
+
+          {/* Close / Exit Button (رمز إغلاق لإغلاق البرنامج أو تسجيل الخروج) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm('هل تريد إغلاق جلسة العمل وتسجيل الخروج من البرنامج؟')) {
+                import('../firebase').then(({ auth }) => auth.signOut());
+                localStorage.removeItem('alnoor_press_accounting_v1_current_user_id');
+                localStorage.removeItem('active_session_id');
+                window.location.reload();
+              }
+            }}
+            className="h-7 w-7 rounded-md bg-rose-950/40 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-800/50 hover:border-rose-500 flex items-center justify-center active:scale-95 transition-all shrink-0 cursor-pointer shadow-xs"
+            title="إغلاق البرنامج / تسجيل الخروج"
+          >
+            <X className="w-3.5 h-3.5 shrink-0" />
+          </button>
+
+          {/* Unified Brand Header (All Screens) */}
+          <div
+            className="flex items-center gap-1.5 sm:gap-2 cursor-pointer hover:opacity-90 transition min-w-0"
+            onClick={() => {
+              if (window.innerWidth < 768) {
+                setIsMobileNavOpen(true);
+              } else {
+                setActiveTab('home');
+              }
+            }}
+            title={window.innerWidth < 768 ? "فتح القوائم" : "الانتقال إلى الشاشة الرئيسية"}
+          >
+            <div className="w-7 h-7 sm:w-8 sm:h-8 bg-gradient-to-br from-blue-500 to-blue-700 rounded-md sm:rounded-lg flex items-center justify-center text-white font-black text-xs sm:text-sm shrink-0 shadow-sm">
               P
             </div>
-            <div className="min-w-0">
-              <div className="flex items-baseline gap-2">
-                <span className="font-extrabold text-white tracking-tight text-sm">
-                  المحاسب الذكي
-                </span>
-                <span className="text-[11px] text-blue-400 font-semibold bg-blue-950/60 px-1.5 py-0.5 rounded border border-blue-800/50">
-                  ERP v2.5
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-400 truncate max-w-[180px] sm:max-w-xs">
-                {settings.businessName}
+            <div className="flex flex-col justify-center min-w-0 max-w-[200px] sm:max-w-md">
+              <span className="font-extrabold text-white tracking-tight text-[11px] sm:text-sm leading-tight whitespace-nowrap">برنامج الأيهم المحاسبي</span>
+              <p className="text-[8px] sm:text-[9px] text-emerald-400 truncate leading-tight mt-0.5" dir="rtl">
+                {settings.businessName || settings.companyName} - {currentUser?.fullName} - {currentUser?.roleName}
               </p>
             </div>
           </div>
 
-          <div className="hidden xl:flex items-center gap-2 text-[11px] text-slate-400 border-r border-slate-700/80 pr-3 mr-1">
+          <div className="hidden 2xl:flex items-center gap-1.5 text-[10px] text-slate-400 border-r border-slate-700/80 pr-2 mr-0.5">
             <span>{todayArabic}</span>
-            {settings.crNumber && (
-              <span className="bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700 font-mono text-[10px]">
-                س.ت: {settings.crNumber}
-              </span>
-            )}
           </div>
         </div>
 
@@ -619,7 +664,7 @@ export const Navbar: React.FC = () => {
             <Wallet className="w-3.5 h-3.5 text-emerald-400" />
             <span className="text-slate-400 text-[11px]">الصندوق:</span>
             <strong className="font-mono font-bold text-emerald-400">{(stats?.cashBalance ?? 0).toLocaleString('ar-SA')}</strong>
-            <span className="text-[10px] text-slate-400">{settings.currency}</span>
+            <span className="text-[8px] text-slate-400">{settings.currency}</span>
           </div>
 
           <div
@@ -630,7 +675,7 @@ export const Navbar: React.FC = () => {
             <Sparkles className="w-3.5 h-3.5 text-blue-400" />
             <span className="text-slate-400 text-[11px]">البنك:</span>
             <strong className="font-mono font-bold text-blue-300">{(stats?.bankBalance ?? 0).toLocaleString('ar-SA')}</strong>
-            <span className="text-[10px] text-slate-400">{settings.currency}</span>
+            <span className="text-[8px] text-slate-400">{settings.currency}</span>
           </div>
 
           {stats.pendingPrintJobs > 0 && (
@@ -658,84 +703,13 @@ export const Navbar: React.FC = () => {
 
         {/* Right / Fast Action Toolbar & User */}
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setActiveTab('pos')}
-            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-md text-xs font-bold transition-colors cursor-pointer shadow-xs"
-            title="فتح كاشير المبيعات لإنشاء فاتورة جديدة"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">فاتورة جديدة</span>
-            <span className="sm:hidden">فاتورة</span>
-          </button>
+          <PWAInstallButton />
+          
 
-          <button
-            onClick={() => setActiveTab('home')}
-            className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-md text-xs font-semibold border border-slate-700 transition cursor-pointer"
-            title="الشاشة الرئيسية واختصارات العمليات"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden md:inline">الرئيسية</span>
-          </button>
+          
 
-          <div className="h-4 w-px bg-slate-700 mx-0.5 hidden sm:block"></div>
-
-          {/* Offline-First & Primary Cloud Database Sync Widget */}
-          <button
-            onClick={handleManualSync}
-            disabled={isFirebaseSyncing}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium border transition-all shadow-2xs cursor-pointer ${
-              !isOnline
-                ? 'bg-amber-950/60 border-amber-500/50 text-amber-200 hover:bg-amber-900/70'
-                : isFirebaseSyncing
-                ? 'bg-sky-950/60 border-sky-500/50 text-sky-200'
-                : hasUnsyncedChanges
-                ? 'bg-blue-950/60 border-blue-500/50 text-blue-200 hover:bg-blue-900/70'
-                : 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/50'
-            }`}
-            title={
-              !isOnline
-                ? `⚡ وضع عدم الاتصال (Offline): كافة البيانات تُحفظ فورياً في LocalStorage (آخر حفظ: ${lastLocalSaveTime}). ستتم المزامنة التلقائية فور عودة الإنترنت.`
-                : isFirebaseSyncing
-                ? 'جاري المزامنة مع قاعدة بيانات البرنامج الرئيسي...'
-                : hasUnsyncedChanges
-                ? `يوجد ${pendingSyncCount} تعديل محفوظ محلياً. اضغط للمزامنة الفورية مع قاعدة البيانات السحابية.`
-                : `متصل ومتزامن مع قاعدة البيانات الرئيسية (آخر مزامنة: ${lastFirebaseSyncTime || lastSyncTime || 'الآن'}). اضغط لإعادة المزامنة.`
-            }
-          >
-            {isFirebaseSyncing ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 text-sky-400 animate-spin" />
-                <span className="hidden lg:inline text-[11px]">جاري المزامنة...</span>
-              </>
-            ) : !isOnline ? (
-              <>
-                <WifiOff className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                <span className="text-[11px] font-bold">محلي (LocalStorage)</span>
-                {pendingSyncCount > 0 && (
-                  <span className="px-1 py-0.2 bg-amber-500/20 text-amber-200 text-[10px] rounded font-mono font-bold">
-                    {pendingSyncCount}
-                  </span>
-                )}
-              </>
-            ) : hasUnsyncedChanges ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 text-blue-400" />
-                <span className="hidden lg:inline text-[11px]">مزامنة التعديلات</span>
-                <span className="px-1.5 py-0.2 bg-blue-500/20 text-blue-200 text-[10px] rounded font-mono font-bold">
-                  {pendingSyncCount}
-                </span>
-              </>
-            ) : (
-              <>
-                <Database className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden lg:inline text-[11px]">قاعدة البيانات متزامنة</span>
-                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-              </>
-            )}
-          </button>
-
-          {/* Active Branch Switcher */}
-          <div className="flex items-center gap-1.5 bg-slate-800/90 border border-slate-700 rounded-lg px-2 py-1 text-xs">
+          {/* Active Branch Switcher (Desktop Only) */}
+          <div className="hidden md:flex items-center gap-1.5 bg-slate-800/90 border border-slate-700 rounded-lg px-2 py-1 text-xs ml-[200px]">
             <Store className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
             <span className="text-[11px] text-slate-400 hidden xl:inline">الفرع:</span>
             <select
@@ -752,57 +726,16 @@ export const Navbar: React.FC = () => {
             </select>
           </div>
 
-          <button
-            onClick={exportDataJSON}
-            className="p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-            title="تصدير نسخة احتياطية من البيانات (JSON)"
-          >
-            <Download className="w-4 h-4" />
-          </button>
+          
 
-          <button
-            onClick={resetAllData}
-            className="p-1.5 rounded-md text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors cursor-pointer"
-            title="إعادة ضبط البيانات إلى الوضع الافتراضي"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
+          
 
-          {/* Dynamic Active User Persona Switcher */}
-          <div className="hidden sm:flex items-center gap-2 pr-2 border-r border-slate-700 mr-1">
-            <div className={`w-7 h-7 rounded-full ${currentUser.avatarColor || 'bg-indigo-600'} flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-xs`}>
-              {currentUser.fullName.charAt(0)}
-            </div>
-            <div className="text-right">
-                            <div className="flex items-center gap-1">
-                <span className="text-xs font-bold text-white max-w-[120px] truncate">
-                  {currentUser.fullName}
-                </span>
-                <button
-                  onClick={() => {
-                    import('../firebase').then(({ auth }) => auth.signOut());
-                    localStorage.removeItem('alnoor_press_accounting_v1_current_user_id');
-                    localStorage.removeItem('active_session_id');
-                    window.location.reload();
-                  }}
-                  className="mr-2 text-[10px] bg-rose-600 hover:bg-rose-700 text-white px-2 py-0.5 rounded"
-                  title="تسجيل الخروج"
-                >
-                  خروج
-                </button>
-              </div>
-              <p className="text-[10px] text-blue-400 leading-tight">
-                {currentUser.roleName}
-              </p>
-            </div>
-          </div>
-        </div>
       </div>
-
-      {/* Dropdown Menu Bar (سطر القوائم العرضي المنسدلة في أعلى البرنامج) */}
+      </div>
+      {/* Dropdown Menu Bar (سطر القوائم العرضي المنسدلة في أعلى البرنامج - مخفي على الهواتف ويفتح بالضغط على اللوقو) */}
       <nav
         ref={navRef}
-        className="bg-[#1e293b] px-2 sm:px-4 flex items-center border-t border-slate-700/60 relative overflow-visible z-50"
+        className="hidden md:flex bg-[#1e293b] px-2 sm:px-4 items-center border-t border-slate-700/60 relative overflow-visible z-50"
       >
         <div className="flex items-center gap-1 py-1 flex-wrap sm:flex-nowrap">
           {visibleMenuSections.map((section) => {
@@ -853,13 +786,13 @@ export const Navbar: React.FC = () => {
                       }
                     }}
                     onMouseLeave={handleMouseLeave}
-                    className={`absolute top-full mt-1.5 w-72 sm:w-84 bg-[#0f172a] text-slate-100 rounded-xl shadow-2xl border border-slate-700/90 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 divide-y divide-slate-800/80 ${
+                    className={`absolute top-full mt-1.5 w-[360px] sm:w-[420px] max-w-[95vw] bg-[#0f172a] text-slate-100 rounded-xl shadow-2xl border border-slate-700/90 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 divide-y divide-slate-800/80 ${
                       isLeftAligned ? 'left-0 right-auto' : 'right-0 left-auto'
                     }`}
                   >
                     <div className="px-3 py-1.5 text-[11px] font-bold text-slate-400 flex items-center justify-between">
                       <span>قائمة {section.title}</span>
-                      <span className="text-[10px] text-blue-400">اختر العملية</span>
+                      <span className="text-[9px] text-blue-400">اختر العملية</span>
                     </div>
 
                     <div className="p-1 space-y-0.5">
@@ -884,8 +817,8 @@ export const Navbar: React.FC = () => {
                             </div>
 
                             <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-1">
-                                <span className="font-bold text-xs truncate">
+                              <div className="flex items-center justify-between gap-1.5">
+                                <span className="font-bold text-xs whitespace-nowrap">
                                   {subItem.label}
                                 </span>
                                 {subItem.badge && (
@@ -900,7 +833,7 @@ export const Navbar: React.FC = () => {
                                 )}
                               </div>
                               {subItem.sublabel && (
-                                <p className={`text-[10px] mt-0.5 leading-tight line-clamp-2 ${
+                                <p className={`text-[9.5px] sm:text-[10px] leading-tight mt-0.5 whitespace-nowrap overflow-hidden ${
                                   isSubActive ? 'text-blue-100' : 'text-slate-400'
                                 }`}>
                                   {subItem.sublabel}
@@ -986,6 +919,12 @@ export const Navbar: React.FC = () => {
           </button>
         </div>
       )}
+
+      {/* Mobile Navigation Hub / Modal Triggered by Logo */}
+      <MobileNavigationModal
+        isOpen={isMobileNavOpen}
+        onClose={() => setIsMobileNavOpen(false)}
+      />
     </header>
   );
 };

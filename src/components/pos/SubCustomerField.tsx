@@ -158,13 +158,8 @@ export const SubCustomerField: React.FC<SubCustomerFieldProps> = ({
   };
 
   const handleBlur = () => {
-    // If not matched, try to create it as a subcustomer directly.
-    if (!subCustomerId && customCustomerText.trim() && onQuickAddSub) {
-      const phoneMatch = customCustomerText.match(/(05\d{8}|01\d{8,9}|\+?\d{9,12})/);
-      const extractedPhone = phoneMatch ? phoneMatch[0] : '';
-      const extractedName = customCustomerText.replace(extractedPhone, '').trim();
-      onQuickAddSub(extractedName || customCustomerText.trim(), extractedPhone);
-    }
+    // Intentionally do not auto-create sub-customer on blur per user request.
+    // The user must explicitly click the add button to create a new sub-customer.
   };
 
   return (
@@ -178,7 +173,7 @@ export const SubCustomerField: React.FC<SubCustomerFieldProps> = ({
           onFocus={() => setShowSuggestions(true)}
           onBlur={handleBlur}
           placeholder={compact ? "اسم أو هاتف الزبون الفرعي..." : "اسم ثانوي أو زبون فرعي ورقم هاتفه (مثال: محمود أحمد 01557735502)"}
-          className={`w-full border rounded px-2.5 ${compact ? 'py-0.5' : 'py-1'} text-center font-bold text-xs shadow-2xs focus:outline-none pl-7 pr-7 bg-[#fdfbe9] border-amber-300 text-slate-800 focus:bg-white focus:border-amber-500`}
+          className={`w-[324.631px] border rounded px-2.5 ${compact ? 'py-0.5' : 'py-1'} text-center font-bold text-xs shadow-2xs focus:outline-none pl-7 pr-7 bg-[#fdfbe9] border-amber-300 text-slate-800 focus:bg-white focus:border-amber-500`}
         />
 
         {linkedSubCustomers.length > 0 && (
@@ -223,7 +218,7 @@ export const SubCustomerField: React.FC<SubCustomerFieldProps> = ({
                         )}
                       </span>
                       {sub.phone && (
-                        <span className="text-[10px] text-slate-500 flex items-center gap-1 font-mono">
+                        <span className="text-[9px] text-slate-400 font-light flex items-center gap-1 font-mono">
                           <Phone className="w-2.5 h-2.5 text-slate-400" />
                           {sub.phone}
                         </span>
@@ -255,7 +250,7 @@ export const SubCustomerField: React.FC<SubCustomerFieldProps> = ({
                 <Plus className="w-3.5 h-3.5" />
                 <span>إضافة كاسم فرعي جديد: "{customCustomerText.trim()}"</span>
               </div>
-              <p className="text-[10px] text-slate-500">
+              <p className="text-[9px] text-slate-400 font-light">
                 سيتم حفظ الاسم تلقائياً في قائمة العملاء الفرعيين وتجميع حركاته المستقبلية في كشف حساب واحد
               </p>
             </div>

@@ -1,71 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Global denial fallback
     match /{document=**} {
-      allow read, write: if false;
-    }
-
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    // Health and test connection probe
-    match /test/{docId} {
-      allow read, write: if true;
-    }
-
-    // Accounting system collections
-    match /parties/{partyId} {
-      allow read: if true;
-      allow write: if isSignedIn() || request.auth == null;
-    }
-
-    match /invoices/{invoiceId} {
-      allow read: if true;
-      allow write: if isSignedIn() || request.auth == null;
-    }
-
-    match /employees/{employeeId} {
-      allow read: if true;
-      allow write: if isSignedIn() || request.auth == null;
-    }
-
-    match /vouchers/{voucherId} {
-      allow read: if true;
-      allow write: if isSignedIn() || request.auth == null;
-    }
-
-    match /purchases/{purchaseId} {
-      allow read: if true;
-      allow write: if isSignedIn() || request.auth == null;
-    }
-
-    match /printOrders/{orderId} {
-      allow read: if true;
-      allow write: if isSignedIn() || request.auth == null;
-    }
-
-    match /journalEntries/{entryId} {
-      allow read: if true;
-      allow write: if isSignedIn() || request.auth == null;
-    }
-
-    match /settings/{settingId} {
-      allow read: if true;
-      allow write: if isSignedIn() || request.auth == null;
-    }
-
-    match /appState/{stateId} {
-      allow read, write: if true;
-    }
-
-    match /userSessions/{userId} {
       allow read, write: if true;
     }
   }

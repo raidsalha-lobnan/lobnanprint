@@ -1,11 +1,12 @@
 {
-  "projectId": "lobnanprint-acc",
-  "appId": "1:492347186109:web:7878fba2983fc21abdd0d4",
-  "apiKey": "AIzaSyCHF7QYnWWBvDUv_r_6BEcdb6c4-h1-i58",
-  "authDomain": "lobnanprint-acc.firebaseapp.com",
-  "firestoreDatabaseId": "(default)",
-  "storageBucket": "lobnanprint-acc.firebasestorage.app",
-  "messagingSenderId": "492347186109",
-  "measurementId": "G-Z3G1YFVRNK",
+  "projectId": "gen-lang-client-0984774155",
+  "appId": "1:209948056563:web:f2ec23fec3bd939a70d086",
+  "apiKey": "AIzaSyAydO58fQ6SVIYzA2m6jBEYLq8-cP9IBrM",
+  "authDomain": "gen-lang-client-0984774155.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-917f7ef2-bd2e-44c7-b6f8-f5661310c7a9",
+  "storageBucket": "gen-lang-client-0984774155.firebasestorage.app",
+  "messagingSenderId": "209948056563",
+  "measurementId": "",
+  "oAuthClientId": "209948056563-6phejmgml54cu8rqoebpqd4a0nglosii.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

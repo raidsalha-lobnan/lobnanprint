@@ -97,7 +97,7 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex justify-end animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex justify-end animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-md h-full shadow-2xl flex flex-col overflow-hidden text-slate-800 text-xs animate-in slide-in-from-left duration-200" dir="rtl">
         {/* Header */}
         <div className="p-4 bg-gradient-to-r from-blue-900 to-indigo-900 text-white flex items-center justify-between border-b border-blue-800">
@@ -166,7 +166,7 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
               <label className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200 hover:bg-blue-50/50 cursor-pointer transition-colors">
                 <div>
                   <div className="font-bold text-slate-800">شريط الأدوات وأزرار التنقل العلوي</div>
-                  <div className="text-[10px] text-slate-500">أزرار الإلغاء، التنقل بين الفواتير، والبحث</div>
+                  <div className="text-[9px] text-slate-400 font-light">أزرار الإلغاء، التنقل بين الفواتير، والبحث</div>
                 </div>
                 <input
                   type="checkbox"
@@ -180,7 +180,7 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
               <label className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200 hover:bg-blue-50/50 cursor-pointer transition-colors">
                 <div>
                   <div className="font-bold text-slate-800">قسم بيانات العميل والفرع العلوي</div>
-                  <div className="text-[10px] text-slate-500">اسم العميل، كود العميل، الرصيد، الجوال</div>
+                  <div className="text-[9px] text-slate-400 font-light">اسم العميل، كود العميل، الرصيد، الجوال</div>
                 </div>
                 <input
                   type="checkbox"
@@ -190,11 +190,39 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
                 />
               </label>
 
+              {/* خيار تثبيت التاريخ لجميع العمليات */}
+              <label className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200 hover:bg-amber-50/50 cursor-pointer transition-colors">
+                <div>
+                  <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <span>تثبيت تاريخ الفاتورة في كافة العمليات</span>
+                    {localConfig.isDateLocked && (
+                      <span className="text-[9px] bg-amber-500 text-white font-bold px-1.5 py-0.5 rounded">مفعل</span>
+                    )}
+                  </div>
+                  <div className="text-[9px] text-slate-400 font-light">عند التفعيل يثبت التاريخ على اليوم الحالي في كل العمليات، وعند الإلغاء يعتمد وقت وتاريخ الجهاز</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={Boolean(localConfig.isDateLocked)}
+                  onChange={() => {
+                    setLocalConfig(prev => {
+                      const nextLocked = !prev.isDateLocked;
+                      return {
+                        ...prev,
+                        isDateLocked: nextLocked,
+                        lockedDate: nextLocked ? (prev.lockedDate || new Date().toISOString().split('T')[0]) : ''
+                      };
+                    });
+                  }}
+                  className="w-4 h-4 text-amber-600 rounded cursor-pointer"
+                />
+              </label>
+
               {/* خيارات الرأس الإضافية (شحن، مندوب، فئة سعر) */}
               <label className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200 hover:bg-blue-50/50 cursor-pointer transition-colors">
                 <div>
                   <div className="font-bold text-slate-800">شريط الملاحظات وخدمة التوصيل</div>
-                  <div className="text-[10px] text-slate-500">حقل ملاحظات الفاتورة وزر خدمة التوصيل والأسعار الخاصة</div>
+                  <div className="text-[9px] text-slate-400 font-light">حقل ملاحظات الفاتورة وزر خدمة التوصيل والأسعار الخاصة</div>
                 </div>
                 <input
                   type="checkbox"
@@ -212,7 +240,7 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
                     <span>شريط مفضلة الكاشير (الأيمن الممتد لأعلى)</span>
                     <span className="text-[9px] bg-amber-200 text-amber-900 font-bold px-1.5 py-0.5 rounded">افتراضي</span>
                   </div>
-                  <div className="text-[10px] text-slate-500">يمتد رأسياً على يمين الشاشة بجوار رقم الفاتورة والجدول</div>
+                  <div className="text-[9px] text-slate-400 font-light">يمتد رأسياً على يمين الشاشة بجوار رقم الفاتورة والجدول</div>
                 </div>
                 <input
                   type="checkbox"
@@ -226,7 +254,7 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
               <label className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200 hover:bg-blue-50/50 cursor-pointer transition-colors">
                 <div>
                   <div className="font-bold text-slate-800">شريط الاختصارات السريعة أسفل الجدول</div>
-                  <div className="text-[10px] text-slate-500">شريط الأزرار المخصصة للأصناف والخصومات السريعة</div>
+                  <div className="text-[9px] text-slate-400 font-light">شريط الأزرار المخصصة للأصناف والخصومات السريعة</div>
                 </div>
                 <input
                   type="checkbox"
@@ -240,7 +268,7 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
               <label className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200 hover:bg-blue-50/50 cursor-pointer transition-colors">
                 <div>
                   <div className="font-bold text-slate-800">شريط إحصائيات جدول الأصناف</div>
-                  <div className="text-[10px] text-slate-500">إجمالي عدد الأصناف، إجمالي القطع، ومجموع البنود</div>
+                  <div className="text-[9px] text-slate-400 font-light">إجمالي عدد الأصناف، إجمالي القطع، ومجموع البنود</div>
                 </div>
                 <input
                   type="checkbox"
@@ -254,7 +282,7 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
               <label className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200 hover:bg-blue-50/50 cursor-pointer transition-colors">
                 <div>
                   <div className="font-bold text-slate-800">تفاصيل الإجماليات والخصم والمتبقي</div>
-                  <div className="text-[10px] text-slate-500">صناديق الحسابات السفلية: الإجمالي، الخصم، الضريبة، المتبقي</div>
+                  <div className="text-[9px] text-slate-400 font-light">صناديق الحسابات السفلية: الإجمالي، الخصم، الضريبة، المتبقي</div>
                 </div>
                 <input
                   type="checkbox"
@@ -268,7 +296,7 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
               <label className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200 hover:bg-blue-50/50 cursor-pointer transition-colors">
                 <div>
                   <div className="font-bold text-slate-800">لوحة الدفع والصندوق الموحدة في الأسفل</div>
-                  <div className="text-[10px] text-slate-500">الصندوق المستلم، آلية الدفع، عملة الفاتورة وسعر الصرف</div>
+                  <div className="text-[9px] text-slate-400 font-light">الصندوق المستلم، آلية الدفع، عملة الفاتورة وسعر الصرف</div>
                 </div>
                 <input
                   type="checkbox"
@@ -288,16 +316,6 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
             </h3>
 
             <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200">
-              <label className="flex items-center gap-2 p-2 rounded-xl bg-white border border-slate-200 hover:bg-emerald-50/50 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={localConfig.tableColumns.showBarcode}
-                  onChange={() => handleToggleColumn('showBarcode')}
-                  className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
-                />
-                <span className="font-bold text-slate-800">عمود الباركود</span>
-              </label>
-
               <label className="flex items-center gap-2 p-2 rounded-xl bg-white border border-slate-200 hover:bg-emerald-50/50 cursor-pointer">
                 <input
                   type="checkbox"
@@ -411,7 +429,7 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
               <label className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200 hover:bg-amber-50/50 cursor-pointer">
                 <div>
                   <div className="font-bold text-slate-800">لوحة الدفع والصندوق الموسعة أولاً (موصى بها)</div>
-                  <div className="text-[10px] text-slate-500">كل ما يتعلق بالصندوق والعملات وسعر الصرف وآلية الدفع</div>
+                  <div className="text-[9px] text-slate-400 font-light">كل ما يتعلق بالصندوق والعملات وسعر الصرف وآلية الدفع</div>
                 </div>
                 <input
                   type="radio"
@@ -426,7 +444,7 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
               <label className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200 hover:bg-amber-50/50 cursor-pointer">
                 <div>
                   <div className="font-bold text-slate-800">أزرار الإجراءات (حفظ وطباعة) أولاً بالوسط</div>
-                  <div className="text-[10px] text-slate-500">الترتيب الكلاسيكي مع الأزرار المركزية</div>
+                  <div className="text-[9px] text-slate-400 font-light">الترتيب الكلاسيكي مع الأزرار المركزية</div>
                 </div>
                 <input
                   type="radio"
@@ -441,7 +459,7 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
               <label className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200 hover:bg-amber-50/50 cursor-pointer">
                 <div>
                   <div className="font-bold text-slate-800">صناديق الإجماليات والمتبقي أولاً</div>
-                  <div className="text-[10px] text-slate-500">التركيز على مبالغ الحسابات والمتبقي</div>
+                  <div className="text-[9px] text-slate-400 font-light">التركيز على مبالغ الحسابات والمتبقي</div>
                 </div>
                 <input
                   type="radio"

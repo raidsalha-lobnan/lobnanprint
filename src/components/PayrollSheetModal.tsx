@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import {
   Employee,
@@ -170,6 +171,32 @@ export const PayrollSheetModal: React.FC<PayrollSheetModalProps> = ({
     setCalculationSystem(newSystem);
     if (!editingSheet) {
       generateInitialItems(newSystem, defaultWorkDaysDaily, defaultWeeksCount);
+      
+      const today = new Date();
+      if (newSystem === 'weekly') {
+        const start = new Date(today);
+        start.setDate(today.getDate() - 6);
+        const startStr = start.toISOString().split('T')[0];
+        const endStr = today.toISOString().split('T')[0];
+        setStartDate(startStr);
+        setEndDate(endStr);
+        setPeriod(`أسبوعي`);
+        setTitle(`كشف رواتب أسبوعي: ${startStr} إلى ${endStr}`);
+      } else if (newSystem === 'daily') {
+        const str = today.toISOString().split('T')[0];
+        setStartDate(str);
+        setEndDate(str);
+        setPeriod(`يومي`);
+        setTitle(`كشف رواتب يومي: ${str}`);
+      } else {
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+        const currentMonthName = today.toLocaleDateString('ar-EG', { month: 'long' });
+        setStartDate(firstDay);
+        setEndDate(lastDay);
+        setPeriod(`شهر ${currentMonthName} ${today.getFullYear()}`);
+        setTitle(`كشف رواتب شهر ${currentMonthName} ${today.getFullYear()}`);
+      }
     }
   };
 
@@ -274,7 +301,7 @@ export const PayrollSheetModal: React.FC<PayrollSheetModalProps> = ({
       period: period.trim() || 'فترة حالية',
       startDate,
       endDate,
-      calculationSystem,
+      salaryType: calculationSystem === 'all' ? 'monthly' : calculationSystem,
       treasuryAccountCode,
       treasuryName,
       items,
@@ -332,7 +359,7 @@ export const PayrollSheetModal: React.FC<PayrollSheetModalProps> = ({
       period: period.trim() || 'فترة حالية',
       startDate,
       endDate,
-      calculationSystem,
+      salaryType: calculationSystem === 'all' ? 'monthly' : calculationSystem,
       treasuryAccountCode,
       treasuryName,
       items,
@@ -364,7 +391,7 @@ export const PayrollSheetModal: React.FC<PayrollSheetModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full border border-slate-200 overflow-hidden my-auto flex flex-col max-h-[92vh]" dir="rtl">
         
         {/* Header */}
@@ -446,20 +473,14 @@ export const PayrollSheetModal: React.FC<PayrollSheetModalProps> = ({
             {/* Dates */}
             <div>
               <label className="block font-bold text-slate-700 mb-1">من تاريخ</label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={e => setStartDate(e.target.value)}
+              <DateInput value={startDate} onChange={e => setStartDate(e.target.value)}
                 className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800"
               />
             </div>
 
             <div>
               <label className="block font-bold text-slate-700 mb-1">إلى تاريخ</label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={e => setEndDate(e.target.value)}
+              <DateInput value={endDate} onChange={e => setEndDate(e.target.value)}
                 className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800"
               />
             </div>
@@ -519,7 +540,7 @@ export const PayrollSheetModal: React.FC<PayrollSheetModalProps> = ({
                 <Users className="w-4 h-4 text-slate-600" />
                 <span>جدول احتساب رواتب الموظفين ({items.filter(i => i.isIncluded).length} من {items.length} موظف مشمول)</span>
               </h3>
-              <span className="text-[11px] text-slate-500">
+              <span className="text-[10px] text-slate-400 font-light">
                 يتم استدعاء السلف والخصومات والحوافز المعلقة تلقائياً وتطبيقها في المعادلة
               </span>
             </div>
@@ -565,7 +586,7 @@ export const PayrollSheetModal: React.FC<PayrollSheetModalProps> = ({
                           {/* Name & Job */}
                           <td className="p-2.5">
                             <div className="font-bold text-slate-900">{item.employeeName}</div>
-                            <div className="text-[10px] text-slate-500">{item.jobTitle}</div>
+                            <div className="text-[9px] text-slate-400 font-light">{item.jobTitle}</div>
                           </td>
 
                           {/* Salary Type & workdays */}

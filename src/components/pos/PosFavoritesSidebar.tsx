@@ -227,7 +227,7 @@ export const PosFavoritesSidebar: React.FC<PosFavoritesSidebarProps> = ({
             <Layers className="w-3 h-3 text-blue-700" />
             <span>أزرار التصنيفات:</span>
           </span>
-          <span className="text-[10px] text-slate-500 font-medium">
+          <span className="text-[9px] text-slate-400 font-light font-medium">
             (أول تصنيف ظاهر تلقائياً)
           </span>
         </div>
@@ -325,7 +325,7 @@ export const PosFavoritesSidebar: React.FC<PosFavoritesSidebarProps> = ({
                   ? `لا توجد أصناف مفضلة محددة في تصنيف "${activeCategoryObj?.name || ''}"`
                   : 'لا توجد أصناف تطابق البحث في هذا التصنيف'}
               </p>
-              <p className="text-[10px] text-slate-500 mt-1 max-w-[220px]">
+              <p className="text-[9px] text-slate-400 font-light mt-1 max-w-[220px]">
                 {showOnlyFavorites
                   ? 'يمكنك استعراض كل أصناف التصنيف والضغط على النجمة ⭐ لإضافتها لمفضلتك فوراً.'
                   : 'جرب كلمة بحث أخرى أو أضف صنفاً جديداً لهذا التصنيف.'}

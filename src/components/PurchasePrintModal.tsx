@@ -3,6 +3,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { tafqeet } from '../utils/tafqeet';
 import { Printer, X, Building2, Truck, RotateCcw } from 'lucide-react';
 import { PrintHeader } from './common/PrintHeader';
+import { OfficialStamp } from './common/OfficialStamp';
 
 export const PurchasePrintModal: React.FC = () => {
   const {
@@ -31,11 +32,11 @@ export const PurchasePrintModal: React.FC = () => {
   };
 
   const currencySymbol = data.currencySymbol || settings.currency || '₪';
-  const totalInWords = tafqeet(data.totalAmount, 'شيكل فلسطيني', 'أغورة');
+  const totalInWords = tafqeet(data.totalAmount, 'شيكل', 'أغورة');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/65 backdrop-blur-xs overflow-y-auto print:p-0 print:bg-white print:static">
-      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full border border-slate-200 overflow-hidden my-auto print:shadow-none print:border-none print:max-w-none print:rounded-none">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-900/65 backdrop-blur-xs overflow-y-auto print:p-0 print:m-0 print:bg-white print:static print:overflow-visible print-modal-container">
+      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full border border-slate-200 overflow-hidden my-auto print:shadow-none print:border-none print:max-w-none print:w-full print:rounded-none print:overflow-visible">
         
         {/* Top Control Bar (Hidden when printing) */}
         <div className="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between print:hidden">
@@ -92,17 +93,17 @@ export const PurchasePrintModal: React.FC = () => {
           {/* Supplier Info & Reason */}
           <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div>
-              <span className="text-[10px] text-slate-500 font-semibold block">المورد / الجهة الموردة:</span>
+              <span className="text-[9px] text-slate-400 font-light font-semibold block">المورد / الجهة الموردة:</span>
               <span className="font-bold text-slate-900 text-xs">{data.supplierName}</span>
             </div>
             {isReturn ? (
               <>
                 <div>
-                  <span className="text-[10px] text-slate-500 font-semibold block">الفاتورة الأصلية المرجعية:</span>
+                  <span className="text-[9px] text-slate-400 font-light font-semibold block">الفاتورة الأصلية المرجعية:</span>
                   <span className="font-mono text-slate-800">{(data as any).purchaseInvoiceNumber || 'شراء مباشر'}</span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-500 font-semibold block">طريقة التسوية:</span>
+                  <span className="text-[9px] text-slate-400 font-light font-semibold block">طريقة التسوية:</span>
                   <span className="font-semibold text-slate-800">
                     {(data as any).settlementType === 'cash_refund' ? 'استرداد نقدي / بنكي' : 'خصم من رصيد المورد الدائن'}
                   </span>
@@ -111,14 +112,14 @@ export const PurchasePrintModal: React.FC = () => {
             ) : (
               <>
                 <div>
-                  <span className="text-[10px] text-slate-500 font-semibold block">طريقة السداد المعتمدة:</span>
+                  <span className="text-[9px] text-slate-400 font-light font-semibold block">طريقة السداد المعتمدة:</span>
                   <span className="font-semibold text-slate-800">
                     {(data as any).paymentMethod === 'cash' ? 'نقداً من الصندوق' :
                      (data as any).paymentMethod === 'bank_transfer' ? 'تحويل بنكي' : 'آجل على الحساب'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-500 font-semibold block">حالة الدفع:</span>
+                  <span className="text-[9px] text-slate-400 font-light font-semibold block">حالة الدفع:</span>
                   <span className="font-semibold text-slate-800">
                     {(data as any).paidAmount >= data.totalAmount ? 'مسددة بالكامل' :
                      (data as any).paidAmount > 0 ? `مدفوع جزئي (${(data as any).paidAmount} ${currencySymbol})` : 'آجلة'}
@@ -162,7 +163,7 @@ export const PurchasePrintModal: React.FC = () => {
                 {totalInWords}
               </p>
               {data.notes && (
-                <p className="text-[11px] text-slate-500 pt-1">
+                <p className="text-[10px] text-slate-400 font-light pt-1">
                   <strong>ملاحظات:</strong> {data.notes}
                 </p>
               )}
@@ -197,24 +198,47 @@ export const PurchasePrintModal: React.FC = () => {
           </div>
 
           {/* Signatures */}
-          <div className="pt-6 border-t border-slate-300 grid grid-cols-3 gap-6 text-center text-xs">
-            <div className="space-y-5">
-              <span className="font-bold text-slate-700 block">أمين المستودع / مستلم الخامات</span>
-              <div className="border-b border-dashed border-slate-400 w-32 mx-auto"></div>
-              <span className="text-[10px] text-slate-400 font-mono">التوقيع</span>
+          <div className="mt-8 pt-6 border-t border-slate-300 grid grid-cols-4 gap-4 text-center text-xs">
+            <div className="space-y-2">
+              <span className="font-bold text-slate-700 block">أمين المستودع</span>
+              <div className="h-16 flex items-end justify-center">
+                <div className="border-b border-dashed border-slate-400 w-24 mx-auto"></div>
+              </div>
             </div>
-            <div className="space-y-5">
-              <span className="font-bold text-slate-700 block">المحاسب المالي</span>
-              <div className="border-b border-dashed border-slate-400 w-32 mx-auto"></div>
-              <span className="text-[10px] text-slate-400 font-mono">الاعتماد</span>
+            
+            <div className="space-y-2">
+              <span className="font-bold text-slate-700 block">الختم الرسمي</span>
+              {settings.stampUrl ? (
+                <div className="min-h-[4.2cm] flex items-center justify-center">
+                  <OfficialStamp />
+                </div>
+              ) : (
+                <div className="h-16 flex items-end justify-center">
+                  <div className="border-b border-dashed border-slate-400 w-24 mx-auto"></div>
+                </div>
+              )}
             </div>
-            <div className="space-y-5">
-              <span className="font-bold text-slate-700 block">مندوب المورد / السائق</span>
-              <div className="border-b border-dashed border-slate-400 w-32 mx-auto"></div>
-              <span className="text-[10px] text-slate-400 font-mono">الاستلام والمطابقة</span>
+
+            <div className="space-y-2">
+              <span className="font-bold text-slate-700 block">توقيع الإدارة / المحاسب</span>
+              {settings.signatureUrl ? (
+                <div className="h-16 flex items-end justify-center">
+                  <img src={settings.signatureUrl} alt="Signature" className="max-h-full object-contain mix-blend-multiply opacity-80" />
+                </div>
+              ) : (
+                <div className="h-16 flex items-end justify-center">
+                  <div className="border-b border-dashed border-slate-400 w-24 mx-auto"></div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <span className="font-bold text-slate-700 block">مندوب المورد</span>
+              <div className="h-16 flex items-end justify-center">
+                <div className="border-b border-dashed border-slate-400 w-24 mx-auto"></div>
+              </div>
             </div>
           </div>
-
         </div>
       </div>
     </div>

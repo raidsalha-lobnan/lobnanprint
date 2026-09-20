@@ -443,7 +443,7 @@ export const BranchesManagementView: React.FC = () => {
                           <span className="font-mono text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200">
                             {branch.branchCode}
                           </span>
-                          <span className="text-xs text-slate-500 font-medium">رقم #{branch.branchNumber}</span>
+                          <span className="text-[10px] text-slate-400 font-light font-medium">رقم #{branch.branchNumber}</span>
                           {branch.isMain && (
                             <span className="text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-bold">
                               المركز الرئيسي ⭐
@@ -451,7 +451,7 @@ export const BranchesManagementView: React.FC = () => {
                           )}
                         </div>
                         <h3 className="font-black text-slate-900 text-base mt-1.5">{branch.name}</h3>
-                        <p className="text-xs text-slate-500">{company?.name || 'الشركة الرئيسية'}</p>
+                        <p className="text-[10px] text-slate-400 font-light">{company?.name || 'الشركة الرئيسية'}</p>
                       </div>
 
                       <div className="flex items-center gap-1">
@@ -620,7 +620,7 @@ export const BranchesManagementView: React.FC = () => {
                       </div>
                       <h3 className="font-black text-slate-900 text-lg mt-1.5">{comp.name}</h3>
                       {comp.tradeName && (
-                        <p className="text-xs text-slate-500 font-semibold">{comp.tradeName}</p>
+                        <p className="text-[10px] text-slate-400 font-light font-semibold">{comp.tradeName}</p>
                       )}
                     </div>
 
@@ -747,7 +747,7 @@ export const BranchesManagementView: React.FC = () => {
                     )}
 
                     {wh.notes && (
-                      <p className="text-[11px] text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                      <p className="text-[10px] text-slate-400 font-light bg-slate-50 p-2 rounded-lg border border-slate-100">
                         {wh.notes}
                       </p>
                     )}
@@ -787,7 +787,7 @@ export const BranchesManagementView: React.FC = () => {
       {/* MODAL: ADD / EDIT BRANCH */}
       {/* ========================================================= */}
       {isBranchModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden my-8 animate-in zoom-in-95 duration-150">
             <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -964,7 +964,7 @@ export const BranchesManagementView: React.FC = () => {
                           }}
                           className="rounded text-emerald-600"
                         />
-                        <span className="font-mono text-[11px] text-slate-500">[{tr.accountCode}]</span>
+                        <span className="font-mono text-[10px] text-slate-400 font-light">[{tr.accountCode}]</span>
                         <span>{tr.name} ({tr.type === 'bank' ? 'بنكي' : 'صندوق كاش'})</span>
                       </label>
                     );
@@ -1033,7 +1033,7 @@ export const BranchesManagementView: React.FC = () => {
       {/* MODAL: ADD / EDIT COMPANY */}
       {/* ========================================================= */}
       {isCompanyModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden my-8 animate-in zoom-in-95 duration-150">
             <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1181,7 +1181,7 @@ export const BranchesManagementView: React.FC = () => {
       {/* MODAL: ADD / EDIT WAREHOUSE */}
       {/* ========================================================= */}
       {isWarehouseModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden my-8 animate-in zoom-in-95 duration-150">
             <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-2">

@@ -1,7 +1,8 @@
+import { TelegramService } from '../services/TelegramService';
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { auth } from '../firebase';
 import { db } from '../firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc, writeBatch, collection, getDocs } from 'firebase/firestore';
 import {
   Account,
   InventoryItem,
@@ -49,7 +50,8 @@ import {
   InvoiceTechnicalNote,
   DebtClearingRecord,
   DatabaseZeroingOptions,
-  ZeroingExecutionResult
+  ZeroingExecutionResult,
+  ExpenseItem
 } from '../types';
 import {
   initialSettings,
@@ -69,7 +71,8 @@ import {
   initialEmployeeIncentives,
   initialPayrollSheets,
   initialTreasuries,
-  initialStockMovements
+  initialStockMovements,
+  initialExpenses
 } from '../data/initialData';
 import {
   DEFAULT_COMPANIES,
@@ -160,6 +163,7 @@ interface AccountingContextType {
   inventory: InventoryItem[];
   addInventoryItem: (item: Omit<InventoryItem, 'id'>) => InventoryItem;
   updateInventoryItem: (id: string, updated: Partial<InventoryItem>) => void;
+  deleteInventoryItem: (id: string) => { success: boolean; message: string };
   adjustStock: (id: string, newQuantity: number, reason: string, notes?: string) => void;
 
   // Stock Ledger & Movements (كارتة حركة المخزون والوارد والمنصرف)
@@ -180,6 +184,11 @@ interface AccountingContextType {
   addDebtClearing: (clearing: Omit<DebtClearingRecord, 'id' | 'createdAt' | 'clearingNumber'>) => { success: boolean; message?: string; record?: DebtClearingRecord };
   updateDebtClearing: (id: string, updated: Partial<DebtClearingRecord>) => { success: boolean; message?: string };
   deleteDebtClearing: (id: string) => { success: boolean; message?: string };
+
+  // Expenses & Operating Costs (المصروفات والمصاريف التشغيلية)
+  expenses: ExpenseItem[];
+  addExpense: (expense: Omit<ExpenseItem, 'id' | 'createdAt'>) => ExpenseItem;
+  deleteExpense: (id: string) => void;
 
   employees: Employee[];
   addEmployee: (emp: Omit<Employee, 'id'>) => Employee;
@@ -221,6 +230,7 @@ interface AccountingContextType {
   updateDraftPayrollSheet: (id: string, updated: Partial<PayrollSheet>) => void;
   deleteDraftPayrollSheet: (id: string) => void;
   approveAndDisbursePayrollSheet: (id: string, treasuryAccountCode?: string) => { success: boolean; message?: string };
+  unapprovePayrollSheet: (id: string) => { success: boolean; message?: string };
   selectedPayrollSheetForPrint: PayrollSheet | null;
   setSelectedPayrollSheetForPrint: (sheet: PayrollSheet | null) => void;
   
@@ -348,6 +358,8 @@ interface AccountingContextType {
   // Modals & Navigation
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  goBack: () => void;
+  canGoBack: boolean;
   editingPosInvoiceId: string | null;
   setEditingPosInvoiceId: (id: string | null) => void;
   selectedInvoiceForPrint: Invoice | null;
@@ -424,7 +436,7 @@ interface AccountingContextType {
   // Data management
   lastBackupInfo: { timestamp: string; filename: string } | null;
   exportDataJSON: () => void;
-  importDataJSON: (jsonString: string) => boolean;
+  importDataJSON: (jsonString: string, includeSettings?: boolean, keepTelegramSettings?: boolean, keepFacilitySettings?: boolean) => boolean;
   resetAllData: () => void;
   performDatabaseZeroing: (options: DatabaseZeroingOptions) => ZeroingExecutionResult;
   
@@ -497,7 +509,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // Ensure base currency is Palestinian Shekel (₪ / ILS) as requested
     const currency = (loaded.currency === 'ر.س' || !loaded.currency) ? '₪' : loaded.currency;
     const baseCurrencyCode = loaded.baseCurrencyCode || 'ILS';
-    const currencies = (loaded.currencies && loaded.currencies.length > 0) ? loaded.currencies : defaultCurrencies;
+    const loadedCurrencies = (loaded.currencies && loaded.currencies.length > 0) ? loaded.currencies : defaultCurrencies;
+    const currencies = loadedCurrencies.map((c: any) => {
+      if (c.code === 'ILS') {
+        return { ...c, name: 'شيكل' };
+      }
+      return c;
+    });
+    
     const sqlServerConfig = loaded.sqlServerConfig || initialSettings.sqlServerConfig || {
       enabled: false,
       serverUrl: 'http://localhost:3000/api/sync',
@@ -506,13 +525,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       autoSync: false,
       syncIntervalMinutes: 30
     };
+    
+    // Ensure categories exists (if undefined, set from initialSettings)
+    const categories = loaded.categories !== undefined ? loaded.categories : initialSettings.categories;
+
     return {
       ...loaded,
       currency,
       baseCurrencyCode,
       currencies,
-      sqlServerConfig
+      sqlServerConfig,
+      categories
     };
+
   });
 
   const [isOnline, setIsOnline] = useState<boolean>(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -535,16 +560,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   });
 
   const isInitialMount = React.useRef<boolean>(true);
+  const isCloudHydratedRef = React.useRef<boolean>(false);
   const debouncedSyncRef = React.useRef<any>(null);
   const syncToFirebaseRef = React.useRef<any>(null);
+  const fetchFromFirebaseRef = React.useRef<any>(null);
 
   // Track online/offline status for instant auto-sync when network returns
   useEffect(() => {
-    const handleOnline = () => {
+    const handleOnline = async () => {
       setIsOnline(true);
       console.log('Online event: internet connection restored. Triggering auto-sync with main database...');
       if (syncToFirebaseRef.current) {
-        syncToFirebaseRef.current(true);
+        await syncToFirebaseRef.current(true);
+      }
+      if (fetchFromFirebaseRef.current) {
+        await fetchFromFirebaseRef.current();
       }
     };
     const handleOffline = () => {
@@ -753,7 +783,38 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     ]);
   });
 
-  const [activeTab, setActiveTab] = useState<string>('home');
+  // Expenses & Operating Costs (المصروفات والمصاريف التشغيلية)
+  const [expenses, setExpenses] = useState<ExpenseItem[]>(() => {
+    return safeLoadArray(`${STORAGE_KEY}_expenses`, initialExpenses);
+  });
+
+  useEffect(() => {
+    localStorage.setItem(`${STORAGE_KEY}_expenses`, JSON.stringify(expenses));
+  }, [expenses]);
+
+  const [tabHistory, setTabHistory] = useState<string[]>(['home']);
+  const [activeTab, setActiveTabState] = useState<string>('home');
+
+  const setActiveTab = (tab: string) => {
+    if (tab === activeTab) return;
+    setTabHistory(prev => [...prev.slice(-30), tab]);
+    setActiveTabState(tab);
+  };
+
+  const goBack = () => {
+    if (tabHistory.length > 1) {
+      const nextHistory = [...tabHistory];
+      nextHistory.pop(); // remove current
+      const previous = nextHistory[nextHistory.length - 1];
+      setTabHistory(nextHistory);
+      setActiveTabState(previous);
+    } else if (activeTab !== 'home') {
+      setActiveTabState('home');
+      setTabHistory(['home']);
+    }
+  };
+
+  const canGoBack = tabHistory.length > 1 || activeTab !== 'home';
   const [editingPosInvoiceId, setEditingPosInvoiceId] = useState<string | null>(null);
   const [selectedInvoiceForPrint, setSelectedInvoiceForPrint] = useState<Invoice | null>(null);
   const [directPrintOptions, setDirectPrintOptions] = useState<{ format: 'thermal' | 'a4' | 'a4-custom', autoPrint: boolean } | null>(null);
@@ -763,42 +824,127 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [selectedPayrollSheetForPrint, setSelectedPayrollSheetForPrint] = useState<PayrollSheet | null>(null);
   const [selectedPartyForStatement, setSelectedPartyForStatement] = useState<Party | null>(null);
   const [selectedEmployeeForStatement, setSelectedEmployeeForStatement] = useState<Employee | null>(null);
+
+  // Helper to record deleted document IDs persistently so they never resurrect on cloud sync
+  const registerDeletedDoc = (colName: string, id: string | number) => {
+    try {
+      const existing = JSON.parse(localStorage.getItem('accounting_deleted_docs') || '[]');
+      const idStr = String(id);
+      if (!existing.some((e: any) => e.col === colName && e.id === idStr)) {
+        existing.push({ col: colName, id: idStr, time: Date.now() });
+        localStorage.setItem('accounting_deleted_docs', JSON.stringify(existing.slice(-10000)));
+      }
+      // Invalidate synced hash
+      const syncedHashes = JSON.parse(localStorage.getItem('accounting_synced_hashes') || '{}');
+      if (syncedHashes[`${colName}_${idStr}`]) {
+        delete syncedHashes[`${colName}_${idStr}`];
+        localStorage.setItem('accounting_synced_hashes', JSON.stringify(syncedHashes));
+      }
+      localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'true');
+      setHasUnsyncedChanges(true);
+    } catch (e) {
+      console.warn('registerDeletedDoc storage note:', e);
+    }
+    // Delete immediately from Firestore if online
+    if (navigator.onLine) {
+      deleteDoc(doc(db, colName, String(id))).catch(e => {
+        console.warn(`Direct deleteDoc notice for ${colName}/${id}:`, e);
+      });
+    }
+  };
+
   // Sync to Firebase Cloud Database (قاعدة البيانات الرئيسية)
   const syncToFirebase = async (force: boolean = false): Promise<boolean> => {
     if (!navigator.onLine && !force) {
       return false;
     }
+    // Prevent automated syncing until cloud hydration has completed
+    if (!isCloudHydratedRef.current && !force) {
+      return false;
+    }
     try {
       setIsFirebaseSyncing(true);
-      const stateToSave = {
-        settings,
-        accounts,
-        treasuries,
-        parties,
-        employees,
-        invoices,
-        purchases,
-        purchaseReturns,
-        salesReturns,
-        vouchers,
-        printOrders,
-        journalEntries,
-        employeeAdvances,
-        employeeDeductions,
-        employeeIncentives,
-        payrollSheets,
-        inventory,
-        stockMovements,
-        companies,
-        branches,
-        warehouses,
-        warehouseOperations,
-        roles,
-        users,
-        debtClearings,
-        updatedAt: new Date().toISOString()
+      const collectionsToSync: Record<string, any[]> = {
+        accounts, treasuries, parties, employees, invoices,
+        purchases, purchaseReturns, salesReturns, vouchers, printOrders,
+        journalEntries, employeeAdvances, employeeDeductions, employeeIncentives,
+        payrollSheets, inventory, stockMovements, companies, branches,
+        warehouses, warehouseOperations, roles, users, debtClearings, expenses
       };
-      await setDoc(doc(db, 'appState', 'accountingState'), stateToSave);
+      
+      const syncedHashes = JSON.parse(localStorage.getItem('accounting_synced_hashes') || '{}');
+      const newHashes = { ...syncedHashes };
+      
+      let writeCount = 0;
+      const batchWrites: Promise<void>[] = [];
+      let currentBatch = writeBatch(db);
+      
+      // 1. Process pending persistent deletions first so deleted documents are purged from Firestore
+      let parsedDeletedDocs: any[] = [];
+      try {
+        const deletedDocs = JSON.parse(localStorage.getItem('accounting_deleted_docs') || '[]');
+        if (Array.isArray(deletedDocs) && deletedDocs.length > 0) {
+          parsedDeletedDocs = deletedDocs;
+          for (const d of deletedDocs) {
+            if (d && d.col && d.id) {
+              currentBatch.delete(doc(db, d.col, String(d.id)));
+              writeCount++;
+              if (writeCount % 400 === 0) {
+                batchWrites.push(currentBatch.commit());
+                currentBatch = writeBatch(db);
+              }
+            }
+          }
+        }
+      } catch (delErr) {
+        console.warn('Error processing deletions batch in syncToFirebase:', delErr);
+      }
+
+      const hashItem = (item: any) => JSON.stringify(item);
+      
+      for (const [colName, items] of Object.entries(collectionsToSync)) {
+         if (!Array.isArray(items)) continue;
+         for (const item of items) {
+            if (!item || !item.id) continue;
+            
+            const itemHash = hashItem(item);
+            const hashKey = `${colName}_${item.id}`;
+            
+            if (syncedHashes[hashKey] !== itemHash) {
+               const docRef = doc(db, colName, String(item.id));
+               currentBatch.set(docRef, item);
+               newHashes[hashKey] = itemHash;
+               writeCount++;
+               
+               if (writeCount % 400 === 0) {
+                  batchWrites.push(currentBatch.commit());
+                  currentBatch = writeBatch(db);
+               }
+            }
+         }
+      }
+      
+      const settingsHash = hashItem(settings);
+      if (syncedHashes['settings_global'] !== settingsHash) {
+         currentBatch.set(doc(db, 'settings', 'global'), settings);
+         newHashes['settings_global'] = settingsHash;
+         writeCount++;
+      }
+      
+      if (writeCount % 400 !== 0 && writeCount > 0) {
+         batchWrites.push(currentBatch.commit());
+      }
+      
+      await Promise.all(batchWrites);
+      
+      try {
+        const currentDeletedDocs = JSON.parse(localStorage.getItem('accounting_deleted_docs') || '[]');
+        if (Array.isArray(currentDeletedDocs) && Array.isArray(parsedDeletedDocs) && parsedDeletedDocs.length > 0) {
+          const remainingDeletedDocs = currentDeletedDocs.filter((d: any) => !parsedDeletedDocs.find((synced: any) => synced.col === d.col && synced.id === d.id));
+          localStorage.setItem('accounting_deleted_docs', JSON.stringify(remainingDeletedDocs));
+        }
+      } catch (e) {}
+      localStorage.setItem('accounting_synced_hashes', JSON.stringify(newHashes));
       const nowStr = new Date().toLocaleTimeString('en-US');
       setLastFirebaseSyncTime(nowStr);
       setLastSyncTime(nowStr);
@@ -827,6 +973,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     const ok = await syncToFirebase(true);
     if (ok) {
+      if (fetchFromFirebaseRef.current) {
+         await fetchFromFirebaseRef.current();
+      }
       return {
         success: true,
         message: `تمت المزامنة بنجاح مع قاعدة البيانات للبرنامج الرئيسي (${new Date().toLocaleTimeString('en-US')}).`
@@ -840,23 +989,117 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   // Initial load from Firebase if available, or sync offline changes to cloud
-  useEffect(() => {
+  
+
+  const fetchCloudData = async (isInitial = false) => {
     let isMounted = true;
-    async function initCloudSync() {
-      const hadUnsynced = localStorage.getItem(`${STORAGE_KEY}_has_unsynced`) === 'true';
+    
       if (!navigator.onLine) {
         setIsOnline(false);
         isInitialMount.current = false;
+        isCloudHydratedRef.current = true;
         return;
       }
       try {
-        const snap = await getDoc(doc(db, 'appState', 'accountingState'));
-        if (isMounted && snap.exists()) {
-          const data = snap.data();
-          if (hadUnsynced) {
-            console.log('Preserving offline local changes: syncing to cloud database...');
+        const hasUnsyncedLocalChangesInit = localStorage.getItem(`${STORAGE_KEY}_has_unsynced`) === 'true';
+        if (hasUnsyncedLocalChangesInit) {
+            console.log('Local changes pending sync; pushing to cloud first before fetching...');
             await syncToFirebaseRef.current?.(true);
-          } else if (data) {
+        }
+
+        const collectionsToFetch = [
+          'accounts', 'treasuries', 'parties', 'employees', 'invoices',
+          'purchases', 'purchaseReturns', 'salesReturns', 'vouchers', 'printOrders',
+          'journalEntries', 'employeeAdvances', 'employeeDeductions', 'employeeIncentives',
+          'payrollSheets', 'inventory', 'stockMovements', 'companies', 'branches',
+          'warehouses', 'warehouseOperations', 'roles', 'users', 'debtClearings', 'expenses'
+        ];
+        
+        let hasCloudData = false;
+        const data: any = {};
+        
+        // Load set of persistently deleted documents & zeroing cutoffs
+        const deletedDocsSet = new Set<string>();
+        try {
+          const delList = JSON.parse(localStorage.getItem('accounting_deleted_docs') || '[]');
+          if (Array.isArray(delList)) {
+            delList.forEach((d: any) => {
+              if (d && d.col && d.id) deletedDocsSet.add(`${d.col}_${d.id}`);
+            });
+          }
+        } catch (e) {}
+        const zeroedCutoffs = JSON.parse(localStorage.getItem(`${STORAGE_KEY}_zeroed_cutoffs`) || '{}');
+
+        // Fetch collections in small batches to prevent socket contention on initial load
+        const chunkSize = 4;
+        for (let i = 0; i < collectionsToFetch.length; i += chunkSize) {
+          const chunk = collectionsToFetch.slice(i, i + chunkSize);
+          await Promise.all(
+            chunk.map(async (colName) => {
+              try {
+                const querySnapshot = await getDocs(collection(db, colName));
+                if (!querySnapshot.empty) {
+                  const filteredDocs: any[] = [];
+                  for (const d of querySnapshot.docs) {
+                    const docData = d.data();
+                    if (!docData || !docData.id) continue;
+                    const docKey = `${colName}_${docData.id}`;
+                    
+                    // If document was registered as deleted, purge from cloud and do not resurrect
+                    if (deletedDocsSet.has(docKey)) {
+                      deleteDoc(d.ref).catch(() => {});
+                      continue;
+                    }
+
+                    // If collection was zeroed, purge documents matching zeroing criteria
+                    const cutoff = zeroedCutoffs[colName];
+                    if (cutoff) {
+                      const docDate = (docData.date || docData.createdAt || docData.openingBalanceDate || '').split('T')[0];
+                      if (cutoff.scope === 'all') {
+                        deleteDoc(d.ref).catch(() => {});
+                        continue;
+                      } else if (docDate && docDate <= cutoff.cutoffDate) {
+                        deleteDoc(d.ref).catch(() => {});
+                        continue;
+                      }
+                    }
+
+                    filteredDocs.push(docData);
+                  }
+
+                  if (filteredDocs.length > 0) {
+                    hasCloudData = true;
+                    data[colName] = filteredDocs;
+                  }
+                }
+              } catch (e: any) {
+                // Silently fallback to local state if offline or unavailable
+                if (e?.code !== 'unavailable') {
+                  console.debug(`Sync notice for ${colName}:`, e?.message || e);
+                }
+              }
+            })
+          );
+        }
+        
+        try {
+          const settingsSnap = await getDoc(doc(db, 'settings', 'global'));
+          if (settingsSnap.exists()) {
+            hasCloudData = true;
+            data.settings = settingsSnap.data();
+          }
+        } catch (e: any) {
+          if (e?.code !== 'unavailable') {
+            console.debug('Settings sync notice:', e?.message || e);
+          }
+        }
+        
+        const hasUnsyncedLocalChanges = localStorage.getItem(`${STORAGE_KEY}_has_unsynced`) === 'true';
+        if (isMounted && hasUnsyncedLocalChanges) {
+            console.log('Local changes pending sync; they were pushed to cloud earlier in initCloudSync, now safe to load cloud data...');
+        }
+        
+        if (isMounted && hasCloudData) {
             if (Array.isArray(data.parties) && data.parties.length > 0) setParties(data.parties);
             if (Array.isArray(data.invoices) && data.invoices.length > 0) setInvoices(data.invoices);
             if (Array.isArray(data.employees) && data.employees.length > 0) setEmployees(data.employees);
@@ -881,9 +1124,34 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             if (Array.isArray(data.roles) && data.roles.length > 0) setRoles(data.roles);
             if (Array.isArray(data.users) && data.users.length > 0) setUsers(data.users);
             if (Array.isArray(data.debtClearings) && data.debtClearings.length > 0) setDebtClearings(data.debtClearings);
+            if (Array.isArray(data.expenses) && data.expenses.length > 0) setExpenses(data.expenses);
+            
             if (data.settings && typeof data.settings === 'object') {
-              setSettings(prev => ({ ...prev, ...data.settings }));
+              setSettings(prev => ({
+                ...prev,
+                ...data.settings,
+                currency: data.settings.currency || prev.currency || '₪',
+                baseCurrencyCode: data.settings.baseCurrencyCode || prev.baseCurrencyCode || 'ILS',
+                currencies: (data.settings.currencies && data.settings.currencies.length > 0) ? data.settings.currencies : prev.currencies
+              }));
             }
+
+            // Build accurate local hashes from cloud content so we don't treat fresh deployment as unsynced
+            const newHashes: Record<string, string> = {};
+            for (const [colName, items] of Object.entries(data)) {
+                if (Array.isArray(items)) {
+                    for (const item of items) {
+                        if (item && item.id) {
+                            newHashes[`${colName}_${item.id}`] = JSON.stringify(item);
+                        }
+                    }
+                }
+            }
+            if (data.settings) {
+                newHashes['settings_global'] = JSON.stringify(data.settings);
+            }
+            localStorage.setItem('accounting_synced_hashes', JSON.stringify(newHashes));
+
             const timeStr = new Date().toLocaleTimeString('en-US');
             setLastFirebaseSyncTime(timeStr);
             setLastSyncTime(timeStr);
@@ -892,21 +1160,29 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             localStorage.setItem(`${STORAGE_KEY}_last_sync`, timeStr);
             localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'false');
             localStorage.setItem(`${STORAGE_KEY}_pending_sync_count`, '0');
-          }
-        } else if (isMounted && !snap.exists()) {
+        } else if (isMounted && !hasCloudData) {
+          // If cloud database has 0 records anywhere (brand new first-time setup), initialize cloud with defaults
+          console.log('Database empty in cloud: seeding initial baseline...');
           await syncToFirebaseRef.current?.(true);
         }
       } catch (err) {
-        console.log('Firebase cloud ready / offline mode active');
+        console.log('Firebase cloud ready / offline mode active:', err);
       } finally {
         if (isMounted) {
-          isInitialMount.current = false;
+          isCloudHydratedRef.current = true;
+          setTimeout(() => {
+            isInitialMount.current = false;
+          }, 400);
         }
       }
-    }
-    initCloudSync();
-    return () => { isMounted = false; };
+    
+  };
+  fetchFromFirebaseRef.current = fetchCloudData;
+
+  useEffect(() => {
+    fetchCloudData(true);
   }, []);
+
   const [selectedPurchaseForPrint, setSelectedPurchaseForPrint] = useState<PurchaseInvoice | null>(null);
   const [selectedReturnForPrint, setSelectedReturnForPrint] = useState<PurchaseReturn | null>(null);
   const [selectedSalesReturnForPrint, setSelectedSalesReturnForPrint] = useState<SalesReturn | null>(null);
@@ -948,7 +1224,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       localStorage.setItem(`${STORAGE_KEY}_last_local_save`, nowTime);
       setLastLocalSaveTime(nowTime);
 
-      if (!isInitialMount.current) {
+      if (!isInitialMount.current && isCloudHydratedRef.current) {
         setHasUnsyncedChanges(true);
         setPendingSyncCount(prev => prev + 1);
         localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'true');
@@ -1122,9 +1398,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deleteCompany = (id: string) => {
     if (companies.length <= 1) {
-      return { success: false, message: 'لا يمكن حذف الشركة الوحيدة المتبقية في النظام' };
+      return { success: false, message: 'لا يمكن حذف الشركة الوحيدة المتبقية بالنظام' };
     }
     setCompanies(prev => prev.filter(c => c.id !== id));
+    deleteDoc(doc(db, 'companies', id)).catch(e => console.warn('Could not delete company in cloud:', e));
     return { success: true };
   };
 
@@ -1148,6 +1425,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return { success: false, message: 'لا يمكن حذف الفرع الوحيد المتبقي بالنظام' };
     }
     setBranches(prev => prev.filter(b => b.id !== id));
+    deleteDoc(doc(db, 'branches', id)).catch(e => console.warn('Could not delete branch in cloud:', e));
     if (activeBranchId === id) {
       const remaining = branches.filter(b => b.id !== id);
       if (remaining.length > 0) setActiveBranchId(remaining[0].id);
@@ -1210,6 +1488,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return { success: false, message: 'لا يمكن حذف المستودع الوحيد المتبقي بالنظام' };
     }
     setWarehouses(prev => prev.filter(w => w.id !== id));
+    deleteDoc(doc(db, 'warehouses', id)).catch(e => console.warn('Could not delete warehouse in cloud:', e));
     setBranches(prev => prev.map(b => ({
       ...b,
       warehouseIds: b.warehouseIds.filter(wId => wId !== id)
@@ -1638,6 +1917,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deleteRole = (id: string) => {
     setRoles(prev => prev.filter(r => r.id !== id));
+    deleteDoc(doc(db, 'roles', id)).catch(e => console.warn('Could not delete role in cloud:', e));
     return { success: true };
   };
 
@@ -1661,6 +1941,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return { success: false, message: 'لا يمكن حذف المستخدم الوحيد بالنظام' };
     }
     setUsers(prev => prev.filter(u => u.id !== id));
+    deleteDoc(doc(db, 'users', id)).catch(e => console.warn('Could not delete user in cloud:', e));
     if (currentUserId === id) {
       const remaining = users.filter(u => u.id !== id);
       if (remaining.length > 0) setCurrentUserId(remaining[0].id);
@@ -1670,6 +1951,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const updateSettings = (newSettings: BusinessSettings) => {
     setSettings(newSettings);
+    try {
+      localStorage.setItem(`${STORAGE_KEY}_settings`, JSON.stringify(newSettings));
+      setDoc(doc(db, 'settings', 'global'), newSettings).catch(err => {
+        console.warn('Failed direct settings save to cloud:', err);
+      });
+    } catch (e) {
+      console.warn('Settings persistence error:', e);
+    }
   };
 
   // Multi-Currency handlers (العملة الأساسية: الشيكل الفلسطيني ₪)
@@ -1888,6 +2177,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     setTreasuries(prev => prev.filter(t => t.id !== id));
+    deleteDoc(doc(db, 'treasuries', id)).catch(e => console.warn('Could not delete treasury in cloud:', e));
     return { success: true, message: `تم حذف الخزنة (${target.name}) بنجاح` };
   };
 
@@ -2496,7 +2786,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       entryNumber: `JV-${clrNum}`,
       date: clearingData.date,
       description: `مقاصة وتسوية ذمم بين العميل (${customer.name}) والمورد (${supplier.name}) - ${clearingData.reason || 'تسوية حسابات متبادلة'}`,
-      referenceType: 'manual',
+      referenceType: 'clearance',
       referenceId: clrNum,
       lines: [
         {
@@ -2784,6 +3074,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return [newEntry, ...prev];
     });
 
+    // Telegram Notification
+    try {
+      const msg2 = `📝 <b>قيد يومية جديد</b>\nالبيان: ${entry.description}\nالقيمة: ${entry.lines.reduce((sum, l) => sum + l.debit, 0)} ${settings?.currency || ''}`;
+      TelegramService.sendMessage(msg2, settings);
+    } catch(e) {}
+
     // Update account balances according to double entry rule
     setAccounts(prev => {
       const updated = [...prev];
@@ -2800,6 +3096,114 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
       return updated;
     });
+  };
+
+  // Expenses & Operating Costs (المصروفات والمصاريف التشغيلية)
+  const addExpense = (
+    expenseData: Omit<ExpenseItem, 'id' | 'createdAt'>
+  ): ExpenseItem => {
+    const id = `exp-${Date.now()}`;
+    const createdAt = new Date().toISOString();
+    const jId = `entry-exp-${Date.now()}`;
+    const voucherNum = `PV-EXP-${Date.now().toString().slice(-5)}`;
+
+    const selectedAcc = accounts.find(a => a.code === expenseData.expenseAccountCode) || {
+      code: expenseData.expenseAccountCode,
+      name: expenseData.expenseAccountName || 'مصروفات عامة'
+    };
+
+    const targetTreasury = treasuries.find(
+      t => t.accountCode === expenseData.treasuryAccountCode || t.id === expenseData.treasuryAccountCode
+    );
+    const treasuryCode = targetTreasury ? targetTreasury.accountCode : (expenseData.treasuryAccountCode || '1101');
+    const treasuryName = targetTreasury ? targetTreasury.name : (expenseData.treasuryName || 'الصندوق النقدي (الكاشير)');
+
+    const amount = Number(expenseData.amount) || 0;
+    const curr = expenseData.currency || settings.baseCurrencyCode || 'ILS';
+    const rate = expenseData.exchangeRate || 1.0;
+    const baseAmount = Number((amount * rate).toFixed(2));
+
+    const newExpense: ExpenseItem = {
+      ...expenseData,
+      id,
+      createdAt,
+      voucherNumber: voucherNum,
+      journalEntryId: jId,
+      treasuryAccountCode: treasuryCode,
+      treasuryName,
+      currency: curr,
+      exchangeRate: rate
+    };
+
+    setExpenses(prev => [newExpense, ...prev]);
+
+    // 1. Post balanced double-entry journal (Debit Expense, Credit Treasury)
+    addJournalEntry({
+      date: expenseData.date,
+      description: `سداد مصروف تشغيلي: ${selectedAcc.name} - ${expenseData.beneficiary || ''} (${expenseData.notes || expenseData.categoryName})`,
+      referenceType: 'expense' as any,
+      referenceId: id,
+      lines: [
+        {
+          accountCode: selectedAcc.code,
+          accountName: selectedAcc.name,
+          debit: baseAmount,
+          credit: 0,
+          description: `مصروف: ${expenseData.notes || expenseData.categoryName}`
+        },
+        {
+          accountCode: treasuryCode,
+          accountName: treasuryName,
+          debit: 0,
+          credit: baseAmount,
+          description: `صرف من: ${treasuryName}`
+        }
+      ]
+    });
+
+    // 2. Adjust treasury register balance and transaction history
+    adjustTreasuryBalance(
+      treasuryCode,
+      -amount,
+      `مصروف: ${selectedAcc.name} (${expenseData.beneficiary || ''})`,
+      'manual',
+      id,
+      {
+        currency: curr,
+        currencySymbol: expenseData.currencySymbol || (curr === 'ILS' ? '₪' : curr),
+        exchangeRate: rate,
+        voucherNumber: voucherNum,
+        partyName: expenseData.beneficiary,
+        date: expenseData.date
+      }
+    );
+
+    return newExpense;
+  };
+
+  const deleteExpense = (id: string) => {
+    const existing = expenses.find(e => e.id === id);
+    if (!existing) return;
+
+    // 1. Revert Treasury balance
+    if (existing.treasuryAccountCode && existing.amount) {
+      adjustTreasuryBalance(
+        existing.treasuryAccountCode,
+        existing.amount,
+        `إلغاء قيد مصروف: ${existing.expenseAccountName}`,
+        'manual',
+        id
+      );
+    }
+
+    // 2. Revert journal entry
+    if (existing.journalEntryId) {
+      setJournalEntries(prev => prev.filter(je => je.id !== existing.journalEntryId));
+    }
+
+    // 3. Remove expense item from state & cloud
+    setExpenses(prev => prev.filter(e => e.id !== id));
+    registerDeletedDoc('expenses', id);
   };
 
   const addStockMovement = (movement: Omit<StockMovement, 'id'>) => {
@@ -2866,6 +3270,28 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       return { ...it, ...updated };
     }));
+  };
+
+
+  const deleteInventoryItem = (id: string): { success: boolean; message: string } => {
+    const hasMovements = stockMovements.some(m => m.itemId === id);
+    if (hasMovements) {
+      return { success: false, message: 'لا يمكن حذف الصنف لوجود حركات (وارد/منصرف) مسجلة عليه.' };
+    }
+    
+    const usedInInvoices = invoices.some(inv => inv.items.some(i => i.itemId === id));
+    if (usedInInvoices) {
+       return { success: false, message: 'لا يمكن حذف الصنف لوجوده في فواتير مبيعات سابقة.' };
+    }
+    
+    const usedInPurchases = purchases.some(p => p.items.some(i => i.itemId === id));
+    if (usedInPurchases) {
+       return { success: false, message: 'لا يمكن حذف الصنف لوجوده في فواتير مشتريات سابقة.' };
+    }
+
+    setInventory(prev => prev.filter(it => it.id !== id));
+    registerDeletedDoc('inventory', id);
+    return { success: true, message: 'تم حذف الصنف بنجاح' };
   };
 
   const adjustStock = (id: string, newQuantity: number, reason: string, notes?: string) => {
@@ -2964,6 +3390,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     setParties(prev => prev.filter(p => p.id !== id));
+    registerDeletedDoc('parties', id);
     if (selectedPartyForStatement?.id === id) {
       setSelectedPartyForStatement(null);
     }
@@ -2988,6 +3415,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deleteEmployee = (id: string) => {
     setEmployees(prev => prev.filter(emp => emp.id !== id));
+    registerDeletedDoc('employees', id);
   };
 
   const payEmployeeSalary = (
@@ -3249,6 +3677,71 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setPayrollSheets(prev => prev.filter(s => !(s.id === id && s.status === 'draft')));
   };
 
+  const unapprovePayrollSheet = (id: string): { success: boolean; message?: string } => {
+    const sheet = payrollSheets.find(s => s.id === id);
+    if (!sheet) return { success: false, message: 'كشف الرواتب غير موجود' };
+    if (sheet.status !== 'approved') return { success: false, message: 'الكشف ليس معتمداً' };
+
+    const voucherNumber = sheet.voucherNumber;
+    if (!voucherNumber) return { success: false, message: 'رقم السند غير موجود، لا يمكن إلغاء الاعتماد' };
+    
+    // Find the voucher
+    const voucher = vouchers.find(v => v.voucherNumber === voucherNumber);
+    
+    if (voucher) {
+      // 1. Delete voucher
+      setVouchers(prev => prev.filter(v => v.id !== voucher.id));
+      
+      // 2. Delete Journal Entries
+      setJournalEntries(prev => prev.filter(j => j.referenceId !== voucher.id));
+      
+      // 3. Delete Treasury Movements and restore balance
+      const movements = vouchers.filter(m => m.referenceId === voucher.id);
+      
+      setAccounts(prev => prev.map(acc => {
+         const movementForAcc = movements.find(m => m.accountId === acc.code || m.treasuryId === acc.code);
+         if (movementForAcc) {
+            let revertAmount = 0;
+            if (movementForAcc.type === 'withdrawal' || movementForAcc.type === 'transfer_out') revertAmount = movementForAcc.amount;
+            else if (movementForAcc.type === 'deposit' || movementForAcc.type === 'transfer_in') revertAmount = -movementForAcc.amount;
+            
+            return { ...acc, balance: acc.balance + revertAmount };
+         }
+         return acc;
+      }));
+
+      // setTreasuryMovements(prev => prev.filter(m => m.referenceId !== voucher.id));
+    }
+
+    // 4. Update the sheet status back to draft
+    setPayrollSheets(prev =>
+      prev.map(s =>
+        s.id === id
+          ? {
+              ...s,
+              status: 'draft',
+              disbursedAt: undefined,
+              voucherNumber: undefined,
+              treasuryAccountCode: '',
+              treasuryName: ''
+            }
+          : s
+      )
+    );
+    
+    // 5. Restore employee advances to 'approved' status
+    const includedEmployeeIds = sheet.items.filter(item => item.isIncluded).map(item => item.employeeId);
+    setEmployeeAdvances(prev => 
+      prev.map(a => 
+        (includedEmployeeIds.includes(a.employeeId) && a.status === 'deducted' && a.amount <= sheet.totalAdvances)
+          ? { ...a, status: 'approved' } 
+          : a
+      )
+    );
+
+    return { success: true, message: 'تم إلغاء الاعتماد بنجاح وإعادة الكشف لحالة المسودة. يمكنك الآن تعديله.' };
+  };
+
   const approveAndDisbursePayrollSheet = (id: string, treasuryAccountCodeOverride?: string): { success: boolean; message?: string } => {
     const sheet = payrollSheets.find(s => s.id === id);
     if (!sheet) return { success: false, message: 'كشف الرواتب غير موجود' };
@@ -3490,7 +3983,17 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       editingInvoiceId?: string;
     }
   ): Invoice => {
+    // ربط العميل النقدي برمز CUST-0001
+    if (!customerId || customerName === 'عميل كاشير نقدي' || customerName === 'عميل نقدي' || customerName === 'زبون عام' || customerId === 'pt-cust-1') {
+      const defaultCashCust = parties.find(p => p.code === 'CUST-0001');
+      if (defaultCashCust) {
+        customerId = defaultCashCust.id;
+        customerName = defaultCashCust.name;
+      }
+    }
+
     const invId = extraOptions?.editingInvoiceId || 'inv-pos-' + Date.now();
+
     
     // If editing, find the old invoice and reverse its effects
     const oldInvoice = extraOptions?.editingInvoiceId ? invoices.find(inv => inv.id === extraOptions.editingInvoiceId) : undefined;
@@ -3562,9 +4065,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const lineTax = Number(((lineNet * lineTaxRate) / 100).toFixed(2));
       const lineTotal = Number((lineNet + lineTax).toFixed(2));
 
+      const isDeliveryItem = line.item.id === 'srv-delivery' || line.item.id === 'srv-delivery-mobile' || line.item.barcode === 'DELIVERY' || line.item.name === 'خدمة توصيل' || line.item.name?.trim().startsWith('توصيل') || line.item.category === 'services';
+      // خدمة التوصيل تحمل على الزبون بالتكلفة الأصلية دون مربح (التكلفة = سعر البيع)
+      const itemCost = isDeliveryItem ? unitP : (line.item.purchasePrice || 0);
+
       subtotal += lineSubtotal;
       discountTotal += lineDiscount;
-      totalCogs += line.item.purchasePrice * quantity;
+      totalCogs += itemCost * quantity;
 
       return {
         itemId: line.item.id,
@@ -3781,7 +4288,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const movementTime = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
       setInventory(prev => prev.map(invItem => {
         const sold = items.find(i => i.item.id === invItem.id);
-        if (sold && invItem.category !== 'copy_scan') {
+        const isDeliveryOrService = invItem.category === 'copy_scan' || invItem.category === 'services' || invItem.id === 'srv-delivery' || invItem.id === 'srv-delivery-mobile' || invItem.barcode === 'DELIVERY' || invItem.name === 'خدمة توصيل' || invItem.name?.trim().startsWith('توصيل');
+        if (sold && !isDeliveryOrService) {
           const oldQty = invItem.stockQuantity;
           const newQty = Math.max(0, oldQty - sold.quantity);
           addStockMovement({
@@ -4080,6 +4588,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       console.log('CREATING NEW INVOICE', newInvoice.id);
       setInvoices(prev => [newInvoice, ...prev]);
     }
+    
+    // Telegram Notification
+    try {
+      const msg = `🟢 <b>فاتورة جديدة (${newInvoice.invoiceNumber})</b>\nالعميل: ${newInvoice.customerName}\nالقيمة: ${newInvoice.totalAmount} ${settings.currency}\nالمستخدم: ${newInvoice.userName || 'النظام'}`;
+      TelegramService.sendMessage(msg, settings);
+    } catch(e) {}
+
     return newInvoice;
   };
 
@@ -4307,6 +4822,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deleteInvoice = (id: string) => {
     setInvoices(prev => prev.filter(inv => inv.id !== id));
+    registerDeletedDoc('invoices', id);
   };
 
   const addInvoiceTechnicalNote = (invoiceId: string, text: string) => {
@@ -4882,10 +5398,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deletePaymentVoucher = (id: string) => {
     setVouchers(prev => prev.filter(v => v.id !== id));
+    registerDeletedDoc('vouchers', id);
   };
 
   const deletePurchaseInvoice = (id: string) => {
     setPurchases(prev => prev.filter(p => p.id !== id));
+    registerDeletedDoc('purchases', id);
   };
 
   const createPurchaseReturn = (returnData: Omit<PurchaseReturn, 'id' | 'returnNumber' | 'createdAt'>): PurchaseReturn => {
@@ -5001,6 +5519,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deletePurchaseReturn = (id: string) => {
     setPurchaseReturns(prev => prev.filter(r => r.id !== id));
+    registerDeletedDoc('purchaseReturns', id);
   };
 
   const createSalesReturn = (returnData: Omit<SalesReturn, 'id' | 'returnNumber' | 'createdAt'>): SalesReturn => {
@@ -5115,6 +5634,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deleteSalesReturn = (id: string) => {
     setSalesReturns(prev => prev.filter(r => r.id !== id));
+    registerDeletedDoc('salesReturns', id);
   };
 
   const [lastBackupInfo, setLastBackupInfo] = useState<{ timestamp: string; filename: string } | null>(() => {
@@ -5152,6 +5672,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       warehouseOperations,
       roles,
       users,
+      debtClearings,
+      expenses,
       exportedAt: new Date().toISOString(),
       exportedBy: currentUser?.fullName || currentUser?.username || 'مدير النظام'
     };
@@ -5201,6 +5723,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           deletedPrintOrders: 0,
           deletedStockMovements: 0,
           deletedWarehouseOperations: 0,
+          deletedDebtClearings: 0,
+          deletedExpenses: 0,
+          deletedEmployees: 0,
+          deletedPayrollSheets: 0,
+          deletedEmployeeAdvances: 0,
+          deletedEmployeeDeductions: 0,
+          deletedEmployeeIncentives: 0,
           deletedPayrollRecords: 0,
           deletedManualParties: 0,
           zeroedPartyBalances: 0,
@@ -5220,6 +5749,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (options.scope === 'all') return true;
       if (!dateStr) return true;
       const clean = dateStr.split('T')[0];
+      if (options.scope === 'from_date') {
+        return clean >= (options.fromDate || options.cutoffDate);
+      }
+      if (options.scope === 'date_range') {
+        return clean >= (options.fromDate || '1900-01-01') && clean <= options.cutoffDate;
+      }
       return clean <= options.cutoffDate;
     };
 
@@ -5233,6 +5768,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       deletedPrintOrders: 0,
       deletedStockMovements: 0,
       deletedWarehouseOperations: 0,
+      deletedDebtClearings: 0,
+      deletedExpenses: 0,
+      deletedEmployees: 0,
+      deletedPayrollSheets: 0,
+      deletedEmployeeAdvances: 0,
+      deletedEmployeeDeductions: 0,
+      deletedEmployeeIncentives: 0,
       deletedPayrollRecords: 0,
       deletedManualParties: 0,
       zeroedPartyBalances: 0,
@@ -5244,20 +5786,58 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       zeroedAccounts: 0
     };
 
+    // Track all deleted IDs across collections to purge from Firestore
+    const deletedDocMap: Record<string, string[]> = {
+      invoices: [],
+      purchases: [],
+      salesReturns: [],
+      purchaseReturns: [],
+      vouchers: [],
+      journalEntries: [],
+      printOrders: [],
+      stockMovements: [],
+      warehouseOperations: [],
+      payrollSheets: [],
+      employeeAdvances: [],
+      employeeDeductions: [],
+      employeeIncentives: [],
+      employees: [],
+      debtClearings: [],
+      expenses: [],
+      parties: [],
+      inventory: [],
+      warehouses: [],
+      treasuries: []
+    };
+
     // 1. Invoices (فواتير المبيعات ونقاط البيع)
     if (options.resetInvoices) {
       setInvoices(prev => {
-        const toKeep = prev.filter(inv => !isTargetDate(inv.date));
-        summary.deletedInvoices = prev.length - toKeep.length;
+        const toKeep: Invoice[] = [];
+        prev.forEach(inv => {
+          if (isTargetDate(inv.date)) {
+            deletedDocMap.invoices.push(inv.id);
+          } else {
+            toKeep.push(inv);
+          }
+        });
+        summary.deletedInvoices = deletedDocMap.invoices.length;
         return toKeep;
       });
     }
 
-    // 2. Purchases (فواتير المشتريات)
+    // 2. Purchases (فواتير المشتريات ومشتريات الخامات)
     if (options.resetPurchases) {
       setPurchases(prev => {
-        const toKeep = prev.filter(pur => !isTargetDate(pur.date));
-        summary.deletedPurchases = prev.length - toKeep.length;
+        const toKeep: PurchaseInvoice[] = [];
+        prev.forEach(pur => {
+          if (isTargetDate(pur.date)) {
+            deletedDocMap.purchases.push(pur.id);
+          } else {
+            toKeep.push(pur);
+          }
+        });
+        summary.deletedPurchases = deletedDocMap.purchases.length;
         return toKeep;
       });
     }
@@ -5265,8 +5845,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // 3. Sales Returns (مردودات المبيعات)
     if (options.resetSalesReturns) {
       setSalesReturns(prev => {
-        const toKeep = prev.filter(r => !isTargetDate(r.date));
-        summary.deletedSalesReturns = prev.length - toKeep.length;
+        const toKeep: SalesReturn[] = [];
+        prev.forEach(r => {
+          if (isTargetDate(r.date)) {
+            deletedDocMap.salesReturns.push(r.id);
+          } else {
+            toKeep.push(r);
+          }
+        });
+        summary.deletedSalesReturns = deletedDocMap.salesReturns.length;
         return toKeep;
       });
     }
@@ -5274,8 +5861,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // 4. Purchase Returns (مردودات المشتريات)
     if (options.resetPurchaseReturns) {
       setPurchaseReturns(prev => {
-        const toKeep = prev.filter(r => !isTargetDate(r.date));
-        summary.deletedPurchaseReturns = prev.length - toKeep.length;
+        const toKeep: PurchaseReturn[] = [];
+        prev.forEach(r => {
+          if (isTargetDate(r.date)) {
+            deletedDocMap.purchaseReturns.push(r.id);
+          } else {
+            toKeep.push(r);
+          }
+        });
+        summary.deletedPurchaseReturns = deletedDocMap.purchaseReturns.length;
         return toKeep;
       });
     }
@@ -5283,17 +5877,31 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // 5. Vouchers (سندات القبض والصرف)
     if (options.resetVouchers) {
       setVouchers(prev => {
-        const toKeep = prev.filter(v => !isTargetDate(v.date));
-        summary.deletedVouchers = prev.length - toKeep.length;
+        const toKeep: PaymentVoucher[] = [];
+        prev.forEach(v => {
+          if (isTargetDate(v.date)) {
+            deletedDocMap.vouchers.push(v.id);
+          } else {
+            toKeep.push(v);
+          }
+        });
+        summary.deletedVouchers = deletedDocMap.vouchers.length;
         return toKeep;
       });
     }
 
-    // 6. Journal Entries (قيود اليومية)
+    // 6. Journal Entries (قيود اليومية وحركات الحسابات)
     if (options.resetJournalEntries) {
       setJournalEntries(prev => {
-        const toKeep = prev.filter(je => !isTargetDate(je.date));
-        summary.deletedJournalEntries = prev.length - toKeep.length;
+        const toKeep: JournalEntry[] = [];
+        prev.forEach(je => {
+          if (isTargetDate(je.date)) {
+            deletedDocMap.journalEntries.push(je.id);
+          } else {
+            toKeep.push(je);
+          }
+        });
+        summary.deletedJournalEntries = deletedDocMap.journalEntries.length;
         return toKeep;
       });
     }
@@ -5301,99 +5909,199 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // 7. Print Orders (أوامر تشغيل المطبعة والورشة)
     if (options.resetPrintOrders) {
       setPrintOrders(prev => {
-        const toKeep = prev.filter(po => !isTargetDate(po.createdAt || po.deliveryDate));
-        summary.deletedPrintOrders = prev.length - toKeep.length;
+        const toKeep: PrintJobOrder[] = [];
+        prev.forEach(po => {
+          if (isTargetDate(po.createdAt || po.deliveryDate)) {
+            deletedDocMap.printOrders.push(po.id);
+          } else {
+            toKeep.push(po);
+          }
+        });
+        summary.deletedPrintOrders = deletedDocMap.printOrders.length;
         return toKeep;
       });
     }
 
-    // 8. Stock Movements (حركات المخزون والمناقلات)
+    // 8. Stock Movements (حركات المخزون: صرف، قبض/توريد، جرد وتعديل، بيع وشراء، تبديل ومناقلات)
     if (options.resetStockMovements) {
       setStockMovements(prev => {
-        const toKeep = prev.filter(sm => !isTargetDate(sm.date));
-        summary.deletedStockMovements = prev.length - toKeep.length;
+        const toKeep: StockMovement[] = [];
+        prev.forEach(sm => {
+          if (isTargetDate(sm.date)) {
+            deletedDocMap.stockMovements.push(sm.id);
+          } else {
+            toKeep.push(sm);
+          }
+        });
+        summary.deletedStockMovements = deletedDocMap.stockMovements.length;
         return toKeep;
       });
     }
 
-    // 9. Warehouse Operations (عمليات المستودعات)
+    // 9. Warehouse Operations (عمليات وأذونات المستودعات)
     if (options.resetWarehouseOperations) {
       setWarehouseOperations(prev => {
-        const toKeep = prev.filter(wo => !isTargetDate(wo.date));
-        summary.deletedWarehouseOperations = prev.length - toKeep.length;
+        const toKeep: WarehouseOperation[] = [];
+        prev.forEach(wo => {
+          if (isTargetDate(wo.date)) {
+            deletedDocMap.warehouseOperations.push(wo.id);
+          } else {
+            toKeep.push(wo);
+          }
+        });
+        summary.deletedWarehouseOperations = deletedDocMap.warehouseOperations.length;
         return toKeep;
       });
     }
 
-    // 10. Payroll & Advances (مسيرات الرواتب والسلف والخصومات)
+    // 9.5. Debt Clearings (المقاصات وتسوية الديون)
+    if (options.resetDebtClearings !== false) {
+      setDebtClearings(prev => {
+        const toKeep: DebtClearingRecord[] = [];
+        prev.forEach(dc => {
+          if (isTargetDate(dc.date || dc.createdAt)) {
+            deletedDocMap.debtClearings.push(dc.id);
+          } else {
+            toKeep.push(dc);
+          }
+        });
+        summary.deletedDebtClearings = deletedDocMap.debtClearings.length;
+        return toKeep;
+      });
+    }
+
+    // 9.6. Expenses & Operating Costs (المصروفات والمصاريف التشغيلية)
+    if (options.resetExpenses !== false) {
+      setExpenses(prev => {
+        const toKeep: ExpenseItem[] = [];
+        prev.forEach(exp => {
+          if (isTargetDate(exp.date || exp.createdAt)) {
+            deletedDocMap.expenses.push(exp.id);
+          } else {
+            toKeep.push(exp);
+          }
+        });
+        summary.deletedExpenses = deletedDocMap.expenses.length;
+        return toKeep;
+      });
+    }
+
+    // 10. Payroll, Advances, Deductions & Incentives (مسيرات الرواتب، السلف، الخصومات والمكافآت)
     if (options.resetPayroll) {
       setPayrollSheets(prev => {
-        const toKeep = prev.filter(ps => !isTargetDate(ps.createdAt));
-        summary.deletedPayrollRecords += prev.length - toKeep.length;
+        const toKeep: PayrollSheet[] = [];
+        prev.forEach(ps => {
+          if (isTargetDate(ps.createdAt)) {
+            deletedDocMap.payrollSheets.push(ps.id);
+          } else {
+            toKeep.push(ps);
+          }
+        });
+        summary.deletedPayrollSheets = deletedDocMap.payrollSheets.length;
+        summary.deletedPayrollRecords += summary.deletedPayrollSheets;
         return toKeep;
       });
+
       setEmployeeAdvances(prev => {
-        const toKeep = prev.filter(ea => !isTargetDate(ea.date));
-        summary.deletedPayrollRecords += prev.length - toKeep.length;
+        const toKeep: EmployeeAdvance[] = [];
+        prev.forEach(ea => {
+          if (isTargetDate(ea.date)) {
+            deletedDocMap.employeeAdvances.push(ea.id);
+          } else {
+            toKeep.push(ea);
+          }
+        });
+        summary.deletedEmployeeAdvances = deletedDocMap.employeeAdvances.length;
+        summary.deletedPayrollRecords += summary.deletedEmployeeAdvances;
         return toKeep;
       });
+
       setEmployeeDeductions(prev => {
-        const toKeep = prev.filter(ed => !isTargetDate(ed.date));
-        summary.deletedPayrollRecords += prev.length - toKeep.length;
+        const toKeep: EmployeeDeduction[] = [];
+        prev.forEach(ed => {
+          if (isTargetDate(ed.date)) {
+            deletedDocMap.employeeDeductions.push(ed.id);
+          } else {
+            toKeep.push(ed);
+          }
+        });
+        summary.deletedEmployeeDeductions = deletedDocMap.employeeDeductions.length;
+        summary.deletedPayrollRecords += summary.deletedEmployeeDeductions;
         return toKeep;
       });
+
       setEmployeeIncentives(prev => {
-        const toKeep = prev.filter(ei => !isTargetDate(ei.date));
-        summary.deletedPayrollRecords += prev.length - toKeep.length;
+        const toKeep: EmployeeIncentive[] = [];
+        prev.forEach(ei => {
+          if (isTargetDate(ei.date)) {
+            deletedDocMap.employeeIncentives.push(ei.id);
+          } else {
+            toKeep.push(ei);
+          }
+        });
+        summary.deletedEmployeeIncentives = deletedDocMap.employeeIncentives.length;
+        summary.deletedPayrollRecords += summary.deletedEmployeeIncentives;
+        return toKeep;
+      });
+    }
+
+    // 10.5. Employees (أسماء وسجلات الموظفين بالكامل)
+    if (options.resetEmployees) {
+      setEmployees(prev => {
+        const toKeep: Employee[] = [];
+        prev.forEach(emp => {
+          if (isTargetDate(emp.joinDate || emp.createdAt || '2000-01-01')) {
+            deletedDocMap.employees.push(emp.id);
+          } else {
+            toKeep.push(emp);
+          }
+        });
+        summary.deletedEmployees = deletedDocMap.employees.length;
         return toKeep;
       });
     }
 
     // 11. Parties (العملاء والموردين)
-    const initialPartiesMap = new Set(initialParties.map(p => p.id));
-    setParties(prev => {
-      let result = prev;
-      if (options.resetManualParties) {
-        const kept = prev.filter(p => {
-          const isManual = !initialPartiesMap.has(p.id);
-          const partyDate = p.openingBalanceDate || (p as any).createdAt;
-          if (isManual && isTargetDate(partyDate)) {
+    if (options.resetManualParties || options.zeroPartyBalances) {
+      setParties(prev => {
+        const kept: Party[] = [];
+        prev.forEach(p => {
+          // العميل النقدي لا يمسح
+          if (p.code === 'CUST-0001' || p.name === 'عميل نقدي' || p.name === 'عميل كاشير نقدي' || p.name === 'زبون عام') {
+            kept.push(p);
+            return;
+          }
+          const partyDate = p.openingBalanceDate || (p as any).createdAt || '2000-01-01';
+          if (options.resetManualParties && isTargetDate(partyDate)) {
+            deletedDocMap.parties.push(p.id);
             summary.deletedManualParties++;
-            return false;
+          } else {
+            kept.push(p);
           }
-          return true;
         });
-        result = kept;
-      }
-
-      if (options.zeroPartyBalances) {
-        result = result.map(p => {
-          if (p.balance !== 0) summary.zeroedPartyBalances++;
-          return { ...p, balance: 0, openingBalance: 0 };
+        // تصفير المبالغ والذمم المدينة والدائنة
+        return kept.map(p => {
+          if (options.zeroPartyBalances && p.balance !== 0) summary.zeroedPartyBalances++;
+          return options.zeroPartyBalances ? { ...p, balance: 0, openingBalance: 0 } : p;
         });
-      }
-      return result;
-    });
+      });
+    }
 
-    // 12. Inventory (المخازن والأصناف)
-    const initialInvMap = new Set(initialInventory.map(i => i.id));
+    // 12. Inventory & Stock Cards (الأصناف والكرتات المخزنية والكميات)
     setInventory(prev => {
-      let result = prev;
-      if (options.resetManualInventoryItems) {
-        const kept = prev.filter(item => {
-          const isManual = !initialInvMap.has(item.id);
-          const itemDate = item.lastMovementDate || (item as any).createdAt;
-          if (isManual && isTargetDate(itemDate)) {
-            summary.deletedManualItems++;
-            return false;
-          }
-          return true;
-        });
-        result = kept;
-      }
-
+      const kept: InventoryItem[] = [];
+      prev.forEach(item => {
+        const itemDate = item.lastMovementDate || (item as any).createdAt || '2000-01-01';
+        if (options.resetManualInventoryItems && isTargetDate(itemDate)) {
+          deletedDocMap.inventory.push(item.id);
+          summary.deletedManualItems++;
+        } else {
+          kept.push(item);
+        }
+      });
+      // تصفير كميات المخزون بالكامل في كافة المستودعات
       if (options.zeroInventoryStock) {
-        result = result.map(item => {
+        return kept.map(item => {
           if (item.stockQuantity !== 0) summary.zeroedInventoryStocks++;
           return {
             ...item,
@@ -5402,43 +6110,49 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           };
         });
       }
-      return result;
+      return kept;
     });
 
-    // 13. Warehouses (المستودعات الإضافية المضافة يدوياً)
-    const defaultWhMap = new Set(DEFAULT_WAREHOUSES.map(w => w.id));
-    if (options.resetManualWarehouses) {
-      setWarehouses(prev => {
-        const kept = prev.filter(w => {
-          const isManual = !defaultWhMap.has(w.id);
-          if (isManual && isTargetDate(w.createdAt)) {
-            summary.deletedManualWarehouses++;
-            return false;
-          }
-          return true;
-        });
-        return kept;
+    // 13. Warehouses (المستودعات الإضافية)
+    setWarehouses(prev => {
+      const kept: Warehouse[] = [];
+      prev.forEach(w => {
+        // المستودع الرئيسي لا يمسح
+        if (w.id === 'wh-1' || w.name.includes('الرئيسي') || w.code === 'WH-01') {
+          kept.push(w);
+          return;
+        }
+        const wDate = w.createdAt || '2000-01-01';
+        if (isTargetDate(wDate)) {
+          deletedDocMap.warehouses.push(w.id);
+          summary.deletedManualWarehouses++;
+        } else {
+          kept.push(w);
+        }
       });
-    }
+      return kept;
+    });
 
     // 14. Treasuries (الصناديق والخزنات)
-    const initialTreasuryMap = new Set(initialTreasuries.map(t => t.id));
     setTreasuries(prev => {
-      let result = prev;
-      if (options.resetManualTreasuries) {
-        const kept = prev.filter(t => {
-          const isManual = !initialTreasuryMap.has(t.id);
-          if (isManual && isTargetDate(t.createdAt)) {
-            summary.deletedManualTreasuries++;
-            return false;
-          }
-          return true;
-        });
-        result = kept;
-      }
+      const kept: Treasury[] = [];
+      prev.forEach(t => {
+        // الصندوق النقدي لا يمسح ولكن يصفر
+        if (t.id === 'treasury-cash-main' || t.name.includes('النقدي') || t.accountCode === '1101') {
+          kept.push(t);
+          return;
+        }
+        const tDate = t.createdAt || '2000-01-01';
+        if (isTargetDate(tDate)) {
+          deletedDocMap.treasuries.push(t.id);
+          summary.deletedManualTreasuries++;
+        } else {
+          kept.push(t);
+        }
+      });
 
-      if (options.zeroTreasuryBalances) {
-        result = result.map(t => {
+      return kept.map(t => {
+        if (t.id === 'treasury-cash-main' || t.name.includes('النقدي') || t.accountCode === '1101') {
           summary.zeroedTreasuries++;
           return {
             ...t,
@@ -5446,33 +6160,144 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             currencyBalances: { ILS: 0, USD: 0, JOD: 0 },
             transactions: []
           };
-        });
-      }
-      return result;
+        }
+        return t;
+      });
     });
 
     // 15. Accounts (شجرة الحسابات)
-    if (options.zeroAccountBalances) {
-      setAccounts(prev => {
-        summary.zeroedAccounts = prev.length;
-        return prev.map(a => ({ ...a, balance: 0 }));
-      });
+    setAccounts(prev => {
+      summary.zeroedAccounts = prev.length;
+      return prev.map(a => ({ ...a, balance: 0 }));
+    });
+
+    // Execute direct Firestore deletion batch for all removed document IDs & persist cutoffs
+    try {
+      // 1. Persist in accounting_deleted_docs so any future hydration filters them out permanently
+      const existingDel = JSON.parse(localStorage.getItem('accounting_deleted_docs') || '[]');
+      for (const [colName, ids] of Object.entries(deletedDocMap)) {
+        for (const id of ids) {
+          existingDel.push({ col: colName, id: String(id), time: Date.now() });
+        }
+      }
+      localStorage.setItem('accounting_deleted_docs', JSON.stringify(existingDel.slice(-10000)));
+
+      // 2. Persist zeroed cutoffs
+      const currentCutoffs = JSON.parse(localStorage.getItem(`${STORAGE_KEY}_zeroed_cutoffs`) || '{}');
+      for (const colName of Object.keys(deletedDocMap)) {
+        currentCutoffs[colName] = {
+          scope: options.scope,
+          cutoffDate: options.cutoffDate || new Date().toISOString().split('T')[0],
+          timestamp: Date.now()
+        };
+      }
+      localStorage.setItem(`${STORAGE_KEY}_zeroed_cutoffs`, JSON.stringify(currentCutoffs));
+    } catch (e) {
+      console.warn('Error saving zeroing deleted docs to storage:', e);
     }
+
+    (async () => {
+      try {
+        let deleteCount = 0;
+        let deleteBatch = writeBatch(db);
+        const batchPromises: Promise<void>[] = [];
+
+        for (const [colName, ids] of Object.entries(deletedDocMap)) {
+          for (const id of ids) {
+            deleteBatch.delete(doc(db, colName, String(id)));
+            deleteCount++;
+            if (deleteCount % 400 === 0) {
+              batchPromises.push(deleteBatch.commit());
+              deleteBatch = writeBatch(db);
+            }
+          }
+        }
+        if (deleteCount % 400 !== 0 && deleteCount > 0) {
+          batchPromises.push(deleteBatch.commit());
+        }
+        await Promise.all(batchPromises);
+
+        // Also query Firestore directly for any collections zeroed with scope === 'all' to delete orphaned documents
+        if (options.scope === 'all') {
+          for (const colName of ['invoices', 'printOrders', 'salesReturns', 'stockMovements']) {
+            try {
+              const snap = await getDocs(collection(db, colName));
+              if (!snap.empty) {
+                let purgeBatch = writeBatch(db);
+                let purgeCount = 0;
+                for (const d of snap.docs) {
+                  purgeBatch.delete(d.ref);
+                  purgeCount++;
+                  if (purgeCount % 400 === 0) {
+                    await purgeBatch.commit();
+                    purgeBatch = writeBatch(db);
+                  }
+                }
+                if (purgeCount % 400 !== 0 && purgeCount > 0) {
+                  await purgeBatch.commit();
+                }
+              }
+            } catch (err) {
+              console.warn(`Purge leftover in ${colName} notice:`, err);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Direct Firestore delete batch note:', err);
+      }
+    })();
+
+    // Invalidate local synced hashes so Firebase accepts the zeroed state on all collections
+    try {
+      localStorage.removeItem('accounting_synced_hashes');
+      localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'true');
+      localStorage.setItem(`${STORAGE_KEY}_last_zeroed_at`, new Date().toISOString());
+    } catch (e) {
+      console.error('Error updating zeroing storage flags:', e);
+    }
+
+    // Trigger immediate cloud synchronization to Firestore
+    setTimeout(() => {
+      if (syncToFirebaseRef.current) {
+        syncToFirebaseRef.current(true).catch(err => {
+          console.error('Firebase sync after zeroing failed:', err);
+        });
+      }
+    }, 100);
 
     return {
       success: true,
-      message: 'تم تصفير قاعدة البيانات بنجاح وفق المعايير والخيارات المحددة.',
+      message: 'تم تصفير الأصناف وفواتير المبيعات وكافة العمليات المرتبطة بها بنجاح وتحديث قاعدة البيانات سحابياً ومحلياً.',
       summary,
       executedAt: new Date().toISOString(),
       executedBy: currentUser?.fullName || currentUser?.username || 'مدير النظام'
     };
   };
 
-  const importDataJSON = (jsonString: string): boolean => {
+  const importDataJSON = (jsonString: string, includeSettings = true, keepTelegramSettings = true, keepFacilitySettings = true): boolean => {
     try {
       const data = JSON.parse(jsonString);
       if (data.accounts && data.inventory && data.settings) {
-        if (data.settings) setSettings(data.settings);
+        if (!keepFacilitySettings && data.settings) {
+            const settingsToImport = { ...data.settings };
+            if (keepTelegramSettings) {
+              settingsToImport.telegramConfig = settings.telegramConfig;
+            }
+            setSettings(settingsToImport);
+        } else if (keepFacilitySettings && data.settings && keepTelegramSettings === false) {
+           // Edge case: User wants to keep facility settings, but REPLACE telegram settings
+           const settingsToImport = { ...settings };
+           settingsToImport.telegramConfig = data.settings.telegramConfig;
+           setSettings(settingsToImport);
+        }
+
+        if (includeSettings) {
+          if (data.roles) setRoles(data.roles);
+          if (data.users) setUsers(data.users);
+          if (data.companies) setCompanies(data.companies);
+          if (data.branches) setBranches(data.branches);
+          if (data.warehouses) setWarehouses(data.warehouses);
+        }
         if (data.accounts) setAccounts(data.accounts);
         if (data.journalEntries) setJournalEntries(data.journalEntries);
         if (data.inventory) setInventory(data.inventory);
@@ -5489,6 +6314,57 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (data.purchaseReturns) setPurchaseReturns(data.purchaseReturns);
         if (data.salesReturns) setSalesReturns(data.salesReturns);
         if (data.vouchers) setVouchers(data.vouchers);
+        if (data.debtClearings) setDebtClearings(data.debtClearings);
+        if (data.expenses) setExpenses(data.expenses);
+        // settings already restored if requested
+        if (data.warehouseOperations) setWarehouseOperations(data.warehouseOperations);
+        if (data.treasuries) setTreasuries(data.treasuries);
+
+        // Force synchronous save to localStorage before reload so that changes are preserved
+        if (!keepFacilitySettings && data.settings) {
+            const settingsToImport = { ...data.settings };
+            if (keepTelegramSettings) {
+              settingsToImport.telegramConfig = settings.telegramConfig;
+            }
+            localStorage.setItem(`${STORAGE_KEY}_settings`, JSON.stringify(settingsToImport));
+        } else if (keepFacilitySettings && data.settings && keepTelegramSettings === false) {
+           const settingsToImport = { ...settings };
+           settingsToImport.telegramConfig = data.settings.telegramConfig;
+           localStorage.setItem(`${STORAGE_KEY}_settings`, JSON.stringify(settingsToImport));
+        }
+
+        if (includeSettings) {
+          if (data.roles) localStorage.setItem(`${STORAGE_KEY}_roles`, JSON.stringify(data.roles));
+          if (data.users) localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(data.users));
+          if (data.companies) localStorage.setItem(`${STORAGE_KEY}_companies`, JSON.stringify(data.companies));
+          if (data.branches) localStorage.setItem(`${STORAGE_KEY}_branches`, JSON.stringify(data.branches));
+          if (data.warehouses) localStorage.setItem(`${STORAGE_KEY}_warehouses`, JSON.stringify(data.warehouses));
+        }
+
+        if (data.accounts) localStorage.setItem(`${STORAGE_KEY}_accounts`, JSON.stringify(data.accounts));
+        if (data.journalEntries) localStorage.setItem(`${STORAGE_KEY}_journals`, JSON.stringify(data.journalEntries));
+        if (data.inventory) localStorage.setItem(`${STORAGE_KEY}_inventory`, JSON.stringify(data.inventory));
+        if (data.stockMovements) localStorage.setItem(`${STORAGE_KEY}_stockMovements`, JSON.stringify(data.stockMovements));
+        if (data.parties) localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(data.parties));
+        if (data.employees) localStorage.setItem(`${STORAGE_KEY}_employees`, JSON.stringify(data.employees));
+        if (data.employeeAdvances) localStorage.setItem(`${STORAGE_KEY}_advances`, JSON.stringify(data.employeeAdvances));
+        if (data.employeeDeductions) localStorage.setItem(`${STORAGE_KEY}_deductions`, JSON.stringify(data.employeeDeductions));
+        if (data.employeeIncentives) localStorage.setItem(`${STORAGE_KEY}_incentives`, JSON.stringify(data.employeeIncentives));
+        if (data.payrollSheets) localStorage.setItem(`${STORAGE_KEY}_payrollSheets`, JSON.stringify(data.payrollSheets));
+        if (data.printOrders) localStorage.setItem(`${STORAGE_KEY}_printOrders`, JSON.stringify(data.printOrders));
+        if (data.invoices) localStorage.setItem(`${STORAGE_KEY}_invoices`, JSON.stringify(data.invoices));
+        if (data.purchases) localStorage.setItem(`${STORAGE_KEY}_purchases`, JSON.stringify(data.purchases));
+        if (data.purchaseReturns) localStorage.setItem(`${STORAGE_KEY}_purchaseReturns`, JSON.stringify(data.purchaseReturns));
+        if (data.salesReturns) localStorage.setItem(`${STORAGE_KEY}_salesReturns`, JSON.stringify(data.salesReturns));
+        if (data.vouchers) localStorage.setItem(`${STORAGE_KEY}_vouchers`, JSON.stringify(data.vouchers));
+        if (data.debtClearings) localStorage.setItem(`${STORAGE_KEY}_debt_clearings`, JSON.stringify(data.debtClearings));
+        if (data.expenses) localStorage.setItem(`${STORAGE_KEY}_expenses`, JSON.stringify(data.expenses));
+        if (data.warehouseOperations) localStorage.setItem(`${STORAGE_KEY}_warehouse_operations`, JSON.stringify(data.warehouseOperations));
+        if (data.treasuries) localStorage.setItem(`${STORAGE_KEY}_treasuries`, JSON.stringify(data.treasuries));
+
+        // Mark as unsynced so that the app pushes to Firebase upon reload
+        localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'true');
+
         return true;
       }
       return false;
@@ -5516,7 +6392,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setPurchaseReturns(initialPurchaseReturns);
       setSalesReturns(initialSalesReturns);
       setVouchers(initialVouchers);
+      setDebtClearings([]);
+      setExpenses(initialExpenses);
+      // Reset users and roles
+      setRoles(DEFAULT_ROLES);
+      setUsers(DEFAULT_SYSTEM_USERS);
+      const hashes = localStorage.getItem('accounting_synced_hashes');
       localStorage.clear();
+      if (hashes) {
+        localStorage.setItem('accounting_synced_hashes', hashes);
+      }
+      setTimeout(() => {
+         if (syncToFirebaseRef.current) {
+            syncToFirebaseRef.current(true);
+         }
+      }, 500);
     }
   };
 
@@ -5534,7 +6424,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const inventoryTotalValue = inventory.reduce((acc, it) => acc + (it.stockQuantity * it.purchasePrice), 0);
   const lowStockCount = inventory.filter(it => it.category !== 'copy_scan' && it.stockQuantity <= it.minAlertQuantity).length;
-  const pendingPrintJobs = printOrders.filter(j => j.status !== 'delivered' && j.status !== 'cancelled').length;
+  const pendingPrintJobs = invoices.filter(inv => {
+    if (inv.workflowStatus === 'delivered' || inv.status === 'delivered' || inv.workflowStatus === 'completed') return false;
+    const s = inv.workflowStatus;
+    return s === 'design' || s === 'designing' || s === 'pending_approval' || s === 'print_external' || s === 'in_progress_external' || s === 'print_internal' || s === 'in_progress_internal' || s === 'in_progress' || s === 'printing' || s === 'finishing' || s === 'ready';
+  }).length;
 
   const activeEmployees = employees.filter(e => e.status === 'active');
   const estimatedMonthlyPayroll = activeEmployees.reduce((sum, e) => {
@@ -5604,6 +6498,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         addJournalEntry,
         inventory,
         addInventoryItem,
+        deleteInventoryItem,
         updateInventoryItem,
         adjustStock,
         stockMovements,
@@ -5620,6 +6515,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         addDebtClearing,
         updateDebtClearing,
         deleteDebtClearing,
+        expenses,
+        addExpense,
+        deleteExpense,
         employees,
         addEmployee,
         updateEmployee,
@@ -5639,6 +6537,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         updateDraftPayrollSheet,
         deleteDraftPayrollSheet,
         approveAndDisbursePayrollSheet,
+        unapprovePayrollSheet,
         selectedPayrollSheetForPrint,
         setSelectedPayrollSheetForPrint,
         printOrders,
@@ -5697,6 +6596,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         forceSyncNow,
         activeTab,
         setActiveTab,
+        goBack,
+        canGoBack,
         editingPosInvoiceId,
         setEditingPosInvoiceId,
         selectedInvoiceForPrint,

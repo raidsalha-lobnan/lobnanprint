@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import {
   generateAccountStatement,
@@ -28,6 +29,7 @@ import {
   ChevronDown,
   Info
 } from 'lucide-react';
+import { OfficialStamp } from './common/OfficialStamp';
 import { Party, Employee } from '../types';
 import { PrintHeader } from './common/PrintHeader';
 
@@ -205,11 +207,11 @@ export const AccountStatementModal: React.FC = () => {
   const isCustomer = currentParty ? (currentParty.type === 'customer' || currentParty.type === 'both') : false;
   const isSupplier = currentParty ? (currentParty.type === 'supplier' || currentParty.type === 'both') : false;
 
-  const partyTafqeet = partyStatement ? tafqeet(partyStatement.closingBalance, 'شيكل فلسطيني', 'أغورة') : '';
-  const empTafqeet = employeeStatement ? tafqeet(employeeStatement.closingBalance, 'شيكل فلسطيني', 'أغورة') : '';
+  const partyTafqeet = partyStatement ? tafqeet(partyStatement.closingBalance, 'شيكل', 'أغورة') : '';
+  const empTafqeet = employeeStatement ? tafqeet(employeeStatement.closingBalance, 'شيكل', 'أغورة') : '';
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto print:p-0 print:bg-white print:static print:overflow-visible print-area">
+    <div className="fixed inset-0 z-[100] bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto print:p-0 print:bg-white print:static print:overflow-visible print-area">
       <div className="bg-white rounded-xl max-w-5xl w-full shadow-2xl border border-slate-200 overflow-hidden my-auto flex flex-col max-h-[94vh] print:max-h-none print:max-w-none print:border-none print:shadow-none print:w-full print:rounded-none">
         
         {/* Top Control Bar (Hidden in Print) */}
@@ -353,18 +355,12 @@ export const AccountStatementModal: React.FC = () => {
                 <span>الفترة المحددة:</span>
               </span>
 
-              <input
-                type="date"
-                value={fromDate}
-                onChange={e => setFromDate(e.target.value)}
+              <DateInput value={fromDate} onChange={e => setFromDate(e.target.value)}
                 className="bg-white border border-slate-300 rounded-md px-2 py-1 text-xs text-slate-700 font-mono focus:ring-1 focus:ring-blue-500"
                 title="من تاريخ"
               />
               <span className="text-slate-400 font-bold">إلى</span>
-              <input
-                type="date"
-                value={toDate}
-                onChange={e => setToDate(e.target.value)}
+              <DateInput value={toDate} onChange={e => setToDate(e.target.value)}
                 className="bg-white border border-slate-300 rounded-md px-2 py-1 text-xs text-slate-700 font-mono focus:ring-1 focus:ring-blue-500"
                 title="إلى تاريخ"
               />
@@ -440,112 +436,33 @@ export const AccountStatementModal: React.FC = () => {
         </div>
 
         {/* Scrollable Printable Statement Body */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 print:p-0 print:overflow-visible">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 print:p-0 print:overflow-visible report-a4-container">
           
           {/* Printable Official Facility Header (A4) - يعتمد الترويسة حسب إعدادات البرنامج واللوقو والبيانات الرسمية */}
-          <PrintHeader
-            title={
-              statementMode === 'employee' ? 'كشف حساب موظف' :
-              isCustomer ? 'كشف حساب عميل' : 'كشف حساب مورد'
-            }
-            docDate={new Date().toISOString().split('T')[0]}
-            extraMeta={
-              <div>
-                <span className="text-slate-400 font-sans">العملة: </span>
-                <span>{settings.baseCurrencyCode || 'ILS'} ({settings.currency || '₪'})</span>
-              </div>
-            }
-          />
-
-          <div className="border-b-2 border-slate-800 pb-3">
-            {/* Profile Grid: Party or Employee */}
+          <PrintHeader />
+          <div className="border-b-2 border-slate-900 pb-2">
+            {/* سطر الكشف المبسط حسب الطلب */}
             {statementMode === 'party' && currentParty && (
-              <div className="mt-2 bg-slate-50 rounded-lg p-3 border border-slate-300 space-y-2 text-xs">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-200 pb-2">
-                  <div>
-                    <span className="text-[11px] text-slate-500 font-bold block">
-                      {isCustomer ? 'اسم العميل / الاسم الفرعي (إن وجد):' : 'اسم المورد / الحساب:'}
-                    </span>
-                    <span className="text-base font-black text-slate-900">
-                      {clientDisplayName}
-                    </span>
-                    {currentParty.isSubCustomer && (
-                      <span className="mr-2 inline-block bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold px-1.5 py-0.5 rounded">
-                        حساب زبون فرعي / دين مؤقت
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-left sm:text-right">
-                    <span className="text-[11px] text-slate-500 font-bold block">الفترة من ---- إلى -----------:</span>
-                    <span className="font-mono text-slate-900 font-black text-sm">
-                      من <span className="text-blue-700">{fromDate || 'بداية التعامل'}</span> إلى <span className="text-blue-700">{toDate || 'تاريخ اليوم'}</span>
-                    </span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-[11px] pt-0.5">
-                  <div>
-                    <span className="text-slate-500 font-semibold block text-[10px]">الصفة والنوع:</span>
-                    <span className="font-bold text-slate-800">
-                      {currentParty.type === 'customer' ? 'عميل معتمد' :
-                       currentParty.type === 'supplier' ? 'مورد خامات ومستلزمات' : 'عميل ومورد'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 font-semibold block text-[10px]">الهاتف / الجوال:</span>
-                    <span className="font-mono text-slate-800 font-bold">{currentParty.phone || 'غير مسجل'}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 font-semibold block text-[10px]">المدينة / العنوان:</span>
-                    <span className="text-slate-800">{currentParty.city || currentParty.address || 'فلسطين'}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 font-semibold block text-[10px]">الرقم الضريبي / السجل:</span>
-                    <span className="font-mono text-slate-800">{currentParty.taxNumber || currentParty.commercialRegister || 'غير مسجل'}</span>
-                  </div>
+              <div className="text-center font-bold text-base mb-1.5 mt-2 text-slate-900 leading-relaxed">
+                {isCustomer ? 'كشف حساب عميل تفصيلي:' : 'كشف حساب مورد تفصيلي:'}{' '}
+                <span className={isCustomer ? "text-blue-900" : "text-rose-900"}>
+                  {clientDisplayName}
+                </span>
+                <div className="text-xs text-slate-600 mt-0.5 font-semibold">
+                  من تاريخ: <span className="font-mono">{fromDate || 'بداية التعامل'}</span>{' '}
+                  إلى تاريخ: <span className="font-mono">{toDate || 'تاريخ اليوم'}</span>
                 </div>
               </div>
             )}
-
             {statementMode === 'employee' && currentEmployee && (
-              <div className="mt-2 bg-slate-50 rounded-lg p-3 border border-slate-300 space-y-2 text-xs">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-200 pb-2">
-                  <div>
-                    <span className="text-[11px] text-slate-500 font-bold block">اسم الموظف / الحساب:</span>
-                    <span className="text-base font-black text-slate-900">{currentEmployee.name}</span>
-                    <span className="text-[10px] text-slate-500 font-mono mr-2">كود: {currentEmployee.code || 'EMP-01'}</span>
-                  </div>
-                  <div className="text-left sm:text-right">
-                    <span className="text-[11px] text-slate-500 font-bold block">الفترة المالية المحددة:</span>
-                    <span className="font-mono text-slate-900 font-black text-sm">
-                      من <span className="text-blue-700">{fromDate || 'بداية العمل'}</span> إلى <span className="text-blue-700">{toDate || 'تاريخ اليوم'}</span>
-                    </span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-[11px] pt-0.5">
-                  <div>
-                    <span className="text-slate-500 font-semibold block text-[10px]">المسمى الوظيفي / القسم:</span>
-                    <span className="font-semibold text-slate-800">{currentEmployee.jobTitle} {currentEmployee.department ? `(${currentEmployee.department})` : ''}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 font-semibold block text-[10px]">الراتب والبدلات:</span>
-                    <span className="font-mono text-slate-800 font-bold">
-                      {currentEmployee.salaryAmount} {settings.currency} {currentEmployee.salaryType === 'daily' ? 'يومي' : currentEmployee.salaryType === 'weekly' ? 'أسبوعي' : 'شهري'}
-                      {Number(currentEmployee.allowances || 0) > 0 && ` + ${currentEmployee.allowances} بدلات`}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 font-semibold block text-[10px]">الهاتف / الحساب:</span>
-                    <span className="font-mono text-slate-800">{currentEmployee.phone || currentEmployee.iban || currentEmployee.bankName || 'غير مسجل'}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 font-semibold block text-[10px]">الحالة الوظيفية:</span>
-                    <span className={`inline-block px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                      currentEmployee.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                    }`}>
-                      {currentEmployee.status === 'active' ? 'على رأس العمل' : currentEmployee.status === 'on_leave' ? 'في إجازة' : 'متوقف / غير نشط'}
-                    </span>
-                  </div>
+              <div className="text-center font-bold text-base mb-1.5 mt-2 text-slate-900 leading-relaxed">
+                كشف حساب موظف:{' '}
+                <span className="text-emerald-900">
+                  {currentEmployee.name}
+                </span>
+                <div className="text-xs text-slate-600 mt-0.5 font-semibold">
+                  من تاريخ: <span className="font-mono">{fromDate || 'بداية العمل'}</span>{' '}
+                  إلى تاريخ: <span className="font-mono">{toDate || 'تاريخ اليوم'}</span>
                 </div>
               </div>
             )}
@@ -555,55 +472,55 @@ export const AccountStatementModal: React.FC = () => {
           {/* SECTION 1: PARTY FINANCIAL STATEMENT (CUSTOMER / SUPPLIER)*/}
           {/* ========================================================= */}
           {statementMode === 'party' && partyStatement && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               
               {/* Summary Cards: Breakdown of Withdrawals, Receipts, Disbursements */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                <div className="bg-slate-50 p-2 rounded-lg border border-slate-200">
                   <span className="text-[10px] text-slate-500 font-semibold block">رصيد أول المدة / سابق:</span>
-                  <span className="text-sm font-black font-mono text-slate-800">
+                  <span className="text-xs font-black font-mono text-slate-800">
                     {formatNumber(partyStatement.openingBalance, 2)} {settings.currency}
                   </span>
-                  <span className="text-[9px] text-slate-400 block mt-0.5">قبل تاريخ {fromDate || 'البدء'}</span>
+                  <span className="text-[9.5px] text-slate-400 block mt-0.5">قبل تاريخ {fromDate || 'البدء'}</span>
                 </div>
 
-                <div className="bg-emerald-50/70 p-2.5 rounded-lg border border-emerald-200/80">
+                <div className="bg-emerald-50/70 p-2 rounded-lg border border-emerald-200/80">
                   <span className="text-[10px] text-emerald-700 font-semibold block">
                     {isCustomer ? 'إجمالي السحوبات (مدين):' : 'إجمالي التوريدات (دائن):'}
                   </span>
-                  <span className="text-sm font-black font-mono text-emerald-800">
+                  <span className="text-xs font-black font-mono text-emerald-800">
                     {formatNumber(isCustomer ? partyStatement.totalWithdrawals : partyStatement.totalCredit, 2)} {settings.currency}
                   </span>
-                  <span className="text-[9px] text-emerald-600 block mt-0.5">
+                  <span className="text-[9.5px] text-emerald-600 block mt-0.5">
                     {isCustomer ? 'فواتير المبيعات وأوامر التشغيل' : 'فواتير توريد الخامات'}
                   </span>
                 </div>
 
-                <div className="bg-blue-50/70 p-2.5 rounded-lg border border-blue-200/80">
+                <div className="bg-blue-50/70 p-2 rounded-lg border border-blue-200/80">
                   <span className="text-[10px] text-blue-700 font-semibold block">
                     {isCustomer ? 'إجمالي المقبوضات (دائن):' : 'إجمالي الصرف والمسدد (مدين):'}
                   </span>
-                  <span className="text-sm font-black font-mono text-blue-800">
+                  <span className="text-xs font-black font-mono text-blue-800">
                     {formatNumber(isCustomer ? partyStatement.totalReceipts : partyStatement.totalDebit, 2)} {settings.currency}
                   </span>
-                  <span className="text-[9px] text-blue-600 block mt-0.5">
+                  <span className="text-[9.5px] text-blue-600 block mt-0.5">
                     {isCustomer ? 'سندات القبض والدفعات والمقاصة' : 'سندات الصرف والسداد والمقاصة'}
                   </span>
                 </div>
 
-                <div className="bg-amber-50/70 p-2.5 rounded-lg border border-amber-200/80">
+                <div className="bg-amber-50/70 p-2 rounded-lg border border-amber-200/80">
                   <span className="text-[10px] text-amber-700 font-semibold block">
                     {isCustomer ? 'إجمالي الصرف / مرتجعات:' : 'المردودات والمقبوضات:'}
                   </span>
-                  <span className="text-sm font-black font-mono text-amber-800">
+                  <span className="text-xs font-black font-mono text-amber-800">
                     {formatNumber(isCustomer ? partyStatement.totalDisbursements : 0, 2)} {settings.currency}
                   </span>
-                  <span className="text-[9px] text-amber-600 block mt-0.5">
+                  <span className="text-[9.5px] text-amber-600 block mt-0.5">
                     {isCustomer ? 'سندات صرف أو استردادات' : 'مرتجع مشتريات'}
                   </span>
                 </div>
 
-                <div className={`p-2.5 rounded-lg border ${
+                <div className={`p-2 rounded-lg border ${
                   partyStatement.closingBalance > 0
                     ? 'bg-amber-50 border-amber-300 text-amber-900'
                     : partyStatement.closingBalance < 0
@@ -612,186 +529,151 @@ export const AccountStatementModal: React.FC = () => {
                 }`}>
                   <span className="text-[10px] font-semibold block">
                     {isCustomer
-                      ? (partyStatement.closingBalance > 0 ? 'صافي المتبقي على العميل:' : partyStatement.closingBalance < 0 ? 'رصيد دائن للعميل:' : 'الحساب متطابق (صفر):')
-                      : (partyStatement.closingBalance > 0 ? 'صافي مستحق للمورد:' : 'الحساب خالص:')}
+                      ? (partyStatement.closingBalance > 0 ? 'صافي المتبقي على العميل (مدين):' : partyStatement.closingBalance < 0 ? 'رصيد دائن للعميل (دائن):' : 'الحساب متطابق (صفر):')
+                      : (partyStatement.closingBalance > 0 ? 'صافي مستحق للمورد (دائن):' : partyStatement.closingBalance < 0 ? 'مبلغ مدين للمورد (مدين):' : 'الحساب خالص:')}
                   </span>
-                  <span className="text-sm font-black font-mono">
+                  <span className="text-xs font-black font-mono">
                     {formatNumber(Math.abs(partyStatement.closingBalance), 2)} {settings.currency}
                   </span>
-                  <span className="text-[9px] font-bold block mt-0.5">
-                    {partyStatement.closingBalance > 0 ? (isCustomer ? 'مطلوب سداده' : 'التزام علينا') : partyStatement.closingBalance < 0 ? 'مبلغ فائض' : 'تمت التسوية'}
+                  <span className="text-[9.5px] font-bold block mt-0.5">
+                    {partyStatement.closingBalance > 0 ? (isCustomer ? 'مطلوب سداده (مدين)' : 'التزام علينا (دائن)') : partyStatement.closingBalance < 0 ? (isCustomer ? 'مبلغ فائض (دائن)' : 'رصيد لصالحنا (مدين)') : 'تمت التسوية'}
                   </span>
                 </div>
               </div>
 
-              {/* Detailed Transactions Table */}
-              <div className="border-2 border-slate-700 rounded-lg overflow-x-auto shadow-2xs">
-                <table className="w-full text-right text-xs border-collapse">
+              {/* Detailed Transactions Table - Optimized Font 12 & A4 Width */}
+              <div className="border border-slate-400 rounded-md overflow-x-auto shadow-2xs min-h-[440px] print:min-h-[720px] flex flex-col justify-between bg-white">
+                <table className="w-full text-right report-table border-collapse h-full">
                   <thead>
-                    <tr className="bg-slate-800 text-white font-bold border-b border-slate-900 print:bg-slate-200 print:text-slate-900 text-[11px]">
-                      <th className="py-2 px-2 w-9 text-center border-l border-slate-700 print:border-slate-300">م</th>
-                      <th className="py-2 px-2 w-24 text-center border-l border-slate-700 print:border-slate-300">التاريخ</th>
-                      <th className="py-2 px-2 w-24 text-center border-l border-slate-700 print:border-slate-300">رقم الحركة</th>
-                      <th className="py-2 px-2.5 w-28 text-center border-l border-slate-700 print:border-slate-300">نوع العملية</th>
-                      <th className="py-2 px-3 border-l border-slate-700 print:border-slate-300 min-w-72">البيان والشرح والتفاصيل الكاملة</th>
-                      <th className="py-2 px-2.5 w-28 text-left bg-rose-950/40 print:bg-rose-50 border-l border-slate-700 print:border-slate-300">
+                    <tr className="bg-slate-800 text-white font-bold border-b border-slate-900 print:bg-slate-200 print:text-slate-900">
+                      <th className="w-7 min-w-7 text-center border-l border-slate-600 print:border-slate-400">م</th>
+                      <th className="w-20 min-w-20 text-center border-l border-slate-600 print:border-slate-400">التاريخ</th>
+                      <th className="border-l border-slate-600 print:border-slate-400">البيان والشرح والتفاصيل الكاملة</th>
+                      <th className="w-24 min-w-24 text-left bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">
                         {isCustomer ? 'مدين (عليه)' : 'مدين (المسدد)'}
                       </th>
-                      <th className="py-2 px-2.5 w-28 text-left bg-emerald-950/40 print:bg-emerald-50 border-l border-slate-700 print:border-slate-300">
+                      <th className="w-24 min-w-24 text-left bg-emerald-950/40 print:bg-emerald-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">
                         {isCustomer ? 'دائن (له)' : 'دائن (التوريدات)'}
                       </th>
-                      <th className="py-2 px-2.5 w-28 text-left bg-slate-700 print:bg-slate-300">
+                      <th className="w-28 min-w-28 text-left bg-slate-700 print:bg-slate-300 whitespace-nowrap">
                         الرصيد التراكمي
                       </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 font-mono">
                     {/* Opening Balance Row */}
-                    <tr className="bg-slate-100/80 font-bold border-b border-slate-300 text-slate-800">
-                      <td className="py-2 px-2 text-center text-slate-400 font-sans">-</td>
-                      <td className="py-2 px-2 text-center text-slate-600 font-mono">{fromDate || 'الرصيد السابق'}</td>
-                      <td className="py-2 px-2 text-center text-slate-500 font-mono">OPENING</td>
-                      <td className="py-2 px-2 text-center font-sans">
-                        <span className="bg-slate-200 text-slate-800 px-2 py-0.5 rounded text-[10px] font-bold">
-                          رصيد سابق
-                        </span>
+                    <tr className="bg-slate-100/90 font-bold border-b border-slate-300 text-slate-800">
+                      <td className="text-center text-slate-400 font-sans border-l border-slate-300">-</td>
+                      <td className="text-center text-slate-600 font-mono border-l border-slate-300">{fromDate || 'الرصيد السابق'}</td>
+                      <td className="font-sans text-slate-700 font-semibold border-l border-slate-300">
+                        رصيد سابق - رصيد الحساب الافتتاحي السابق (ما قبل تاريخ {fromDate || 'بدء الحركة'})
                       </td>
-                      <td className="py-2 px-3 font-sans text-slate-700 font-semibold">
-                        رصيد الحساب الافتتاحي السابق (ما قبل تاريخ {fromDate || 'بدء الحركة'})
-                      </td>
-                      <td className="py-2 px-2.5 text-left font-bold text-slate-700">
+                      <td className="text-left font-bold text-slate-700 font-mono whitespace-nowrap border-l border-slate-300">
                         {partyStatement.openingBalance > 0 ? partyStatement.openingBalance.toFixed(2) : '-'}
                       </td>
-                      <td className="py-2 px-2.5 text-left font-bold text-slate-700">
+                      <td className="text-left font-bold text-slate-700 font-mono whitespace-nowrap border-l border-slate-300">
                         {partyStatement.openingBalance < 0 ? Math.abs(partyStatement.openingBalance).toFixed(2) : '-'}
                       </td>
-                      <td className="py-2 px-2.5 text-left font-black text-slate-950 bg-slate-100">
+                      <td className="text-left font-black text-slate-950 bg-slate-100 font-mono whitespace-nowrap">
                         {partyStatement.openingBalance.toFixed(2)}
                       </td>
                     </tr>
 
                     {displayedPartyRows.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="py-8 text-center text-slate-400 font-sans">
+                        <td colSpan={6} className="py-8 text-center text-slate-400 font-sans font-bold">
                           لا توجد حركات مالية مسجلة خلال هذه الفترة المحددة.
                         </td>
                       </tr>
                     ) : (
-                      displayedPartyRows.map((row, idx) => (
-                        <tr
-                          key={`${row.id || 'party-row'}-${idx}`}
-                          className={`hover:bg-slate-50/90 transition-colors ${
-                            idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
-                          }`}
-                        >
-                          <td className="py-2.5 px-2 text-center text-slate-400 font-sans text-[11px] align-top">{idx + 1}</td>
-                          <td className="py-2.5 px-2 text-slate-700 whitespace-nowrap text-center align-top">{row.date}</td>
-                          <td className="py-2.5 px-2 font-bold text-slate-900 whitespace-nowrap text-center align-top font-mono">{row.referenceNumber}</td>
-                          <td className="py-2.5 px-2 font-sans text-center align-top">
-                            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                              row.type === 'invoice' ? 'bg-indigo-100 text-indigo-900 border border-indigo-200' :
-                              row.type === 'receipt' ? 'bg-blue-100 text-blue-900 border border-blue-200' :
-                              row.type === 'payment' ? 'bg-amber-100 text-amber-900 border border-amber-200' :
-                              row.type === 'purchase' ? 'bg-purple-100 text-purple-900 border border-purple-200' :
-                              row.type === 'clearance' ? 'bg-teal-100 text-teal-900 border border-teal-200' :
-                              'bg-slate-100 text-slate-800'
-                            }`}>
-                              {row.typeLabel}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-3 font-sans text-slate-800 align-top space-y-1.5">
-                            <div className="font-semibold text-slate-900">{row.description}</div>
+                      displayedPartyRows.map((row, idx) => {
+                        const typeLabel = row.typeLabel || (
+                          row.type === 'invoice' ? 'فاتورة مبيعات' :
+                          row.type === 'receipt' ? 'سند قبض' :
+                          row.type === 'payment' ? 'سند صرف' :
+                          row.type === 'purchase' ? 'فاتورة مشتريات' :
+                          row.type === 'sales_return' ? 'مردودات مبيعات' :
+                          row.type === 'purchase_return' ? 'مردودات مشتريات' :
+                          row.type === 'clearance' ? 'مقاصة ديون' :
+                          row.type === 'opening' ? 'رصيد سابق' : 'حركة مالية'
+                        );
 
-                            {/* تفاصيل الفاتورة الدقيقة: الصنف :: البيان ::: الطول :: العرض:: العدد :: الكمية :: السعر */}
-                            {showItemDetails && row.items && row.items.length > 0 && (
-                              <div className="mt-1.5 border border-slate-300 rounded overflow-hidden shadow-2xs bg-white">
-                                <table className="w-full text-right text-[11px] border-collapse">
-                                  <thead>
-                                    <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
-                                      <th className="py-1 px-1.5 border-l border-slate-200">الصنف</th>
-                                      <th className="py-1 px-1.5 border-l border-slate-200">البيان</th>
-                                      <th className="py-1 px-1.5 text-center w-14 border-l border-slate-200">الطول</th>
-                                      <th className="py-1 px-1.5 text-center w-14 border-l border-slate-200">العرض</th>
-                                      <th className="py-1 px-1.5 text-center w-12 border-l border-slate-200">العدد</th>
-                                      <th className="py-1 px-1.5 text-center w-16 border-l border-slate-200">الكمية</th>
-                                      <th className="py-1 px-1.5 text-center w-16 border-l border-slate-200">السعر</th>
-                                      <th className="py-1 px-1.5 text-left w-20">الإجمالي</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-200">
-                                    {row.items.map((it, iIdx) => (
-                                      <tr key={iIdx} className="hover:bg-slate-50">
-                                        <td className="py-1 px-1.5 font-bold text-slate-900 border-l border-slate-200">{it.itemName}</td>
-                                        <td className="py-1 px-1.5 text-slate-700 border-l border-slate-200">{it.description || it.notes || '-'}</td>
-                                        <td className="py-1 px-1.5 text-center font-mono text-slate-800 border-l border-slate-200">{it.length != null && it.length !== 0 ? it.length : '-'}</td>
-                                        <td className="py-1 px-1.5 text-center font-mono text-slate-800 border-l border-slate-200">{it.width != null && it.width !== 0 ? it.width : '-'}</td>
-                                        <td className="py-1 px-1.5 text-center font-mono text-slate-800 border-l border-slate-200">{it.count || 1}</td>
-                                        <td className="py-1 px-1.5 text-center font-mono font-bold text-slate-900 border-l border-slate-200">
-                                          {it.quantity} {it.unit || ''}
-                                        </td>
-                                        <td className="py-1 px-1.5 text-center font-mono text-slate-800 border-l border-slate-200">{it.unitPrice.toFixed(2)}</td>
-                                        <td className="py-1 px-1.5 text-left font-mono font-bold text-slate-900">{it.total.toFixed(2)}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                  <tfoot className="bg-slate-50 border-t border-slate-300 font-bold text-[11px]">
-                                    <tr>
-                                      <td colSpan={5} className="py-1.5 px-2 text-slate-700">
-                                        {row.subCustomerName && (
-                                          <span className="ml-2 text-blue-700 font-bold bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
-                                            الزبون الفرعي: {row.subCustomerName}
-                                          </span>
-                                        )}
-                                        {row.invoiceNotes && (
-                                          <span className="text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 font-medium">
-                                            📝 ملاحظة الفاتورة: {row.invoiceNotes}
-                                          </span>
-                                        )}
-                                      </td>
-                                      <td colSpan={3} className="py-1.5 px-2 text-left font-mono">
-                                        <div className="flex items-center justify-end gap-2.5 text-slate-800">
-                                          {row.subtotal !== undefined && row.subtotal !== row.totalAmount && (
-                                            <span>المجموع: <span className="font-bold">{row.subtotal.toFixed(2)}</span></span>
-                                          )}
-                                          {row.discountTotal !== undefined && row.discountTotal > 0 && (
-                                            <span className="text-rose-600 font-bold">الخصم: -{row.discountTotal.toFixed(2)}</span>
-                                          )}
-                                          {row.taxAmount !== undefined && row.taxAmount > 0 && (
-                                            <span className="text-slate-600">الضريبة: +{row.taxAmount.toFixed(2)}</span>
-                                          )}
-                                          <span className="text-slate-950 font-black bg-slate-200 px-2 py-0.5 rounded">
-                                            إجمالي الفاتورة: {(row.totalAmount || row.debit).toFixed(2)} {settings.currency}
-                                          </span>
-                                        </div>
-                                      </td>
-                                    </tr>
-                                  </tfoot>
-                                </table>
+                        let note = '';
+                        if (row.type === 'invoice') {
+                          if (row.invoiceNotes) {
+                            note = row.invoiceNotes;
+                            if (row.subCustomerName) note += ` [الزبون الفرعي: ${row.subCustomerName}]`;
+                          } else if (row.subCustomerName) {
+                            note = `[الزبون الفرعي: ${row.subCustomerName}]`;
+                          } else if (row.description) {
+                            note = row.description.replace(/^فاتورة مبيعات\s*(\([^)]*\))?\s*(-\s*)?/, '');
+                          }
+                        } else if (row.type === 'purchase') {
+                          if (row.invoiceNotes) {
+                            note = row.invoiceNotes;
+                          } else if (row.description) {
+                            note = row.description.replace(/^فاتورة مشتريات\s*(\([^)]*\))?\s*(-\s*)?/, '');
+                          }
+                        } else if (row.type === 'receipt') {
+                          const rawNote = row.voucherNotes || row.description || '';
+                          note = rawNote.replace(/^سند قبض\s*(نقدية|شيك|تحويل)?\s*(-\s*)?/, '');
+                        } else if (row.type === 'payment') {
+                          const rawNote = row.voucherNotes || row.description || '';
+                          note = rawNote.replace(/^سند صرف\s*(نقدية|شيك|تحويل)?\s*(-\s*)?/, '');
+                        } else if (row.type === 'sales_return' || row.type === 'purchase_return') {
+                          const rawNote = row.invoiceNotes || row.voucherNotes || row.description || '';
+                          note = rawNote.replace(/^مردودات (مبيعات|مشتريات)\s*(-\s*)?/, '');
+                        } else {
+                          note = row.description || '';
+                        }
+                        const trimmedNote = note.trim();
+
+                        const hasReceiptExtraDetails = row.type === 'receipt' && Boolean(
+                          row.chequeNumber || row.chequeBank || row.chequeDueDate || row.transferReference ||
+                          (row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً')
+                        );
+
+                        const hasPaymentExtraDetails = row.type === 'payment' && Boolean(
+                          row.chequeNumber || row.chequeBank || row.chequeDueDate || row.transferReference ||
+                          (row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً')
+                        );
+
+                        return (
+                        <React.Fragment key={`${row.id || 'party-row'}-${idx}`}>
+                          <tr
+                            className={`hover:bg-slate-50/90 transition-colors ${
+                              idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
+                            }`}
+                          >
+                            <td className="text-center text-slate-400 font-sans align-middle border-l border-slate-300">{idx + 1}</td>
+                            <td className="text-slate-700 whitespace-nowrap text-center align-middle font-mono border-l border-slate-300">{row.date}</td>
+                            <td className="font-sans text-slate-800 align-middle space-y-1 border-l border-slate-300">
+                              {/* سطر مدمج وموحد: نوع العملية - رقم الحركة - الملاحظات */}
+                              <div className="font-bold text-slate-900 leading-tight flex flex-wrap items-center gap-1">
+                                <span className="text-slate-900 font-bold">{typeLabel}</span>
+                                {row.referenceNumber && row.referenceNumber !== 'OPENING' && (
+                                  <>
+                                    <span className="text-slate-400 font-normal">-</span>
+                                    <span className="font-mono font-bold text-slate-800">{row.referenceNumber}</span>
+                                  </>
+                                )}
+                                {trimmedNote && (
+                                  <>
+                                    <span className="text-slate-400 font-normal">-</span>
+                                    <span className="text-slate-700 font-medium">{trimmedNote}</span>
+                                  </>
+                                )}
                               </div>
-                            )}
 
-                            {/* تفاصيل سند القبض الكاملة والملاحظات */}
-                            {row.type === 'receipt' && (
-                              <div className="mt-1 p-2 bg-blue-50/80 border border-blue-200 rounded text-xs space-y-1">
-                                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-200 pb-1">
-                                  <div className="flex items-center gap-2 font-bold text-blue-900">
-                                    <span className="bg-blue-600 text-white px-2 py-0.5 rounded text-[10px]">سند قبض نقدية</span>
-                                    <span>رقم السند: <strong className="font-mono">{row.referenceNumber}</strong></span>
-                                    {row.subCustomerName && (
-                                      <span className="text-blue-800 bg-white px-2 py-0.5 rounded border border-blue-300 text-[11px]">
-                                        الزبون الفرعي: {row.subCustomerName}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="font-mono font-bold text-blue-950 text-xs">
-                                    المبلغ المقبوض: <span className="text-emerald-700 font-black text-sm">{row.credit.toFixed(2)}</span> {settings.currency}
-                                  </div>
-                                </div>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] pt-0.5">
-                                  <div>
-                                    <span className="text-slate-500">طريقة القبض: </span>
-                                    <span className="font-bold text-slate-800">{row.paymentMethodLabel || 'نقداً'}</span>
-                                  </div>
+                              {/* تفاصيل إضافية لسند القبض بدون تكرار السند أو رقمه أو المبلغ */}
+                              {hasReceiptExtraDetails && (
+                                <div className="mt-1 p-1 bg-blue-50/60 border border-blue-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                  {row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً' && (
+                                    <div>
+                                      <span className="text-slate-500">طريقة القبض: </span>
+                                      <span className="font-bold text-slate-800">{row.paymentMethodLabel}</span>
+                                    </div>
+                                  )}
                                   {row.chequeNumber && (
                                     <div>
                                       <span className="text-slate-500">رقم الشيك: </span>
@@ -806,7 +688,7 @@ export const AccountStatementModal: React.FC = () => {
                                   )}
                                   {row.chequeDueDate && (
                                     <div>
-                                      <span className="text-slate-500">تاريخ استحقاق الشيك: </span>
+                                      <span className="text-slate-500">تاريخ الاستحقاق: </span>
                                       <span className="font-bold text-slate-900 font-mono">{row.chequeDueDate}</span>
                                     </div>
                                   )}
@@ -816,71 +698,36 @@ export const AccountStatementModal: React.FC = () => {
                                       <span className="font-bold text-slate-900 font-mono">{row.transferReference}</span>
                                     </div>
                                   )}
-                                  {row.accountCode && (
+                                </div>
+                              )}
+
+                              {/* تفاصيل المقاصة */}
+                              {row.type === 'clearance' && (row.counterPartyName || row.reason) && (
+                                <div className="mt-1 p-1 bg-teal-50/60 border border-teal-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-2">
+                                  {row.counterPartyName && (
                                     <div>
-                                      <span className="text-slate-500">الصندوق / الحساب المستلم: </span>
-                                      <span className="font-mono text-slate-800">{row.accountCode}</span>
+                                      <span className="text-teal-900 font-bold">الطرف المقابل: </span>
+                                      <span className="font-medium text-slate-800">{row.counterPartyName}</span>
+                                    </div>
+                                  )}
+                                  {row.reason && (
+                                    <div>
+                                      <span className="text-teal-900 font-bold">السبب: </span>
+                                      <span className="text-slate-700">{row.reason}</span>
                                     </div>
                                   )}
                                 </div>
-                                {(row.voucherNotes || row.description) && (
-                                  <div className="mt-1 pt-1 border-t border-blue-200/80 flex items-start gap-1.5 text-[11px]">
-                                    <span className="font-bold text-blue-900 shrink-0">📝 البيان والملاحظات:</span>
-                                    <span className="text-slate-900 font-medium">{row.voucherNotes || row.description}</span>
-                                  </div>
-                                )}
-                              </div>
-                            )}
+                              )}
 
-                            {/* تفاصيل المقاصة الكاملة */}
-                            {row.type === 'clearance' && (
-                              <div className="mt-1 p-2 bg-teal-50/80 border border-teal-200 rounded text-xs space-y-1">
-                                <div className="flex items-center justify-between border-b border-teal-200 pb-1">
-                                  <div className="flex items-center gap-2 font-bold text-teal-900">
-                                    <span className="bg-teal-700 text-white px-2 py-0.5 rounded text-[10px]">مقاصة ذمم متبادلة</span>
-                                    <span>رقم المقاصة: <strong className="font-mono">{row.referenceNumber}</strong></span>
-                                    {row.counterPartyName && (
-                                      <span className="text-teal-950 bg-white px-2 py-0.5 rounded border border-teal-300 text-[11px]">
-                                        الطرف المقابل: {row.counterPartyName}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="font-mono font-bold text-teal-950 text-xs">
-                                    مبلغ المقاصة: <span className="font-black text-teal-800 text-sm">{(row.credit || row.debit).toFixed(2)}</span> {settings.currency}
-                                  </div>
-                                </div>
-                                {row.reason && (
-                                  <div className="text-[11px] text-slate-800">
-                                    <span className="font-bold text-teal-900">سبب المقاصة والتسوية: </span>
-                                    <span>{row.reason}</span>
-                                  </div>
-                                )}
-                                {(row.voucherNotes || row.description) && (
-                                  <div className="text-[11px] text-slate-800 flex items-start gap-1.5">
-                                    <span className="font-bold text-teal-900 shrink-0">📝 تفاصيل وملاحظات المقاصة: </span>
-                                    <span className="text-slate-900 font-medium">{row.voucherNotes || row.description}</span>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-
-                            {/* تفاصيل سند الصرف الكاملة والملاحظات */}
-                            {row.type === 'payment' && (
-                              <div className="mt-1 p-2 bg-amber-50/80 border border-amber-200 rounded text-xs space-y-1">
-                                <div className="flex items-center justify-between border-b border-amber-200 pb-1">
-                                  <div className="flex items-center gap-2 font-bold text-amber-900">
-                                    <span className="bg-amber-700 text-white px-2 py-0.5 rounded text-[10px]">سند صرف نقدية / استرداد</span>
-                                    <span>رقم السند: <strong className="font-mono">{row.referenceNumber}</strong></span>
-                                  </div>
-                                  <div className="font-mono font-bold text-amber-950 text-xs">
-                                    المبلغ المصروف: <span className="font-black text-amber-900 text-sm">{row.debit.toFixed(2)}</span> {settings.currency}
-                                  </div>
-                                </div>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] pt-0.5">
-                                  <div>
-                                    <span className="text-slate-500">طريقة الصرف: </span>
-                                    <span className="font-bold text-slate-800">{row.paymentMethodLabel || 'نقداً'}</span>
-                                  </div>
+                              {/* تفاصيل إضافية لسند الصرف بدون تكرار السند أو رقمه أو المبلغ */}
+                              {hasPaymentExtraDetails && (
+                                <div className="mt-1 p-1 bg-amber-50/60 border border-amber-200/80 rounded text-[11px] text-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                  {row.paymentMethodLabel && row.paymentMethodLabel !== 'نقداً' && (
+                                    <div>
+                                      <span className="text-slate-500">طريقة الصرف: </span>
+                                      <span className="font-bold text-slate-800">{row.paymentMethodLabel}</span>
+                                    </div>
+                                  )}
                                   {row.chequeNumber && (
                                     <div>
                                       <span className="text-slate-500">رقم الشيك: </span>
@@ -905,53 +752,105 @@ export const AccountStatementModal: React.FC = () => {
                                       <span className="font-bold text-slate-900 font-mono">{row.transferReference}</span>
                                     </div>
                                   )}
-                                  {row.accountCode && (
-                                    <div>
-                                      <span className="text-slate-500">الصندوق / الحساب المنصرف منه: </span>
-                                      <span className="font-mono text-slate-800">{row.accountCode}</span>
-                                    </div>
-                                  )}
                                 </div>
-                                {(row.voucherNotes || row.description) && (
-                                  <div className="mt-1 pt-1 border-t border-amber-200/80 flex items-start gap-1.5 text-[11px]">
-                                    <span className="font-bold text-amber-900 shrink-0">📝 البيان والملاحظات:</span>
-                                    <span className="text-slate-900 font-medium">{row.voucherNotes || row.description}</span>
-                                  </div>
-                                )}
-                              </div>
-                            )}
+                              )}
+                            </td>
+                            <td className="text-left font-bold text-rose-700 font-mono align-middle whitespace-nowrap border-l border-slate-300">
+                              {row.debit > 0 ? row.debit.toFixed(2) : '-'}
+                            </td>
+                            <td className="text-left font-bold text-emerald-700 font-mono align-middle whitespace-nowrap border-l border-slate-300">
+                              {row.credit > 0 ? row.credit.toFixed(2) : '-'}
+                            </td>
+                            <td className="text-left font-black text-slate-900 bg-slate-50/70 font-mono align-middle whitespace-nowrap">
+                              {row.runningBalance.toFixed(2)}
+                            </td>
+                          </tr>
 
-                            {/* أي عملية أخرى تظهر كامل تفاصيلها */}
-                            {row.type !== 'invoice' && row.type !== 'receipt' && row.type !== 'payment' && row.type !== 'clearance' && row.voucherNotes && (
-                              <div className="mt-1 text-[11px] text-slate-700 bg-slate-100 p-1.5 rounded border border-slate-200">
-                                <span className="font-bold text-slate-800">ملاحظات وتفاصيل العملية: </span>
-                                <span>{row.voucherNotes}</span>
-                              </div>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-2.5 text-left font-bold text-rose-700 align-top">
-                            {row.debit > 0 ? row.debit.toFixed(2) : '-'}
-                          </td>
-                          <td className="py-2.5 px-2.5 text-left font-bold text-emerald-700 align-top">
-                            {row.credit > 0 ? row.credit.toFixed(2) : '-'}
-                          </td>
-                          <td className="py-2.5 px-2.5 text-left font-black text-slate-900 bg-slate-50/70 align-top">
-                            {row.runningBalance.toFixed(2)}
-                          </td>
-                        </tr>
-                      ))
-                    )}
+                          {/* تفاصيل الفاتورة: جدول الأصناف ممتد بالكامل تحت أعمدة مدين ودائن ورصيد */}
+                          {showItemDetails && row.items && row.items.length > 0 && (
+                            <tr className="bg-slate-50/60 print:bg-transparent">
+                              <td colSpan={6} className="p-1 px-1.5 sm:px-2 border-b border-slate-300">
+                                <div className="border border-slate-300 rounded overflow-hidden shadow-2xs bg-white w-full">
+                                  <table className="w-full text-right report-sub-table border-collapse">
+                                    <thead>
+                                      <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
+                                        <th className="border-l border-slate-200">الصنف</th>
+                                        <th className="text-center w-12 min-w-12 border-l border-slate-200">الطول</th>
+                                        <th className="text-center w-12 min-w-12 border-l border-slate-200">العرض</th>
+                                        <th className="text-center w-10 min-w-10 border-l border-slate-200">العدد</th>
+                                        <th className="text-center w-12 min-w-12 border-l border-slate-200">الكمية</th>
+                                        <th className="text-left w-16 min-w-16 border-l border-slate-200">السعر</th>
+                                        <th className="text-left w-18 min-w-18">الإجمالي</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-200">
+                                      {row.items.map((it, iIdx) => (
+                                        <tr key={iIdx} className="hover:bg-slate-50">
+                                          <td className="font-bold text-slate-900 border-l border-slate-200">
+                                            <div>{it.itemName}</div>
+                                          </td>
+                                          <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.length != null && it.length !== 0 ? it.length : '-'}</td>
+                                          <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.width != null && it.width !== 0 ? it.width : '-'}</td>
+                                          <td className="text-center font-mono font-bold text-slate-800 border-l border-slate-200">{it.count || 1}</td>
+                                          <td className="text-center font-mono font-bold text-slate-900 border-l border-slate-200">
+                                            {it.quantity}
+                                          </td>
+                                          <td className="text-left font-mono text-slate-800 border-l border-slate-200">{it.unitPrice.toFixed(2)}</td>
+                                          <td className="text-left font-mono font-bold text-slate-900">{it.total.toFixed(2)}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                    <tfoot className="bg-slate-50 border-t border-slate-300 font-bold">
+                                      <tr>
+                                        <td colSpan={4} className="py-1 px-1.5 text-slate-700">
+                                          {row.subCustomerName && (
+                                            <span className="ml-2 text-blue-700 font-bold bg-blue-50 px-1 py-0.5 rounded border border-blue-200">
+                                              الزبون الفرعي: {row.subCustomerName}
+                                            </span>
+                                          )}
+                                          {row.invoiceNotes && (
+                                            <span className="text-amber-900 bg-amber-50 px-1 py-0.5 rounded border border-amber-200 font-medium">
+                                              📝 ملاحظة الفاتورة: {row.invoiceNotes}
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td colSpan={3} className="py-1 px-1.5 text-left font-mono">
+                                          <div className="flex items-center justify-end gap-1.5 text-slate-800">
+                                            {row.subtotal !== undefined && row.subtotal !== row.totalAmount && (
+                                              <span>المجموع: <span className="font-bold">{row.subtotal.toFixed(2)}</span></span>
+                                            )}
+                                            {row.discountTotal !== undefined && row.discountTotal > 0 && (
+                                              <span className="text-rose-600 font-bold">الخصم: -{row.discountTotal.toFixed(2)}</span>
+                                            )}
+                                            {row.taxAmount !== undefined && row.taxAmount > 0 && (
+                                              <span className="text-slate-600">الضريبة: +{row.taxAmount.toFixed(2)}</span>
+                                            )}
+                                            <span className="text-slate-950 font-black bg-slate-200 px-1.5 py-0.5 rounded">
+                                              صافي الفاتورة: {(row.totalAmount || row.debit).toFixed(2)} {settings.currency}
+                                            </span>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    </tfoot>
+                                  </table>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    }))}
                   </tbody>
                   <tfoot>
-                    <tr className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-900">
-                      <td colSpan={5} className="py-2.5 px-3 text-left font-sans">الإجمالي العام للحركات بالفترة:</td>
-                      <td className="py-2.5 px-2.5 text-left font-mono text-rose-800 font-black">
+                    <tr className="bg-slate-100 font-bold border-t border-slate-300 text-slate-900">
+                      <td colSpan={3} className="text-left font-sans">الإجمالي العام للحركات بالفترة:</td>
+                      <td className="text-left font-mono text-rose-800 font-black whitespace-nowrap">
                         {partyStatement.totalDebit.toFixed(2)}
                       </td>
-                      <td className="py-2.5 px-2.5 text-left font-mono text-emerald-800 font-black">
+                      <td className="text-left font-mono text-emerald-800 font-black whitespace-nowrap">
                         {partyStatement.totalCredit.toFixed(2)}
                       </td>
-                      <td className="py-2.5 px-2.5 text-left font-mono text-slate-900 font-black bg-slate-200/80">
+                      <td className="text-left font-mono text-slate-900 font-black bg-slate-200/80 whitespace-nowrap">
                         {partyStatement.closingBalance.toFixed(2)} {settings.currency}
                       </td>
                     </tr>
@@ -959,379 +858,102 @@ export const AccountStatementModal: React.FC = () => {
                 </table>
               </div>
 
-              {/* ملخص نهاية الكشف بعد الجدول حسب طلب المستخدم الدقيق: */}
-              {/* إجمالي مدين الفترة :وهو الرصيد للفترة فقط المحددة -- إجمالي دائن الفترة -- الإجمالي لتاريخ الكشف */}
-              <div className="mt-4 p-3.5 bg-slate-50 border-2 border-slate-800 rounded-xl space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {/* 1. إجمالي مدين الفترة */}
-                  <div className="p-3 bg-white border-2 border-rose-300 rounded-lg shadow-xs flex flex-col justify-between">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-rose-900">إجمالي مدين الفترة:</span>
-                      <span className="text-[10px] bg-rose-100 text-rose-800 px-2 py-0.5 rounded font-bold">
-                        {isCustomer ? 'سحوبات وفواتير' : 'سداد ومسدد'}
-                      </span>
-                    </div>
-                    <div className="my-2 text-center">
-                      <div className="text-2xl font-black font-mono text-rose-700">
-                        {partyStatement.totalDebit.toFixed(2)} <span className="text-sm font-sans">{settings.currency}</span>
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-slate-500 text-center border-t border-slate-100 pt-1 font-medium">
-                      (وهو الرصيد للفترة فقط المحددة)
+              {/* ملخص نهاية الكشف بعد الجدول بتنسيق رسمي ومضغوط سطر واحد للبنرات الأربعة */}
+              <div className="mt-2 p-1.5 bg-slate-50 border border-slate-400 rounded-md space-y-1.5 shadow-2xs print:border-slate-300">
+                <div className="grid grid-cols-4 gap-1.5 text-[10px]">
+                  <div className="bg-white border border-slate-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
+                    <span className="font-bold text-slate-700 text-[10px] whitespace-nowrap">رصيد سابق:</span>
+                    <div className="font-black font-mono text-slate-900 text-[11px] flex items-center gap-1 whitespace-nowrap">
+                      <span>{partyStatement.openingBalance.toFixed(2)}</span>
+                      <span className="text-[9px] font-sans font-bold text-slate-500">{settings.currency}</span>
                     </div>
                   </div>
-
-                  {/* 2. إجمالي دائن الفترة */}
-                  <div className="p-3 bg-white border-2 border-emerald-300 rounded-lg shadow-xs flex flex-col justify-between">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-emerald-900">إجمالي دائن الفترة:</span>
-                      <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold">
-                        {isCustomer ? 'مقبوضات وتحصيلات' : 'توريدات خامات'}
-                      </span>
-                    </div>
-                    <div className="my-2 text-center">
-                      <div className="text-2xl font-black font-mono text-emerald-700">
-                        {partyStatement.totalCredit.toFixed(2)} <span className="text-sm font-sans">{settings.currency}</span>
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-slate-500 text-center border-t border-slate-100 pt-1 font-medium">
-                      (إجمالي المقبوضات والحركات الدائنة للفترة)
+                  <div className={`bg-white border ${isCustomer ? 'border-rose-300' : 'border-emerald-300'} rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs`}>
+                    <span className={`font-bold text-[10px] whitespace-nowrap ${isCustomer ? 'text-rose-900' : 'text-emerald-900'}`}>إجمالي مدين:</span>
+                    <div className={`font-black font-mono text-[11px] ${isCustomer ? 'text-rose-700' : 'text-emerald-700'} flex items-center gap-1 whitespace-nowrap`}>
+                      <span>{partyStatement.totalDebit.toFixed(2)}</span>
+                      <span className="text-[9px] font-sans font-bold opacity-75">{settings.currency}</span>
                     </div>
                   </div>
-
-                  {/* 3. الإجمالي لتاريخ الكشف */}
-                  <div className={`p-3 bg-white border-2 rounded-lg shadow-xs flex flex-col justify-between ${
-                    partyStatement.closingBalance > 0
-                      ? 'border-amber-400 bg-amber-50/20'
-                      : partyStatement.closingBalance < 0
-                      ? 'border-blue-400 bg-blue-50/20'
-                      : 'border-slate-300'
-                  }`}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-900">الإجمالي لتاريخ الكشف:</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
-                        partyStatement.closingBalance > 0
-                          ? 'bg-amber-100 text-amber-900'
-                          : partyStatement.closingBalance < 0
-                          ? 'bg-blue-100 text-blue-900'
-                          : 'bg-slate-100 text-slate-800'
-                      }`}>
-                        {partyStatement.closingBalance > 0
-                          ? (isCustomer ? 'رصيد مدين مستحق على العميل' : 'رصيد دائن مستحق للمورد')
-                          : partyStatement.closingBalance < 0
-                          ? (isCustomer ? 'رصيد دائن فائض للعميل' : 'رصيد مدين لنا على المورد')
-                          : 'الحساب خالص'}
+                  <div className={`bg-white border ${isCustomer ? 'border-emerald-300' : 'border-rose-300'} rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs`}>
+                    <span className={`font-bold text-[10px] whitespace-nowrap ${isCustomer ? 'text-emerald-900' : 'text-rose-900'}`}>إجمالي دائن:</span>
+                    <div className={`font-black font-mono text-[11px] ${isCustomer ? 'text-emerald-700' : 'text-rose-700'} flex items-center gap-1 whitespace-nowrap`}>
+                      <span>{partyStatement.totalCredit.toFixed(2)}</span>
+                      <span className="text-[9px] font-sans font-bold opacity-75">{settings.currency}</span>
+                    </div>
+                  </div>
+                  <div className={`bg-white border rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs ${partyStatement.closingBalance > 0 ? (isCustomer ? 'border-amber-400 bg-amber-50/20' : 'border-rose-400 bg-rose-50/20') : partyStatement.closingBalance < 0 ? (isCustomer ? 'border-blue-400 bg-blue-50/20' : 'border-emerald-400 bg-emerald-50/20') : 'border-slate-300'}`}>
+                    <span className="font-bold text-slate-900 text-[10px] whitespace-nowrap">
+                      الإجمالي:
+                    </span>
+                    <div className={`font-black font-mono text-[11px] flex items-center gap-1 whitespace-nowrap ${partyStatement.closingBalance > 0 ? (isCustomer ? 'text-amber-700' : 'text-rose-700') : partyStatement.closingBalance < 0 ? (isCustomer ? 'text-blue-700' : 'text-emerald-700') : 'text-slate-800'}`}>
+                      <span>{Math.abs(partyStatement.closingBalance).toFixed(2)}</span>
+                      <span className="text-[9px] font-sans font-bold opacity-75">{settings.currency}</span>
+                      <span className="text-[9.5px] font-sans font-bold">
+                        ({isCustomer ? (partyStatement.closingBalance > 0 ? 'مدين' : partyStatement.closingBalance < 0 ? 'دائن' : 'متزن') : (partyStatement.closingBalance > 0 ? 'دائن' : partyStatement.closingBalance < 0 ? 'مدين' : 'متزن')})
                       </span>
-                    </div>
-                    <div className="my-2 text-center">
-                      <div className="text-2xl font-black font-mono text-slate-950">
-                        {partyStatement.closingBalance.toFixed(2)} <span className="text-sm font-sans">{settings.currency}</span>
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-slate-600 text-center border-t border-slate-100 pt-1 font-semibold">
-                      {partyStatement.openingBalance !== 0 ? (
-                        <span>(رصيد سابق: {partyStatement.openingBalance.toFixed(2)} + صافي حركة الفترة: {(partyStatement.totalDebit - partyStatement.totalCredit).toFixed(2)})</span>
-                      ) : (
-                        <span>(صافي حركة الفترة كاملة)</span>
-                      )}
                     </div>
                   </div>
                 </div>
 
                 {/* Tafqeet & Closing Balance */}
-                <div className="bg-white p-3 rounded-lg border border-slate-200">
-                  <div className="flex items-center justify-between text-xs mb-1">
+                <div className="bg-white p-1.5 rounded border border-slate-200">
+                  <div className="flex items-center justify-between text-[10.5px] mb-0.5">
                     <span className="font-bold text-slate-700">المبلغ كتابة وتفقيطاً:</span>
-                    <span className="font-bold text-slate-900 font-mono text-sm">
-                      الرصيد الإجمالي لتاريخ الكشف: {partyStatement.closingBalance.toFixed(2)} {settings.currency}
+                    <span className="font-bold text-slate-900 font-mono text-[11px]">
+                      الرصيد الإجمالي ({isCustomer ? (partyStatement.closingBalance > 0 ? 'مدين' : partyStatement.closingBalance < 0 ? 'دائن' : 'متزن') : (partyStatement.closingBalance > 0 ? 'دائن' : partyStatement.closingBalance < 0 ? 'مدين' : 'متزن')}): {Math.abs(partyStatement.closingBalance).toFixed(2)} {settings.currency}
                     </span>
                   </div>
-                  <div className="text-xs font-semibold text-slate-800 bg-slate-50 p-2 rounded border border-slate-200 font-arabic">
+                  <div className="text-[10.5px] font-semibold text-slate-800 bg-slate-50 p-1 rounded border border-slate-200 font-arabic">
                     {partyTafqeet}
                   </div>
                 </div>
               </div>
 
               {/* Official Signatures Section */}
-              <div className="pt-6 border-t border-slate-300 grid grid-cols-3 gap-6 text-center text-xs">
-                <div className="space-y-6">
-                  <span className="font-bold text-slate-700 block">إعداد وتدقيق المحاسب</span>
-                  <div className="border-b border-dashed border-slate-400 w-36 mx-auto"></div>
-                  <span className="text-[11px] text-slate-400 block font-mono">التوقيع والتاريخ</span>
+              <div className="pt-4 border-t border-slate-300 grid grid-cols-3 gap-4 text-center text-[10px] mt-4">
+                {/* Right Column */}
+                <div className="space-y-4 flex flex-col items-center justify-end">
+                  <span className="font-bold text-slate-700 block mb-auto">إعداد وتدقيق المحاسب</span>
+                  <div className="border-b border-dashed border-slate-400 w-28 mx-auto mt-6"></div>
+                  <span className="text-[10px] text-slate-400 block font-mono">التوقيع والتاريخ</span>
                 </div>
 
-                <div className="space-y-6">
-                  <span className="font-bold text-slate-700 block">المدير المالي والاعتماد</span>
-                  <div className="border-b border-dashed border-slate-400 w-36 mx-auto"></div>
-                  <span className="text-[11px] text-slate-400 block font-mono">الختم والتوقيع</span>
+                {/* Center Column */}
+                <div className="space-y-4 flex flex-col items-center justify-end">
+                  <span className="font-bold text-slate-700 block mb-auto">توقيع وإقرار الموظف بالمطابقة</span>
+                  <div className="border-b border-dashed border-slate-400 w-28 mx-auto mt-6"></div>
+                  <span className="text-[10px] text-slate-400 block font-mono">الموظف</span>
                 </div>
 
-                <div className="space-y-6">
-                  <span className="font-bold text-slate-700 block">
-                    {isCustomer ? 'توقيع وختم العميل بالمطابقة' : 'مصادقة وختم المورد'}
-                  </span>
-                  <div className="border-b border-dashed border-slate-400 w-36 mx-auto"></div>
-                  <span className="text-[11px] text-slate-400 block font-mono">المستلم المعتمد</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ========================================================= */}
-          {/* SECTION 2: EMPLOYEE FINANCIAL STATEMENT (كشف مالي للموظف) */}
-          {/* ========================================================= */}
-          {statementMode === 'employee' && employeeStatement && (
-            <div className="space-y-4">
-              
-              {/* Summary Badges: Entitlements, Advances, Deductions, Disbursements, Balance */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-                <div className="bg-emerald-50/70 p-2.5 rounded-lg border border-emerald-200/80">
-                  <span className="text-[10px] text-emerald-700 font-semibold block">إجمالي المستحقات (رواتب/حوافز):</span>
-                  <span className="text-sm font-black font-mono text-emerald-800">
-                    {formatNumber(employeeStatement.totalEntitlements, 2)} {settings.currency}
-                  </span>
-                  <span className="text-[9px] text-emerald-600 block mt-0.5">رواتب شهرية ومكافآت</span>
-                </div>
-
-                <div className="bg-amber-50/70 p-2.5 rounded-lg border border-amber-200/80">
-                  <span className="text-[10px] text-amber-700 font-semibold block">إجمالي السلف المسحوبة:</span>
-                  <span className="text-sm font-black font-mono text-amber-800">
-                    {formatNumber(employeeStatement.totalAdvances, 2)} {settings.currency}
-                  </span>
-                  <span className="text-[9px] text-amber-600 block mt-0.5">مسحوبات نقدية من الخزينة</span>
-                </div>
-
-                <div className="bg-rose-50/70 p-2.5 rounded-lg border border-rose-200/80">
-                  <span className="text-[10px] text-rose-700 font-semibold block">إجمالي الخصومات والجزاءات:</span>
-                  <span className="text-sm font-black font-mono text-rose-800">
-                    {formatNumber(employeeStatement.totalDeductions, 2)} {settings.currency}
-                  </span>
-                  <span className="text-[9px] text-rose-600 block mt-0.5">خصومات غياب وتأخير</span>
-                </div>
-
-                <div className="bg-blue-50/70 p-2.5 rounded-lg border border-blue-200/80">
-                  <span className="text-[10px] text-blue-700 font-semibold block">إجمالي الصرف الفعلي (المدفوع):</span>
-                  <span className="text-sm font-black font-mono text-blue-800">
-                    {formatNumber(employeeStatement.totalDisbursements, 2)} {settings.currency}
-                  </span>
-                  <span className="text-[9px] text-blue-600 block mt-0.5">سندات صرف الرواتب والسلف</span>
-                </div>
-
-                <div className={`p-2.5 rounded-lg border ${
-                  employeeStatement.closingBalance > 0
-                    ? 'bg-blue-50 border-blue-300 text-blue-900'
-                    : employeeStatement.closingBalance < 0
-                    ? 'bg-rose-50 border-rose-300 text-rose-900'
-                    : 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                }`}>
-                  <span className="text-[10px] font-semibold block">
-                    {employeeStatement.closingBalance > 0 ? 'صافي مستحق للموظف:' : employeeStatement.closingBalance < 0 ? 'متبقي سلف على الموظف:' : 'الحساب متسوي:'}
-                  </span>
-                  <span className="text-sm font-black font-mono">
-                    {formatNumber(Math.abs(employeeStatement.closingBalance), 2)} {settings.currency}
-                  </span>
-                  <span className="text-[9px] font-bold block mt-0.5">
-                    {employeeStatement.closingBalance > 0 ? 'مستحق الصرف' : employeeStatement.closingBalance < 0 ? 'مطلوب تسويته' : 'رصيد صفر'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Detailed Employee Transactions Table */}
-              <div className="border border-slate-200 rounded-lg overflow-x-auto">
-                <table className="w-full text-right text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-slate-100 text-slate-700 border-b border-slate-300 font-bold">
-                      <th className="py-2.5 px-3 w-10 text-center">م</th>
-                      <th className="py-2.5 px-3 w-24">التاريخ</th>
-                      <th className="py-2.5 px-3 w-24">رقم السند/المرجع</th>
-                      <th className="py-2.5 px-3 w-36">نوع الحركة</th>
-                      <th className="py-2.5 px-3 min-w-56">البيان والشرح</th>
-                      <th className="py-2.5 px-3 w-28 text-left bg-emerald-50/50">استحقاق للموظف (دائن)</th>
-                      <th className="py-2.5 px-3 w-28 text-left bg-amber-50/50">سلف وخصم (مدين)</th>
-                      <th className="py-2.5 px-3 w-28 text-left bg-blue-50/50">الصرف الفعلي</th>
-                      <th className="py-2.5 px-3 w-28 text-left bg-slate-100/70">الرصيد التراكمي</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 font-mono">
-                    {employeeStatement.rows.length === 0 ? (
-                      <tr>
-                        <td colSpan={9} className="py-8 text-center text-slate-400 font-sans">
-                          لا توجد حركات مالية مسجلة للموظف خلال هذه الفترة المحددة.
-                        </td>
-                      </tr>
+                {/* Left Column - Official Stamp & Signature */}
+                <div className="space-y-2 flex flex-col items-center justify-end">
+                  <span className="font-bold text-slate-700 block mb-auto">اعتماد الإدارة / التوقيع</span>
+                  
+                  <div className="min-h-[4.2cm] flex items-center justify-center relative">
+                    {settings.stampUrl ? (
+                      <div className="relative flex items-center justify-center">
+                        <OfficialStamp size="3.5cm" />
+                        {settings.signatureUrl && (
+                          <img
+                            src={settings.signatureUrl}
+                            alt="Signature"
+                            className="absolute bottom-1 max-h-12 max-w-[120px] object-contain mix-blend-multiply opacity-85 pointer-events-none"
+                          />
+                        )}
+                      </div>
+                    ) : settings.signatureUrl ? (
+                      <img
+                        src={settings.signatureUrl}
+                        alt="Signature"
+                        className="max-h-16 max-w-[140px] object-contain mix-blend-multiply opacity-90"
+                      />
                     ) : (
-                      employeeStatement.rows.map((row, idx) => (
-                        <tr
-                          key={`${row.id || 'emp-row'}-${idx}`}
-                          className={`hover:bg-slate-50/80 transition-colors ${
-                            idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'
-                          }`}
-                        >
-                          <td className="py-2 px-3 text-center text-slate-400 font-sans text-[11px]">{idx + 1}</td>
-                          <td className="py-2 px-3 text-slate-700 whitespace-nowrap">{row.date}</td>
-                          <td className="py-2 px-3 font-bold text-slate-800 whitespace-nowrap">{row.referenceNumber}</td>
-                          <td className="py-2 px-3 font-sans">
-                            <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
-                              row.type === 'salary_accrual' ? 'bg-emerald-100 text-emerald-800' :
-                              row.type === 'advance' ? 'bg-amber-100 text-amber-800' :
-                              row.type === 'deduction' ? 'bg-rose-100 text-rose-800' :
-                              row.type === 'incentive' ? 'bg-purple-100 text-purple-800' :
-                              'bg-blue-100 text-blue-800'
-                            }`}>
-                              {row.typeLabel}
-                            </span>
-                          </td>
-                          <td className="py-2 px-3 font-sans text-slate-800">
-                            <div>{row.description}</div>
-                            {row.period && (
-                              <div className="text-[10px] text-slate-500 font-mono mt-0.5">عن شهر/فترة: {row.period}</div>
-                            )}
-                            {row.notes && (
-                              <div className="text-[10px] text-slate-500 mt-0.5">ملاحظة: {row.notes}</div>
-                            )}
-                          </td>
-                          <td className="py-2 px-3 text-left font-bold text-emerald-700">
-                            {row.entitlement > 0 ? row.entitlement.toFixed(2) : '-'}
-                          </td>
-                          <td className="py-2 px-3 text-left font-bold text-amber-700">
-                            {(row.advance + row.deduction) > 0 ? (row.advance + row.deduction).toFixed(2) : '-'}
-                          </td>
-                          <td className="py-2 px-3 text-left font-bold text-blue-700">
-                            {row.disbursement > 0 ? row.disbursement.toFixed(2) : '-'}
-                          </td>
-                          <td className="py-2 px-3 text-left font-black text-slate-900 bg-slate-50/70">
-                            {row.runningBalance.toFixed(2)}
-                          </td>
-                        </tr>
-                      ))
+                      <div className="border-b border-dashed border-slate-400 w-36 mx-auto mt-10"></div>
                     )}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-900">
-                      <td colSpan={5} className="py-2.5 px-3 text-left font-sans">إجمالي حركات الفترة:</td>
-                      <td className="py-2.5 px-3 text-left font-mono text-emerald-800 font-black">
-                        {employeeStatement.totalEntitlements.toFixed(2)}
-                      </td>
-                      <td className="py-2.5 px-3 text-left font-mono text-amber-800 font-black">
-                        {(employeeStatement.totalAdvances + employeeStatement.totalDeductions).toFixed(2)}
-                      </td>
-                      <td className="py-2.5 px-3 text-left font-mono text-blue-800 font-black">
-                        {employeeStatement.totalDisbursements.toFixed(2)}
-                      </td>
-                      <td className="py-2.5 px-3 text-left font-mono text-slate-900 font-black bg-slate-200/80">
-                        {employeeStatement.closingBalance.toFixed(2)} {settings.currency}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-
-              {/* ملخص نهاية الكشف بعد الجدول للموظف حسب طلب المستخدم */}
-              <div className="mt-4 p-3.5 bg-slate-50 border-2 border-slate-800 rounded-xl space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {/* 1. إجمالي مدين الفترة (سلف وخصومات ومسحوبات) */}
-                  <div className="p-3 bg-white border-2 border-rose-300 rounded-lg shadow-xs flex flex-col justify-between">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-rose-900">إجمالي مدين الفترة:</span>
-                      <span className="text-[10px] bg-rose-100 text-rose-800 px-2 py-0.5 rounded font-bold">
-                        سلف وخصومات ومسحوبات
-                      </span>
-                    </div>
-                    <div className="my-2 text-center">
-                      <div className="text-2xl font-black font-mono text-rose-700">
-                        {(employeeStatement.totalAdvances + employeeStatement.totalDeductions + employeeStatement.totalDisbursements).toFixed(2)} <span className="text-sm font-sans">{settings.currency}</span>
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-slate-500 text-center border-t border-slate-100 pt-1 font-medium">
-                      (وهو الرصيد للفترة فقط المحددة)
-                    </div>
                   </div>
-
-                  {/* 2. إجمالي دائن الفترة (الرواتب والمستحقات والحوافز) */}
-                  <div className="p-3 bg-white border-2 border-emerald-300 rounded-lg shadow-xs flex flex-col justify-between">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-emerald-900">إجمالي دائن الفترة:</span>
-                      <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold">
-                        رواتب ومستحقات وحوافز
-                      </span>
-                    </div>
-                    <div className="my-2 text-center">
-                      <div className="text-2xl font-black font-mono text-emerald-700">
-                        {employeeStatement.totalEntitlements.toFixed(2)} <span className="text-sm font-sans">{settings.currency}</span>
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-slate-500 text-center border-t border-slate-100 pt-1 font-medium">
-                      (إجمالي استحقاقات الموظف المعتمدة بالفترة)
-                    </div>
-                  </div>
-
-                  {/* 3. الإجمالي لتاريخ الكشف */}
-                  <div className={`p-3 bg-white border-2 rounded-lg shadow-xs flex flex-col justify-between ${
-                    employeeStatement.closingBalance > 0
-                      ? 'border-blue-400 bg-blue-50/20'
-                      : employeeStatement.closingBalance < 0
-                      ? 'border-rose-400 bg-rose-50/20'
-                      : 'border-slate-300'
-                  }`}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-900">الإجمالي لتاريخ الكشف:</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
-                        employeeStatement.closingBalance > 0
-                          ? 'bg-blue-100 text-blue-900'
-                          : employeeStatement.closingBalance < 0
-                          ? 'bg-rose-100 text-rose-900'
-                          : 'bg-slate-100 text-slate-800'
-                      }`}>
-                        {employeeStatement.closingBalance > 0
-                          ? 'صافي مستحق للموظف'
-                          : employeeStatement.closingBalance < 0
-                          ? 'متبقي سلف على الموظف'
-                          : 'الحساب خالص'}
-                      </span>
-                    </div>
-                    <div className="my-2 text-center">
-                      <div className="text-2xl font-black font-mono text-slate-950">
-                        {Math.abs(employeeStatement.closingBalance).toFixed(2)} <span className="text-sm font-sans">{settings.currency}</span>
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-slate-600 text-center border-t border-slate-100 pt-1 font-semibold">
-                      <span>(صافي مستحق السداد أو التسوية لتاريخه)</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Tafqeet */}
-                <div className="bg-white p-3 rounded-lg border border-slate-200">
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="font-bold text-slate-700">المبلغ كتابة وتفقيطاً:</span>
-                    <span className="font-bold text-slate-900 font-mono text-sm">
-                      الرصيد الإجمالي لتاريخ الكشف: {employeeStatement.closingBalance.toFixed(2)} {settings.currency}
-                    </span>
-                  </div>
-                  <div className="text-xs font-semibold text-slate-800 bg-slate-50 p-2 rounded border border-slate-200 font-arabic">
-                    {empTafqeet}
-                  </div>
-                </div>
-              </div>
-
-              {/* Signatures for Employee Statement */}
-              <div className="pt-6 border-t border-slate-300 grid grid-cols-3 gap-6 text-center text-xs">
-                <div className="space-y-6">
-                  <span className="font-bold text-slate-700 block">إعداد وتدقيق قسم الرواتب</span>
-                  <div className="border-b border-dashed border-slate-400 w-36 mx-auto"></div>
-                  <span className="text-[11px] text-slate-400 block font-mono">التوقيع والتاريخ</span>
-                </div>
-
-                <div className="space-y-6">
-                  <span className="font-bold text-slate-700 block">اعتماد المدير المالي والإداري</span>
-                  <div className="border-b border-dashed border-slate-400 w-36 mx-auto"></div>
-                  <span className="text-[11px] text-slate-400 block font-mono">الختم والتوقيع</span>
-                </div>
-
-                <div className="space-y-6">
-                  <span className="font-bold text-slate-700 block">توقيع وإقرار الموظف بالمطابقة</span>
-                  <div className="border-b border-dashed border-slate-400 w-36 mx-auto"></div>
-                  <span className="text-[11px] text-slate-400 block font-mono">الموظف صاحب الكشف</span>
+                  
+                  <span className="text-[11px] text-slate-400 block font-mono mt-2">الختم والتوقيع المعتمد</span>
                 </div>
               </div>
             </div>

@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { DateInput } from '../../components/common/DateInput';
 import { useAccounting } from '../../context/AccountingContext';
 import { Invoice, PosInvoiceWorkflowStatus, PaymentMethod, Treasury } from '../../types';
 import {
@@ -308,10 +309,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
         <div className="flex items-center gap-1.5">
           <div className="flex flex-1 items-center bg-[#153358] rounded px-1.5 py-1 border border-blue-400/30">
             <Calendar className="w-3.5 h-3.5 text-blue-200 ml-1 shrink-0" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={e => setSelectedDate(e.target.value)}
+            <DateInput value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
               className="bg-transparent text-white text-[11px] font-mono focus:outline-none cursor-pointer w-full"
             />
           </div>
@@ -461,7 +459,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
 
       {/* Additional Collection Modal */}
       {collectingInvoice && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-2xs flex items-center justify-center p-3">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-2xs flex items-center justify-center p-3">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 p-5 w-full max-w-md text-xs text-slate-800 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div className="flex items-center gap-2">
@@ -472,7 +470,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
                   <h4 className="font-bold text-sm text-slate-900">
                     تحصيل إضافي لفاتورة #{collectingInvoice.invoiceNumber}
                   </h4>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[10px] text-slate-400 font-light">
                     العميل: {collectingInvoice.customerName}
                   </p>
                 </div>
@@ -488,13 +486,13 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
             {/* Financial Overview Card */}
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 grid grid-cols-3 gap-2 text-center font-mono">
               <div>
-                <span className="text-[10px] text-slate-500 block">إجمالي الفاتورة:</span>
+                <span className="text-[9px] text-slate-400 font-light block">إجمالي الفاتورة:</span>
                 <span className="font-bold text-slate-900">
                   {collectingInvoice.totalAmount.toFixed(2)}
                 </span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-500 block">المدفوع سابقاً:</span>
+                <span className="text-[9px] text-slate-400 font-light block">المدفوع سابقاً:</span>
                 <span className="font-bold text-emerald-700">
                   {collectingInvoice.paidAmount.toFixed(2)}
                 </span>

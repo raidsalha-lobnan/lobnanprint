@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { DateInput } from '../../components/common/DateInput';
 import { useAccounting } from '../../context/AccountingContext';
 import { Party } from '../../types';
 import { generateSequentialPartyCode } from '../../utils/partyUtils';
@@ -111,7 +112,7 @@ export const SupplierModal: React.FC<SupplierModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
       <div className="bg-white rounded-xl max-w-2xl w-full p-5 shadow-2xl border border-slate-200 max-h-[92vh] overflow-y-auto my-auto text-right font-sans">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-4">
@@ -123,7 +124,7 @@ export const SupplierModal: React.FC<SupplierModalProps> = ({
               <h3 className="font-bold text-sm text-slate-900">
                 {supplierToEdit ? 'تعديل بيانات المورد' : 'إضافة مورد جديد للنظام'}
               </h3>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[10px] text-slate-400 font-light">
                 {supplierToEdit ? 'تحديث السجلات والمعلومات المالية للمورد' : 'تسجيل مورد خامات ومستلزمات مع إصدار رقم تسلسلي فريد'}
               </p>
             </div>
@@ -146,7 +147,7 @@ export const SupplierModal: React.FC<SupplierModalProps> = ({
                 <span className="text-xs font-bold text-slate-700 block">
                   رقم المورد التسلسلي الآلي (غير قابل للتكرار):
                 </span>
-                <span className="text-[10px] text-slate-500">
+                <span className="text-[9px] text-slate-400 font-light">
                   كود نظامي موحد يصدر تلقائياً للموردين لربط العمليات والفواتير
                 </span>
               </div>
@@ -303,10 +304,7 @@ export const SupplierModal: React.FC<SupplierModalProps> = ({
 
               <div>
                 <label className="block text-slate-700 font-semibold mb-1 text-[11px]">تاريخ الرصيد السابق:</label>
-                <input
-                  type="date"
-                  value={openingBalanceDate}
-                  onChange={e => setOpeningBalanceDate(e.target.value)}
+                <DateInput value={openingBalanceDate} onChange={e => setOpeningBalanceDate(e.target.value)}
                   className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-xs font-mono focus:ring-1 focus:ring-amber-500"
                 />
               </div>

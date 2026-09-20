@@ -64,7 +64,7 @@ export const FavoriteItemsDrawer: React.FC<FavoriteItemsDrawerProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex justify-end">
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex justify-end">
       <div className="bg-white w-full max-w-lg h-full shadow-2xl flex flex-col border-r border-slate-200 animate-in slide-in-from-left duration-200">
         {/* Header */}
         <div className="bg-blue-800 text-white px-5 py-3.5 flex items-center justify-between shadow-xs">

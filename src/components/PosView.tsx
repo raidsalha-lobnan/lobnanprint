@@ -1,6 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'; // Trigger Sync
+import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
-import { InventoryItem, PaymentMethod, Invoice, Party } from '../types';
+import { useIsMobile } from '../hooks/useIsMobile';
+import { MobilePosView } from './pos/MobilePosView';
+import { InventoryItem, PaymentMethod, Invoice, InvoiceItem, Party } from '../types';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { CalculatorModal } from './pos/CalculatorModal';
 import { QuickAddItemModal } from './pos/QuickAddItemModal';
@@ -72,11 +75,13 @@ import {
   Clock,
   CheckCircle2,
   Ruler,
-  Paperclip
+  Paperclip,
+  RefreshCw
 } from 'lucide-react';
 import { PosCustomButton, loadPosCustomButtons, savePosCustomButtons } from '../types/posCustomizer';
 import { PosLayoutConfig, DEFAULT_POS_LAYOUT_CONFIG, loadPosLayoutConfig, savePosLayoutConfig } from '../types/posLayoutCustomizer';
 import { PosCustomButtonRenderer } from './pos/PosCustomButtonRenderer';
+import { DayInvoicesNavigator } from './pos/DayInvoicesNavigator';
 import { PosButtonCustomizerModal } from './pos/PosButtonCustomizerModal';
 import { PosLayoutDesignerDrawer } from './pos/PosLayoutDesignerDrawer';
 import { PosBottomPaymentConsole } from './pos/PosBottomPaymentConsole';
@@ -145,6 +150,129 @@ const getNextSequentialInvoiceNumber = (allInvoices: Invoice[]): string => {
   return String(nextSeq);
 };
 
+const DraggableDigitalDisplay = ({ amount }: { amount: number }) => {
+  const [position] = useState(() => {
+    const saved = localStorage.getItem('pos_digital_display_state');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch(e) {}
+    }
+    return { x: 8, y: 8, w: 226, h: 113 };
+  });
+
+  const displayRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0, initialX: 0, initialY: 0 });
+
+  useEffect(() => {
+    if (displayRef.current) {
+      displayRef.current.style.left = `${position.x}px`;
+      displayRef.current.style.top = `${position.y}px`;
+      displayRef.current.style.width = `${position.w}px`;
+      displayRef.current.style.height = `${position.h}px`;
+    }
+  }, []);
+
+  const saveState = () => {
+    if (!displayRef.current) return;
+    const newState = {
+      x: displayRef.current.offsetLeft,
+      y: displayRef.current.offsetTop,
+      w: displayRef.current.offsetWidth,
+      h: displayRef.current.offsetHeight,
+    };
+    localStorage.setItem('pos_digital_display_state', JSON.stringify(newState));
+  };
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const isResizeZone = e.clientY > rect.bottom - 20 && (e.clientX < rect.left + 20 || e.clientX > rect.right - 20);
+    
+    if (isResizeZone) {
+       const handleResizeEnd = () => {
+          saveState();
+          window.removeEventListener('mouseup', handleResizeEnd);
+       };
+       window.addEventListener('mouseup', handleResizeEnd);
+       return;
+    }
+
+    isDragging.current = true;
+    dragStart.current = {
+      x: e.clientX,
+      y: e.clientY,
+      initialX: displayRef.current?.offsetLeft || 0,
+      initialY: displayRef.current?.offsetTop || 0
+    };
+    
+    if (displayRef.current) {
+      displayRef.current.style.cursor = 'grabbing';
+      displayRef.current.style.opacity = '0.9';
+    }
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isDragging.current || !displayRef.current) return;
+      ev.preventDefault();
+      const dx = ev.clientX - dragStart.current.x;
+      const dy = ev.clientY - dragStart.current.y;
+      
+      const newX = Math.max(0, dragStart.current.initialX + dx);
+      const newY = Math.max(0, dragStart.current.initialY + dy);
+      
+      displayRef.current.style.left = `${newX}px`;
+      displayRef.current.style.top = `${newY}px`;
+    };
+
+    const handleMouseUp = () => {
+      isDragging.current = false;
+      if (displayRef.current) {
+        displayRef.current.style.cursor = 'grab';
+        displayRef.current.style.opacity = '1';
+      }
+      saveState();
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  return (
+    <div 
+      ref={displayRef}
+      onMouseDown={handleMouseDown}
+      className="absolute bg-black border-2 border-slate-700 rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(239,68,68,0.4)] z-[60] px-2 cursor-grab select-none"
+      style={{ 
+        resize: 'both',
+        overflow: 'hidden',
+        minWidth: '100px',
+        minHeight: '50px'
+      }}
+    >
+      <div className="w-full h-full flex items-center justify-center pointer-events-none">
+        <svg viewBox="0 0 100 40" className="w-full h-full drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]">
+          <text 
+            x="50" 
+            y="28" 
+            textAnchor="middle" 
+            className="fill-red-500 font-black font-mono tabular-nums tracking-tighter"
+            style={{ fontSize: amount.toFixed(2).length > 7 ? '22px' : '28px' }}
+          >
+            {amount.toFixed(2)}
+          </text>
+        </svg>
+      </div>
+      
+      {/* Icon to indicate dragging capability */}
+      <div className="absolute top-1 left-1 opacity-40 pointer-events-none text-slate-500">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M9 19l3 3 3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg>
+      </div>
+    </div>
+  );
+};
+
 export const PosView: React.FC = () => {
   const {
     inventory,
@@ -188,7 +316,7 @@ export const PosView: React.FC = () => {
   const activeCurrency = useMemo(() => {
     return currencies.find(c => c.code === selectedCurrencyCode) || currencies.find(c => c.isBase) || {
       code: 'ILS',
-      name: 'شيكل فلسطيني',
+      name: 'شيكل',
       symbol: '₪',
       rateAgainstBase: 1.0,
       isBase: true,
@@ -218,6 +346,19 @@ export const PosView: React.FC = () => {
   const [customerCode, setCustomerCode] = useState<string>('');
   const [customerName, setCustomerName] = useState<string>('عميل كاشير نقدي');
   const [pricingTier, setPricingTier] = useState<'retail' | 'wholesale' | 'special'>('retail');
+
+  // تعيين العميل الافتراضي (CUST-0001) كزبون كاشير رئيسي
+  useEffect(() => {
+    if (!selectedCustomerId && !editingPosInvoiceId && posTargetType === 'customer' && customerName === 'عميل كاشير نقدي') {
+      const defaultCashCust = customers.find(c => c.code === 'CUST-0001' || c.code === '1');
+      if (defaultCashCust) {
+        setSelectedCustomerId(defaultCashCust.id);
+        setCustomerName(defaultCashCust.name);
+        setCustomerCode(defaultCashCust.code);
+      }
+    }
+  }, [customers, posTargetType]); // Removed selectedCustomerId and editingPosInvoiceId to prevent blocking manual clear
+
 
   // خيارات البحث والمطابقة الذكية حسب نوع الطرف المختار (عميل - مورد - موظف)
   const targetComboboxOptions: ComboboxOption[] = useMemo(() => {
@@ -465,12 +606,12 @@ export const PosView: React.FC = () => {
   const customerInputRef = useRef<HTMLInputElement | null>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // POS Buttons & UI Customization State
-  const [posButtons, setPosButtons] = useState<PosCustomButton[]>(loadPosCustomButtons);
+  // POS Buttons & UI Customization State (خاصة بكل مستخدم)
+  const [posButtons, setPosButtons] = useState<PosCustomButton[]>(() => loadPosCustomButtons(currentUser?.id));
   const [isLiveCustomizing, setIsLiveCustomizing] = useState<boolean>(false);
   const [isButtonCustomizerOpen, setIsButtonCustomizerOpen] = useState<boolean>(false);
 
-  // POS Screen Layout & Designer State
+  // POS Screen Layout & Designer State (خاصة بكل مستخدم)
   const [posLayoutConfig, setPosLayoutConfig] = useState<PosLayoutConfig>(() => {
     try {
       if (settings?.defaultPosLayout && typeof settings.defaultPosLayout === 'object') {
@@ -485,18 +626,32 @@ export const PosView: React.FC = () => {
           }
         };
       }
-      const cfg = loadPosLayoutConfig();
+      const cfg = loadPosLayoutConfig(currentUser?.id);
       return cfg && typeof cfg === 'object' ? cfg : DEFAULT_POS_LAYOUT_CONFIG;
     } catch {
       return DEFAULT_POS_LAYOUT_CONFIG;
     }
   });
+
+  // Re-sync layout and buttons if user switches
+  useEffect(() => {
+    if (currentUser?.id) {
+      const userButtons = loadPosCustomButtons(currentUser.id);
+      setPosButtons(userButtons);
+      const userConfig = loadPosLayoutConfig(currentUser.id);
+      setPosLayoutConfig(userConfig);
+      if (userConfig.isDateLocked && userConfig.lockedDate) {
+        setInvoiceDate(userConfig.lockedDate);
+      }
+    }
+  }, [currentUser?.id]);
+
   const [isLayoutDesignerOpen, setIsLayoutDesignerOpen] = useState<boolean>(false);
 
   const handleSavePosLayoutConfig = (newConfig: PosLayoutConfig) => {
     const safeConfig = newConfig && typeof newConfig === 'object' ? newConfig : DEFAULT_POS_LAYOUT_CONFIG;
     setPosLayoutConfig(safeConfig);
-    savePosLayoutConfig(safeConfig);
+    savePosLayoutConfig(safeConfig, currentUser?.id);
   };
 
   const handleToggleLayoutSection = (key: keyof PosLayoutConfig) => {
@@ -506,14 +661,14 @@ export const PosView: React.FC = () => {
         ...base,
         [key]: !base[key]
       };
-      savePosLayoutConfig(updated);
+      savePosLayoutConfig(updated, currentUser?.id);
       return updated;
     });
   };
 
   const handleSavePosButtons = (newButtons: PosCustomButton[]) => {
     setPosButtons(newButtons);
-    savePosCustomButtons(newButtons);
+    savePosCustomButtons(newButtons, currentUser?.id);
   };
 
   // Live in-place button reordering (swap with adjacent button)
@@ -657,7 +812,7 @@ export const PosView: React.FC = () => {
         posSound.playCashBeep();
         break;
       case 'open_invoice_details':
-        setActiveHeaderSubModal('details');
+        handleOpenInvoiceDetailsPreview();
         break;
       case 'open_daily_invoices':
         setIsDailyInvoicesOpen(true);
@@ -696,9 +851,7 @@ export const PosView: React.FC = () => {
     if (currentCustomer) {
       setCustomerName(currentCustomer.name);
       setCustomerCode(currentCustomer.code || '');
-      if (currentCustomer.phone) {
-        setCustomCustomerText(`${currentCustomer.name} ${currentCustomer.phone}`);
-      }
+      // Removed auto-filling of customCustomerText based on user request
     }
   }, [selectedCustomerId, currentCustomer]);
 
@@ -973,6 +1126,26 @@ export const PosView: React.FC = () => {
     return newLine.id;
   };
 
+  const isCashCustomer = useMemo(() => {
+    return !selectedCustomerId ||
+      selectedCustomerId === 'pt-cust-1' ||
+      customerCode === '1' ||
+      customerCode === 'CUST-0001' ||
+      customerName.trim() === 'عميل كاشير نقدي' ||
+      customerName.trim() === 'عميل نقدي' ||
+      customerName.trim() === 'زبون عام';
+  }, [selectedCustomerId, customerCode, customerName]);
+
+  const effectivePricingCustomerId = useMemo(() => {
+    if (subCustomerId) return subCustomerId;
+    if (isCashCustomer) return undefined;
+    return selectedCustomerId;
+  }, [subCustomerId, isCashCustomer, selectedCustomerId]);
+
+  const effectivePricingCustomerObj = useMemo(() => {
+    return parties.find(p => p.id === effectivePricingCustomerId) || null;
+  }, [parties, effectivePricingCustomerId]);
+
   // Current customer object for special pricing lookup
   const selectedCustomerObj = useMemo(() => {
     return parties.find(p => p.id === selectedCustomerId) || null;
@@ -980,9 +1153,9 @@ export const PosView: React.FC = () => {
 
   // Compute item effective price honoring customer special prices & pricing tier
   const getItemEffectivePrice = useCallback((item: InventoryItem, tier: string = pricingTier): number => {
-    const res = getItemPriceForCustomer(item, selectedCustomerId, tier as any);
+    const res = getItemPriceForCustomer(item, effectivePricingCustomerId, tier as any);
     return res.price;
-  }, [getItemPriceForCustomer, selectedCustomerId, pricingTier]);
+  }, [getItemPriceForCustomer, effectivePricingCustomerId, pricingTier]);
 
   // Apply customer specific pricing to all lines currently in the table
   const applyCustomerPricingToLines = useCallback((
@@ -1133,16 +1306,16 @@ export const PosView: React.FC = () => {
         }
 
         // If unit price was updated for a registered customer, automatically adopt it as their special price
-        if (field === 'unitPrice' && selectedCustomerId && selectedCustomerId !== 'pt-cust-1' && Number(value) > 0) {
+        if (field === 'unitPrice' && effectivePricingCustomerId && Number(value) > 0) {
           const item = inventory.find(i => 
             (line.inventoryItemId && i.id === line.inventoryItemId) ||
             (line.barcode && matchItemByBarcode(i, line.barcode)) ||
             i.name === line.itemName
           );
-          if (item && selectedCustomerObj) {
-            const currentSpecial = selectedCustomerObj.specialPrices || {};
+          if (item && effectivePricingCustomerObj) {
+            const currentSpecial = effectivePricingCustomerObj.specialPrices || {};
             const updatedSpecial = { ...currentSpecial, [item.id]: Number(value) };
-            updateParty(selectedCustomerId, { specialPrices: updatedSpecial });
+            updateParty(effectivePricingCustomerId, { specialPrices: updatedSpecial });
           }
         }
 
@@ -1370,15 +1543,6 @@ export const PosView: React.FC = () => {
     }
 
     // 1. Validation for cash customers without sub-customer name:
-    const isCashCustomer =
-      !selectedCustomerId ||
-      selectedCustomerId === 'pt-cust-1' ||
-      customerCode === '1' ||
-      customerCode === 'CUST-0001' ||
-      customerName.trim() === 'عميل كاشير نقدي' ||
-      customerName.trim() === 'عميل نقدي' ||
-      customerName.trim() === 'زبون عام';
-
     const hasSubCustomerName = !!(subCustomerName?.trim() || customCustomerText?.trim());
 
     if (isExplicitSave && isCashCustomer && !hasSubCustomerName) {
@@ -1398,18 +1562,25 @@ export const PosView: React.FC = () => {
     }
 
     const itemsForContext = tableLines.map(line => {
-      const matchedInv: InventoryItem = inventory.find(i => i.id === line.inventoryItemId || i.barcode === line.barcode) || {
-        id: line.inventoryItemId || 'custom-' + Date.now(),
-        code: 'ITM-' + line.id,
+      const isDelivery = line.inventoryItemId === 'srv-delivery' || line.barcode === 'DELIVERY' || line.itemName === 'خدمة توصيل' || line.itemName?.trim().startsWith('توصيل');
+      const matchedInv: InventoryItem = inventory.find(i => i.id === line.inventoryItemId || (line.barcode && i.barcode === line.barcode)) || {
+        id: line.inventoryItemId || (isDelivery ? 'srv-delivery' : 'custom-' + Date.now()),
+        code: isDelivery ? 'DELIVERY' : ('ITM-' + line.id),
         name: line.itemName,
-        category: 'stationery',
-        unit: 'قطعة',
-        purchasePrice: line.unitPrice * 0.7,
+        category: isDelivery ? 'services' : 'stationery',
+        unit: isDelivery ? 'خدمة' : 'قطعة',
+        purchasePrice: isDelivery ? line.unitPrice : (line.unitPrice * 0.7), // خدمة التوصيل تحمل على الزبون بالتكلفة الأصلية دون مربح
         sellingPrice: line.unitPrice,
-        stockQuantity: 100,
-        minAlertQuantity: 5,
+        stockQuantity: isDelivery ? 0 : 100, // ليس لها مخزن ولا رصيد
+        minAlertQuantity: 0,
         barcode: line.barcode
       };
+
+      if (isDelivery) {
+        matchedInv.purchasePrice = line.unitPrice;
+        matchedInv.sellingPrice = line.unitPrice;
+        matchedInv.stockQuantity = 0;
+      }
 
       return {
         item: matchedInv,
@@ -1484,8 +1655,8 @@ export const PosView: React.FC = () => {
     posSound.success();
 
     // Auto-save any customer modified special prices so they are permanently retained
-    if (selectedCustomerId && selectedCustomerId !== 'pt-cust-1') {
-      const updatedSpecial = { ...(selectedCustomerObj?.specialPrices || {}) };
+    if (effectivePricingCustomerId) {
+      const updatedSpecial = { ...(effectivePricingCustomerObj?.specialPrices || {}) };
       let hasPriceChanges = false;
       tableLines.forEach(l => {
         const item = inventory.find(i => 
@@ -1499,7 +1670,7 @@ export const PosView: React.FC = () => {
         }
       });
       if (hasPriceChanges) {
-        updateParty(selectedCustomerId, { specialPrices: updatedSpecial });
+        updateParty(effectivePricingCustomerId, { specialPrices: updatedSpecial });
       }
     }
 
@@ -1647,6 +1818,98 @@ export const PosView: React.FC = () => {
     }, 50);
   };
 
+  // معاينة وطباعة تفاصيل الفاتورة ومراجعة بنودها مع العميل قبل الحفظ أو السداد
+  const handleOpenInvoiceDetailsPreview = () => {
+    const linesToUse = activeTableLines.length > 0 ? activeTableLines : tableLines;
+    if (linesToUse.length === 0 || (linesToUse.length === 1 && !linesToUse[0].itemName && linesToUse[0].unitPrice === 0)) {
+      posSound.beep();
+    }
+
+    const itemsForInvoice: InvoiceItem[] = linesToUse.map((line, idx) => {
+      const hasDims = Boolean(
+        line.hasDimensions || (line.length && line.width && (line.length !== 1 || line.width !== 1 || (line.count && line.count > 1)))
+      );
+      return {
+        id: line.id || `line-${idx}`,
+        itemId: line.inventoryItemId || `item-${idx}`,
+        itemName: line.itemName || 'صنف',
+        quantity: Number(line.quantity) || 1,
+        unitPrice: Number(line.unitPrice) || 0,
+        total: Number(line.total) || 0,
+        length: line.length,
+        width: line.width,
+        count: line.count || 1,
+        unit: line.unit || (hasDims ? 'م²' : 'حبة'),
+        discount: Number(line.discount) || 0,
+        tax: Number(line.tax) || 0,
+        taxRate: Number(line.taxRate) || 0,
+        description: line.notes || line.description,
+        hasDimensions: hasDims,
+        attachments: line.attachments
+      };
+    });
+
+    const cashVal = parseFloat(cashAmountInput) || 0;
+    const bankVal = parseFloat(bankAmountInput) || 0;
+    const cBase = cashVal * (cashExchangeRate || 1.0);
+    const bBase = bankVal * (bankExchangeRate || 1.0);
+    const tPaidBase = cBase + bBase;
+    const effectivePaid = customExchangeRate > 0 ? Number((tPaidBase / customExchangeRate).toFixed(2)) : tPaidBase;
+
+    let effectiveMethod: PaymentMethod = 'credit';
+    if (cBase > 0 && bBase === 0) effectiveMethod = 'cash';
+    else if (bBase > 0 && cBase === 0) effectiveMethod = 'card';
+    else if (cBase > 0 && bBase > 0) effectiveMethod = 'cash';
+    else effectiveMethod = 'credit';
+
+    const selectedCust = parties.find(p => p.id === selectedCustomerId);
+
+    const draftInvoice: Invoice = {
+      id: currentEditingInvoiceIdRef.current || editingPosInvoiceId || 'draft-pos-preview',
+      invoiceNumber: `INV-${invoiceSeqNumber.padStart(4, '0')}`,
+      date: invoiceDate || new Date().toISOString().split('T')[0],
+      customerId: selectedCustomerId || undefined,
+      customerName: customerName || customCustomerText || 'عميل كاشير نقدي',
+      customerPhone: subCustomerPhone || selectedCust?.phone || '',
+      customerTaxNumber: selectedCust?.taxNumber || '',
+      type: 'pos',
+      items: itemsForInvoice,
+      subtotal: calculatedSubtotal,
+      discountTotal: calculatedDiscountTotal,
+      taxRate: effectiveTaxRate,
+      taxAmount: calculatedTaxAmount,
+      totalAmount: calculatedTotalAmount,
+      paidAmount: effectivePaid,
+      remainingAmount: calculatedRemaining,
+      paymentMethod: effectiveMethod,
+      notes: invoiceNotes,
+      status: effectivePaid >= calculatedTotalAmount ? 'paid' : (effectivePaid > 0 ? 'partial' : 'unpaid'),
+      customCustomerText: customCustomerText,
+      subCustomerId: subCustomerId || undefined,
+      subCustomerName: subCustomerName || undefined,
+      subCustomerPhone: subCustomerPhone || undefined,
+      representative: representative,
+      branch: branch,
+      branchId: branches.find(b => b.name === branch)?.id || activeBranchId,
+      warehouse: warehouse,
+      userId: currentUser?.id,
+      userName: currentUser?.fullName || currentUser?.username,
+      currency: activeCurrency.code,
+      currencySymbol: activeCurrency.symbol,
+      exchangeRate: customExchangeRate > 0 ? customExchangeRate : 1.0,
+      baseTotalAmount: (customExchangeRate > 0 ? calculatedTotalAmount * customExchangeRate : calculatedTotalAmount),
+      basePaidAmount: tPaidBase,
+      cashPaidAmount: cashVal,
+      bankPaidAmount: bankVal,
+      cashTreasuryCode: cashTreasuryCode,
+      bankTreasuryCode: bankTreasuryCode,
+      workflowStatus: invoiceWorkflowStatus
+    };
+
+    setDirectPrintOptions(null);
+    setSelectedInvoiceForPrint(draftInvoice);
+  };
+
   // Hold Invoice (F9)
   const handleHoldInvoice = () => {
     if (tableLines.length === 0) return;
@@ -1782,9 +2045,14 @@ export const PosView: React.FC = () => {
   }, [editingPosInvoiceId, invoices]);
 
   const invoicesForDate = useMemo(() => {
-    return invoices
+    return (invoices || [])
       .filter(inv => inv.date === invoiceDate)
-      .sort((a, b) => (a.invoiceNumber || '').localeCompare(b.invoiceNumber || ''));
+      .sort((a, b) => {
+        const numA = parseInt((a.invoiceNumber || '').replace(/\D/g, ''), 10) || 0;
+        const numB = parseInt((b.invoiceNumber || '').replace(/\D/g, ''), 10) || 0;
+        if (numA !== numB) return numA - numB;
+        return (a.createdAt || '').localeCompare(b.createdAt || '');
+      });
   }, [invoices, invoiceDate]);
 
   const currentInvoiceIndexForDate = useMemo(() => {
@@ -1795,23 +2063,82 @@ export const PosView: React.FC = () => {
   const handleNavFirst = () => {
     if (invoicesForDate.length === 0) return;
     loadInvoiceToScreen(invoicesForDate[0]);
+    posSound.beep();
   };
 
   const handleNavPrev = () => {
     if (invoicesForDate.length === 0) return;
-    const idx = Math.max(0, currentInvoiceIndexForDate - 1);
-    loadInvoiceToScreen(invoicesForDate[idx]);
+    if (currentInvoiceIndexForDate === -1) {
+      // إذا كان المستخدم في وضع إدخال فاتورة جديدة، الانتقال للسابق يفتح آخر فاتورة لليوم
+      loadInvoiceToScreen(invoicesForDate[invoicesForDate.length - 1]);
+    } else {
+      const idx = Math.max(0, currentInvoiceIndexForDate - 1);
+      loadInvoiceToScreen(invoicesForDate[idx]);
+    }
+    posSound.beep();
   };
 
   const handleNavNext = () => {
     if (invoicesForDate.length === 0) return;
-    const idx = currentInvoiceIndexForDate === -1 ? 0 : Math.min(invoicesForDate.length - 1, currentInvoiceIndexForDate + 1);
-    loadInvoiceToScreen(invoicesForDate[idx]);
+    if (currentInvoiceIndexForDate === -1) return;
+    if (currentInvoiceIndexForDate < invoicesForDate.length - 1) {
+      loadInvoiceToScreen(invoicesForDate[currentInvoiceIndexForDate + 1]);
+    } else {
+      // عند الوصول لآخر فاتورة اليوم، التالي ينقل المستخدم لإدخال فاتورة جديدة
+      handleClearInvoiceDirect(true);
+    }
+    posSound.beep();
   };
 
   const handleNavLast = () => {
     if (invoicesForDate.length === 0) return;
     loadInvoiceToScreen(invoicesForDate[invoicesForDate.length - 1]);
+    posSound.beep();
+  };
+
+  const handleJumpToInvoiceIndex = (index1Based: number) => {
+    if (invoicesForDate.length === 0) return;
+    const targetIdx = index1Based - 1;
+    if (targetIdx >= 0 && targetIdx < invoicesForDate.length) {
+      loadInvoiceToScreen(invoicesForDate[targetIdx]);
+      posSound.beep();
+    } else if (targetIdx >= invoicesForDate.length) {
+      handleClearInvoiceDirect(true);
+      posSound.beep();
+    }
+  };
+
+  const handleClearInvoiceDirect = (silent = false) => {
+    setEditingPosInvoiceId(null);
+    setTableLines([
+      {
+        id: generateUniqueLineId(),
+        barcode: '',
+        itemName: '',
+        description: '',
+        length: 1,
+        width: 1,
+        quantity: 1,
+        unitPrice: 0,
+        total: 0
+      }
+    ]);
+    setAdditionalCharges(0);
+    setOverallDiscount(0);
+    setInvoiceNotes('');
+    setCashAmountInput('0');
+    setBankAmountInput('0');
+
+    const defaultCashCust = customers.find(c => c.code === 'CUST-0001' || c.code === '1');
+    if (defaultCashCust && posTargetType === 'customer') {
+      setSelectedCustomerId(defaultCashCust.id);
+      setCustomerName(defaultCashCust.name);
+      setCustomerCode(defaultCashCust.code);
+    } else {
+      setSelectedCustomerId('');
+      setCustomerName('عميل كاشير نقدي');
+      setCustomerCode('');
+    }
   };
 
   // Focus customer input and clear entered customer name (Space key shortcut)
@@ -1857,9 +2184,18 @@ export const PosView: React.FC = () => {
       setInvoiceNotes('');
       setCashAmountInput('0');
       setBankAmountInput('0');
-      setSelectedCustomerId('');
-      setCustomerName('عميل كاشير نقدي');
-      setCustomerCode('');
+      
+      const defaultCashCust = customers.find(c => c.code === 'CUST-0001' || c.code === '1');
+      if (defaultCashCust && posTargetType === 'customer') {
+        setSelectedCustomerId(defaultCashCust.id);
+        setCustomerName(defaultCashCust.name);
+        setCustomerCode(defaultCashCust.code);
+      } else {
+        setSelectedCustomerId('');
+        setCustomerName('عميل كاشير نقدي');
+        setCustomerCode('');
+      }
+
       setSubCustomerId('');
       setSubCustomerName('');
       setSubCustomerPhone('');
@@ -1934,8 +2270,39 @@ export const PosView: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [posButtons, handleSaveInvoice, handleHoldInvoice, handleExecuteButtonAction, handleAddNewRow, handleQuickPayCash, handleFocusAndClearCustomer, customerName, selectedCustomerId]);
 
+  const isPhone = useIsMobile(768);
+  const [forceDesktopMode, setForceDesktopMode] = useState<boolean>(() => {
+    return typeof sessionStorage !== 'undefined' && sessionStorage.getItem('pos_force_desktop') === 'true';
+  });
+
+  if (isPhone && !forceDesktopMode) {
+    return (
+      <MobilePosView
+        onSwitchToDesktop={() => {
+          setForceDesktopMode(true);
+          sessionStorage.setItem('pos_force_desktop', 'true');
+        }}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col h-full w-full bg-[#dbe4ef] text-slate-800 text-xs font-sans select-none relative overflow-hidden" dir="rtl">
+      {/* Mobile Switch Back Bar */}
+      {isPhone && forceDesktopMode && (
+        <div className="bg-amber-500 text-slate-950 px-2 py-0.5 text-xs font-bold flex items-center justify-between z-50">
+          <span>أنت الآن في وضع سطح المكتب الكامل</span>
+          <button
+            onClick={() => {
+              setForceDesktopMode(false);
+              sessionStorage.setItem('pos_force_desktop', 'false');
+            }}
+            className="bg-slate-900 text-white text-[10px] px-2 py-0.5 rounded-md font-bold"
+          >
+            📱 العودة لكاشير الهاتف السريع
+          </button>
+        </div>
+      )}
       {/* كاميرا الباركود العائمة (PiP) */}
       <PosInlineBarcodeScanner
         isActive={isInlineCameraOpen}
@@ -1949,9 +2316,13 @@ export const PosView: React.FC = () => {
           setIsCameraScannerOpen(true);
         }}
       />
+      
+      {/* شاشة رقمية للإجمالي */}
+      <DraggableDigitalDisplay amount={calculatedTotalAmount} />
+
       {/* تنبيه: الصنف غير موجود */}
       {barcodeNotFoundAlert && (
-        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 bg-rose-600 text-white px-5 py-2.5 rounded-xl shadow-2xl flex items-center gap-3 border-2 border-rose-300 animate-bounce">
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[200] bg-rose-600 text-white px-5 py-2.5 rounded-xl shadow-2xl flex items-center gap-3 border-2 border-rose-300 animate-bounce">
           <AlertCircle className="w-6 h-6 text-white shrink-0" />
           <div className="text-right">
             <div className="font-black text-sm">الصنف غير موجود</div>
@@ -1960,7 +2331,7 @@ export const PosView: React.FC = () => {
           <button
             type="button"
             onClick={() => setBarcodeNotFoundAlert(null)}
-            className="mr-2 bg-white/20 hover:bg-white/30 text-white text-xs px-2 py-1 rounded cursor-pointer font-bold"
+            className="mr-2 bg-white/20 hover:bg-white/30 text-white text-xs px-1.5 py-0.5 rounded cursor-pointer font-bold"
           >
             إغلاق
           </button>
@@ -1972,37 +2343,85 @@ export const PosView: React.FC = () => {
       <div className="bg-[#1f4a7c] text-white flex flex-col border-b border-[#143254]">
         {/* Navigation & Action Icon Toolbar */}
         {posLayoutConfig.showTopToolbar && (
-          <div className="bg-[#e9eff6] text-slate-800 p-1 flex items-center justify-between border-b border-slate-300 flex-nowrap overflow-x-auto gap-0.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-            <div className="flex items-center gap-0.5 flex-nowrap">
-              {posButtons
-                .filter(b => b.location === 'top_toolbar' && b.isVisible)
-                .sort((a, b) => a.order - b.order)
-                .map((btn, idx, arr) => (
-                  <PosCustomButtonRenderer
-                    key={btn.id}
-                    button={btn}
-                    isEditMode={isLiveCustomizing}
-                    onExecuteAction={handleExecuteButtonAction}
-                    onMoveRight={() => handleMoveButtonInLive(btn.id, 'right')}
-                    onMoveLeft={() => handleMoveButtonInLive(btn.id, 'left')}
-                    onEdit={() => setIsButtonCustomizerOpen(true)}
-                    onDelete={() => handleDeleteButtonInLive(btn.id)}
-                    canMoveRight={idx > 0}
-                    canMoveLeft={idx < arr.length - 1}
-                  />
-                ))}
+          <div className="bg-[#eef4fb] text-slate-800 px-2.5 py-1.5 flex items-center justify-between border-b border-slate-300 shadow-2xs flex-nowrap overflow-x-auto gap-1.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+            <div className="flex items-center gap-1.5 flex-nowrap">
+              {/* مجموعة أزرار شريط الأدوات العلوي مع أداة التنقل والتعداد التسلسلي المصغرة لفواتير اليوم المحدد */}
+              {(() => {
+                const toolbarButtons = posButtons
+                  .filter(b => b.location === 'top_toolbar' && b.isVisible)
+                  .sort((a, b) => a.order - b.order);
+                
+                const hasNavFirst = toolbarButtons.some(b => b.actionType === 'nav_first');
+
+                return (
+                  <>
+                    {toolbarButtons.map((btn, idx, arr) => {
+                      if (btn.actionType === 'nav_first') {
+                        return (
+                          <DayInvoicesNavigator
+                            key="day-invoices-nav"
+                            invoiceDate={invoiceDate}
+                            invoicesForDate={invoicesForDate}
+                            currentInvoiceIndex={currentInvoiceIndexForDate}
+                            onNavFirst={handleNavFirst}
+                            onNavPrev={handleNavPrev}
+                            onNavNext={handleNavNext}
+                            onNavLast={handleNavLast}
+                            onJumpToIndex={handleJumpToInvoiceIndex}
+                            onNewInvoice={() => handleClearInvoiceDirect(true)}
+                          />
+                        );
+                      }
+                      // تخطي أزرار التنقل الفردية الأخرى لأنها مدمجة بالكامل في المكون الموحد المصغر
+                      if (btn.actionType === 'nav_prev' || btn.actionType === 'nav_next' || btn.actionType === 'nav_last') {
+                        return null;
+                      }
+
+                      return (
+                        <PosCustomButtonRenderer
+                          key={btn.id}
+                          button={btn}
+                          isEditMode={isLiveCustomizing}
+                          onExecuteAction={handleExecuteButtonAction}
+                          onMoveRight={() => handleMoveButtonInLive(btn.id, 'right')}
+                          onMoveLeft={() => handleMoveButtonInLive(btn.id, 'left')}
+                          onEdit={() => setIsButtonCustomizerOpen(true)}
+                          onDelete={() => handleDeleteButtonInLive(btn.id)}
+                          canMoveRight={idx > 0}
+                          canMoveLeft={idx < arr.length - 1}
+                        />
+                      );
+                    })}
+
+                    {!hasNavFirst && (
+                      <DayInvoicesNavigator
+                        key="day-invoices-nav-fallback"
+                        invoiceDate={invoiceDate}
+                        invoicesForDate={invoicesForDate}
+                        currentInvoiceIndex={currentInvoiceIndexForDate}
+                        onNavFirst={handleNavFirst}
+                        onNavPrev={handleNavPrev}
+                        onNavNext={handleNavNext}
+                        onNavLast={handleNavLast}
+                        onJumpToIndex={handleJumpToInvoiceIndex}
+                        onNewInvoice={() => handleClearInvoiceDirect(true)}
+                      />
+                    )}
+                  </>
+                );
+              })()}
 
               {/* فاصل رأسي خفيف */}
-              <span className="w-px h-6 bg-slate-300 mx-0.5" />
+              <span className="w-px h-6 bg-slate-300 mx-1" />
 
               {/* زر تفاصيل الفاتورة (مرفوع لشريط الأزرار العلوي) */}
               <button
                 type="button"
-                onClick={() => setActiveHeaderSubModal('details')}
-                className="px-1.5 py-1 bg-white hover:bg-blue-50 border border-blue-300 text-blue-800 rounded font-bold text-[11px] flex items-center gap-1 cursor-pointer shadow-2xs transition-colors whitespace-nowrap"
-                title="تفاصيل وبيانات الفاتورة الشاملة"
+                onClick={handleOpenInvoiceDetailsPreview}
+                className="h-8 px-2.5 py-1 bg-white hover:bg-blue-50 border border-blue-300 hover:border-blue-400 text-blue-800 rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap active:scale-95"
+                title="معاينة وطباعة مسودة الفاتورة لمراجعة البنود والأسعار مع الزبون قبل الحفظ"
               >
-                <Info className="w-3 h-3 text-blue-600" />
+                <Printer className="w-3.5 h-3.5 text-blue-600" />
                 <span>تفاصيل الفاتورة</span>
               </button>
 
@@ -2010,10 +2429,10 @@ export const PosView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsDailyInvoicesOpen(true)}
-                className="px-1.5 py-1 bg-[#1f4a7c] hover:bg-[#183a62] text-white rounded font-bold text-[11px] flex items-center gap-1 cursor-pointer shadow-xs transition-colors whitespace-nowrap"
+                className="h-8 px-2.5 py-1 bg-[#1f4a7c] hover:bg-[#183a62] text-white rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap active:scale-95"
                 title="سجل فواتير اليوم وحالاتها (جديدة، قيد التصميم، تنفيذ، جاهزة، مسلمة)"
               >
-                <FileText className="w-3 h-3 text-blue-200" />
+                <FileText className="w-3.5 h-3.5 text-blue-200" />
                 <span>سجل فواتير اليوم</span>
               </button>
 
@@ -2021,10 +2440,10 @@ export const PosView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsLayoutDesignerOpen(true)}
-                className="px-1.5 py-1 bg-white hover:bg-indigo-50 border border-indigo-300 text-indigo-900 rounded font-bold text-[11px] flex items-center gap-1 cursor-pointer shadow-2xs transition-colors whitespace-nowrap"
+                className="pos-layout-customizer-btn pos-advanced-config h-8 px-2.5 py-1 bg-white hover:bg-indigo-50 border border-indigo-300 hover:border-indigo-400 text-indigo-900 rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap active:scale-95"
                 title="تخصيص وإخفاء أو إظهار أقسام وأعمدة شاشة الكاشير"
               >
-                <Layout className="w-3 h-3 text-indigo-600" />
+                <Layout className="w-3.5 h-3.5 text-indigo-600" />
                 <span>تخصيص الشاشة 🎨</span>
               </button>
 
@@ -2032,9 +2451,9 @@ export const PosView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsButtonCustomizerOpen(true)}
-                  className="px-2 py-1 bg-amber-200 hover:bg-amber-300 text-amber-900 font-bold rounded text-[11px] border border-dashed border-amber-500 flex items-center gap-1 cursor-pointer"
+                  className="h-8 px-2.5 py-1 bg-amber-200 hover:bg-amber-300 text-amber-900 font-bold rounded-lg text-xs border border-dashed border-amber-500 flex items-center gap-1.5 cursor-pointer shadow-2xs"
                 >
-                  <Plus className="w-3 h-3" />
+                  <Plus className="w-3.5 h-3.5" />
                   <span>+ زر بالشريط العلوي</span>
                 </button>
               )}
@@ -2068,7 +2487,7 @@ export const PosView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsLayoutDesignerOpen(true)}
-                className="px-3 py-1 bg-amber-400 hover:bg-amber-500 text-amber-950 font-black rounded-lg text-xs flex items-center gap-1 cursor-pointer shadow-xs"
+                className="px-2 py-0.5 bg-amber-400 hover:bg-amber-500 text-amber-950 font-black rounded-lg text-xs flex items-center gap-1 cursor-pointer shadow-xs"
               >
                 <Layout className="w-3.5 h-3.5" />
                 <span>مصمم الشاشة 🎨</span>
@@ -2076,7 +2495,7 @@ export const PosView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsButtonCustomizerOpen(true)}
-                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs flex items-center gap-1 cursor-pointer shadow-xs"
+                className="px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs flex items-center gap-1 cursor-pointer shadow-xs"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>+ إضافة زر مخصص</span>
@@ -2084,7 +2503,7 @@ export const PosView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsLiveCustomizing(false)}
-                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs flex items-center gap-1 cursor-pointer shadow-xs"
+                className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs flex items-center gap-1 cursor-pointer shadow-xs"
               >
                 <Check className="w-3.5 h-3.5" />
                 <span>حفظ وإنهاء التخصيص</span>
@@ -2170,7 +2589,7 @@ export const PosView: React.FC = () => {
           {(posLayoutConfig.showFavoritesSidebar !== false || isLiveCustomizing) && (
             <div className="relative shrink-0 w-full lg:w-80 xl:w-92 order-first flex flex-col lg:h-full min-h-[300px] lg:min-h-0">
               {isLiveCustomizing && (
-                <div className="flex items-center justify-between bg-amber-200/95 px-2.5 py-1 rounded-lg mb-1 text-[11px] text-amber-950 font-bold border border-amber-300 shadow-2xs">
+                <div className="flex items-center justify-between bg-amber-200/95 px-1.5 py-0.5 rounded-lg mb-1 text-[11px] text-amber-950 font-bold border border-amber-300 shadow-2xs">
                   <span className="flex items-center gap-1">
                     <Star className="w-3 h-3 text-amber-700 fill-amber-700" />
                     <span>مفضلة الكاشير (الممتدة لأعلى)</span>
@@ -2199,12 +2618,12 @@ export const PosView: React.FC = () => {
           )}
 
           {/* مساحة الفاتورة الرئيسية (يسار المفضلة في واجهة RTL): رأس الفاتورة في الأعلى وجدول الأصناف في الأسفل */}
-          <div className="flex-1 min-w-0 flex flex-col gap-2 lg:h-full lg:min-h-0">
+          <div className="flex-1 min-w-0 flex flex-col gap-1 lg:h-full lg:min-h-0">
             {/* 2A. INVOICE HEADER SECTION (رأس الفاتورة - تفاصيل العميل والفرع ورقم الفاتورة) */}
             {posLayoutConfig.showCustomerHeader && (
-              <div className="bg-[#d3dfed] p-2 border border-slate-300 rounded-xl shadow-2xs">
+              <div className="bg-[#d3dfed] p-1 border border-slate-300 rounded-xl shadow-2xs w-fit">
           {isLiveCustomizing && (
-            <div className="flex items-center justify-between bg-amber-200/90 px-3 py-1 rounded mb-2 text-xs text-amber-950 font-bold border border-amber-300">
+            <div className="flex items-center justify-between bg-amber-200/90 px-2 py-0.5 rounded mb-2 text-xs text-amber-950 font-bold border border-amber-300">
               <span className="flex items-center gap-1.5">
                 <Layout className="w-3.5 h-3.5 text-amber-800" />
                 <span>قسم رأس الفاتورة والعميل (يمكنك إخفاؤه لزيادة مساحة جدول الكاشير)</span>
@@ -2220,11 +2639,11 @@ export const PosView: React.FC = () => {
             </div>
           )}
           {/* Main Top Header System Strip (أعلى شاشة الكاشير): الفرع | المستخدم | رقم الفاتورة | التاريخ | حالة الفاتورة */}
-          <div className="bg-white/90 border border-slate-300 rounded-lg p-2 mb-2 shadow-2xs w-full overflow-hidden">
-            <div className="flex flex-nowrap items-center justify-between gap-2.5 text-sm w-full overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <div className="bg-white/90 border border-slate-300 rounded-lg p-1 mb-1 shadow-2xs w-fit overflow-hidden">
+            <div className="flex flex-nowrap items-center justify-between gap-2.5 text-sm w-fit overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
               
               {/* 1. رقم الفاتورة (تسلسلي موحد غير مكرر لكل حالات الفاتورة) */}
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-3 py-1 shrink-0">
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-2 py-0.5 shrink-0">
                 <span className="font-bold text-slate-700 text-[14px] shrink-0">رقم الفاتورة:</span>
                 <div
                   className={`bg-blue-600 text-white font-mono font-black text-[14px] px-2.5 py-0.5 rounded shadow-2xs flex items-center gap-1`}
@@ -2235,21 +2654,70 @@ export const PosView: React.FC = () => {
                 </div>
               </div>
 
-              {/* 4. التاريخ (تلقائياً وقت الجهاز المعتمد) */}
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-3 py-1 shrink-0">
-                <Calendar className="w-4 h-4 text-emerald-700 shrink-0" />
+              {/* 4. التاريخ (تلقائياً وقت الجهاز المعتمد مع إمكانية تثبيت التاريخ) */}
+              <div className={`flex items-center gap-1.5 border rounded-lg px-2 py-0.5 shrink-0 ml-[245px] transition-colors ${
+                posLayoutConfig.isDateLocked ? 'bg-amber-50/90 border-amber-400 ring-1 ring-amber-300' : 'bg-slate-50 border-slate-300'
+              }`}>
+                <Calendar className={`w-4 h-4 shrink-0 ${posLayoutConfig.isDateLocked ? 'text-amber-700' : 'text-emerald-700'}`} />
                 <span className="font-bold text-slate-700 text-[14px] shrink-0">التاريخ:</span>
-                <input
-                  type="date"
+                <DateInput
                   value={invoiceDate}
-                  onChange={e => setInvoiceDate(e.target.value)}
-                  className="bg-transparent border-none font-mono text-[14px] font-bold text-slate-800 focus:outline-none cursor-pointer"
-                  title="تلقائياً يتم استخدام وقت الكمبيوتر أو الهاتف أو التابلت المعتمد"
+                  onChange={e => {
+                    const newDate = e.target.value;
+                    setInvoiceDate(newDate);
+                    if (posLayoutConfig.isDateLocked) {
+                      const updated = { ...posLayoutConfig, lockedDate: newDate };
+                      setPosLayoutConfig(updated);
+                      savePosLayoutConfig(updated, currentUser?.id);
+                    }
+                  }}
+                  className="bg-transparent border-none font-mono text-[14px] font-bold text-slate-800 focus:outline-none cursor-pointer w-[102px]"
+                  title={
+                    posLayoutConfig.isDateLocked
+                      ? 'التاريخ مثبت على هذا اليوم لجميع العمليات الجديدة حتى إلغاء التثبيت'
+                      : 'تلقائياً يتم استخدام وقت الكمبيوتر أو الهاتف أو التابلت المعتمد'
+                  }
                 />
+
+                {/* زر التثبيت (أيقونة تك صغيرة لتثبيت التاريخ في كل العمليات أو إلغاء التثبيت) */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextLocked = !posLayoutConfig.isDateLocked;
+                    const dateToLock = nextLocked ? (invoiceDate || new Date().toISOString().split('T')[0]) : '';
+                    if (!nextLocked) {
+                      // عند إلغاء التثبيت نعود لتاريخ اليوم الفعلي للجهاز
+                      setInvoiceDate(new Date().toISOString().split('T')[0]);
+                    }
+                    const updated = {
+                      ...posLayoutConfig,
+                      isDateLocked: nextLocked,
+                      lockedDate: dateToLock
+                    };
+                    setPosLayoutConfig(updated);
+                    savePosLayoutConfig(updated, currentUser?.id);
+                    posSound.click();
+                  }}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-bold cursor-pointer transition-all border ${
+                    posLayoutConfig.isDateLocked
+                      ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-700 shadow-2xs'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-300'
+                  }`}
+                  title={
+                    posLayoutConfig.isDateLocked
+                      ? 'التاريخ مثبت حالياً لكل العمليات - انقر لإلغاء التثبيت والعودة لتاريخ الجهاز'
+                      : 'انقر لتثبيت هذا التاريخ في كافة الفواتير والعمليات القادمة'
+                  }
+                >
+                  <Check className={`w-3 h-3 ${posLayoutConfig.isDateLocked ? 'text-white stroke-[3]' : 'text-slate-400 stroke-[2]'}`} />
+                  <span className="text-[10px] whitespace-nowrap">
+                    {posLayoutConfig.isDateLocked ? 'تاريخ مثبت' : 'تثبيت'}
+                  </span>
+                </button>
               </div>
 
               {/* 5. حالة الفاتورة (قائمة منسدلة معتمدة وموحدة) */}
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-3 py-1 shrink-0">
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-2 py-0.5 shrink-0 ml-0 -mr-[250px]">
                 <span className="font-bold text-slate-700 text-[14px] shrink-0">حالة الفاتورة:</span>
                 <select
                   value={invoiceWorkflowStatus}
@@ -2257,7 +2725,7 @@ export const PosView: React.FC = () => {
                     setInvoiceWorkflowStatus(e.target.value as PosInvoiceWorkflowStatus);
                     posSound.click();
                   }}
-                  className={`text-[14px] font-black px-2.5 py-0.5 rounded border cursor-pointer focus:outline-none ${
+                  className={`text-[14px] font-black px-2.5 py-0.5 rounded border cursor-pointer focus:outline-none w-[122px] ${
                     getInvoiceWorkflowStatusMeta(invoiceWorkflowStatus).bgColor
                   } ${getInvoiceWorkflowStatusMeta(invoiceWorkflowStatus).color} ${getInvoiceWorkflowStatusMeta(invoiceWorkflowStatus).borderColor}`}
                   title={getInvoiceWorkflowStatusMeta(invoiceWorkflowStatus).description}
@@ -2276,7 +2744,7 @@ export const PosView: React.FC = () => {
               </div>
 
               {/* 6. المخزن */}
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-3 py-1 shrink-0">
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-lg px-2 py-0.5 shrink-0">
                 <Package className="w-4 h-4 text-amber-700 shrink-0" />
                 <span className="font-bold text-slate-700 text-[14px] shrink-0">المخزن:</span>
                 <select
@@ -2301,7 +2769,7 @@ export const PosView: React.FC = () => {
               </div>
 
               {/* 7. سعر البيع */}
-              <div className={`flex items-center gap-1.5 border rounded-lg px-3 py-1 shrink-0 ${
+              <div className={`flex items-center gap-1.5 border rounded-lg px-2 py-0.5 shrink-0 -mr-2 ml-[250px] ${
                 userPricePolicy.allowedTier !== 'all' 
                   ? 'bg-amber-50/60 border-amber-300' 
                   : 'bg-slate-50 border-slate-300'
@@ -2314,9 +2782,9 @@ export const PosView: React.FC = () => {
                   onChange={e => {
                     const newTier = e.target.value as 'retail' | 'wholesale' | 'special';
                     setPricingTier(newTier);
-                    setTableLines(prev => applyCustomerPricingToLines(selectedCustomerObj, prev, newTier));
+                    setTableLines(prev => applyCustomerPricingToLines(effectivePricingCustomerObj, prev, newTier));
                   }}
-                  className="bg-transparent border-none text-[14px] font-bold text-emerald-900 focus:outline-none cursor-pointer disabled:opacity-85 disabled:cursor-not-allowed"
+                  className="bg-transparent border-none text-[14px] font-bold text-emerald-900 focus:outline-none cursor-pointer disabled:opacity-85 disabled:cursor-not-allowed w-[70px]"
                   title={userPricePolicy.allowedTier !== 'all' ? `محدد ومقيد لصلاحية المستخدم (${userPricePolicy.allowedTier})` : 'فئة سعر البيع المعتمدة بالفاتورة'}
                 >
                   {(userPricePolicy.allowedTier === 'all' || userPricePolicy.allowedTier === 'price1') && (
@@ -2338,25 +2806,27 @@ export const PosView: React.FC = () => {
           </div>
 
         {/* Customer, Sub-Customer, Balance & Order Options - ALL IN ONE SINGLE ROW */}
-        <div className="bg-white/80 px-3 py-2 rounded-xl border border-slate-300 flex items-center gap-4 flex-wrap text-sm shadow-sm">
-          {/* 1. قائمة منسدلة لاختيار الطرف (عميل - مورد - موظف) */}
+        <div className="bg-white/80 px-2 py-0.5 mb-1 rounded-xl border border-slate-300 flex items-center gap-4 flex-wrap text-sm shadow-sm w-fit">
+          {/* 1. زر تبديل دائري لاختيار الطرف (عميل - مورد - موظف) */}
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="font-bold text-slate-700 text-[14px] shrink-0">الطرف:</span>
-            <select
-              value={posTargetType}
-              onChange={e => {
-                const newType = e.target.value as 'customer' | 'supplier' | 'employee';
+            <button
+              type="button"
+              onClick={() => {
+                const types: ('customer' | 'supplier' | 'employee')[] = ['customer', 'supplier', 'employee'];
+                const currentIndex = types.indexOf(posTargetType);
+                const newType = types[(currentIndex + 1) % types.length];
                 setPosTargetType(newType);
                 setSelectedCustomerId('');
                 setCustomerCode('');
                 setCustomerName(newType === 'customer' ? 'عميل كاشير نقدي' : '');
               }}
-              className="bg-blue-50/80 hover:bg-blue-100 border border-blue-300 text-blue-900 rounded-lg px-2.5 py-1.5 text-[14px] font-bold focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-xs transition-colors outline-none"
+              className="bg-blue-50/80 hover:bg-blue-100 border border-blue-300 text-blue-900 rounded-lg px-1.5 py-0.5.5 text-[14px] font-bold focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-xs transition-colors outline-none flex items-center gap-1 select-none min-w-[70px] justify-center"
+              title="اضغط للتبديل بين عميل / مورد / موظف"
             >
-              <option value="customer">عميل</option>
-              <option value="supplier">مورد</option>
-              <option value="employee">موظف</option>
-            </select>
+              <RefreshCw className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span>{posTargetType === 'customer' ? 'عميل' : posTargetType === 'supplier' ? 'مورد' : 'موظف'}</span>
+            </button>
           </div>
 
           {/* 2. خانة إدخال وبحث ومطابقة أحرف وإمكانية الإضافة السريعة */}
@@ -2369,7 +2839,7 @@ export const PosView: React.FC = () => {
                 entityType={posTargetType}
                 showCode={false}
                 inputRef={customerInputRef}
-                inputClassName="text-[14px] font-bold h-9"
+                inputClassName="text-[14px] font-bold h-9 w-[324.631px]"
                 placeholder={
                   posTargetType === 'customer'
                     ? 'اكتب اسم العميل للبحث...'
@@ -2454,7 +2924,7 @@ export const PosView: React.FC = () => {
               className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm shrink-0 cursor-pointer transition-colors"
               title="إضافة جديد بالاسم المكتوب"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-[14.5px] h-[17.5px] ml-[1px] pr-[-5px] -mr-[9px] -ml-[2px] pl-[-1px] pt-[-7px]" />
             </button>
             {selectedCustomerId && (
               <button
@@ -2471,7 +2941,7 @@ export const PosView: React.FC = () => {
                 title="كشف حساب"
                 className="p-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-blue-700 rounded-lg cursor-pointer shrink-0 transition-colors"
               >
-                <Search className="w-4 h-4" />
+                <Search className="w-[16.2437px] h-[19.2437px] pl-[3px] ml-[6px]" />
               </button>
             )}
           </div>
@@ -2493,8 +2963,12 @@ export const PosView: React.FC = () => {
                     setSubCustomerId(sub.id);
                     setSubCustomerName(sub.name);
                     setSubCustomerPhone(sub.phone || '');
+                    setTableLines(prev => applyCustomerPricingToLines(sub, prev));
                   } else {
                     setSubCustomerId('');
+                    // Revert to main customer pricing
+                    const mainCust = parties.find(p => p.id === selectedCustomerId);
+                    setTableLines(prev => applyCustomerPricingToLines(mainCust, prev));
                   }
                 }}
                 subCustomerName={subCustomerName}
@@ -2530,6 +3004,7 @@ export const PosView: React.FC = () => {
                     setSubCustomerId(createdSub.id);
                     setSubCustomerName(createdSub.name);
                     setSubCustomerPhone(createdSub.phone || '');
+                    setTableLines(prev => applyCustomerPricingToLines(createdSub, prev));
                 }}
               />
               <button
@@ -2556,17 +3031,18 @@ export const PosView: React.FC = () => {
                     setSubCustomerId(createdSub.id);
                     setSubCustomerName(createdSub.name);
                     setSubCustomerPhone(createdSub.phone || '');
+                    setTableLines(prev => applyCustomerPricingToLines(createdSub, prev));
                 }}
                 className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm shrink-0 cursor-pointer transition-colors"
                 title="إضافة وحفظ الزبون الفرعي"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-[14.5px] h-[17.5px] ml-[1px] pr-[-5px] -mr-[9px] -ml-[2px] pl-[-1px] pt-[-7px]" />
               </button>
             </div>
           </div>
 
           {/* 4. الرصيد المستحق */}
-          <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 px-2.5 py-1 rounded-lg shrink-0 shadow-2xs">
+          <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-lg shrink-0 shadow-2xs">
             <span className="text-[14px] text-red-600 font-bold shrink-0">
               {subCustomerId ? 'رصيد الفرعي:' : 'الرصيد المستحق:'}
             </span>
@@ -2591,8 +3067,8 @@ export const PosView: React.FC = () => {
 
         {/* Sub-tools Toolbar Row: ملاحظات الفاتورة | خدمة التوصيل | يد الباركود | سطر الباركود | كاميرا الباركود | تجميع الكميات | آخر سعر | الأسعار الخاصة */}
         {posLayoutConfig.showExtraHeaderOptions && (
-          <div className="mt-1.5 pt-1 border-t border-slate-300/80 flex flex-wrap items-center justify-between gap-2 text-sm">
-            <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+          <div className="mt-0.5 pt-0.5 border-t border-slate-300/80 flex flex-nowrap overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] items-center justify-between gap-2 text-sm w-fit">
+            <div className="flex items-center gap-2 flex-nowrap flex-1 min-w-0">
               {/* خانة ملاحظات الفاتورة ككل (تظهر في كشف حساب العميل) */}
               <div
                 className="flex items-center gap-2 bg-white border border-slate-300 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-400 rounded-xl px-3 py-1.5 transition-all shadow-sm flex-1 min-w-[320px] lg:min-w-[420px] max-w-3xl"
@@ -2622,7 +3098,7 @@ export const PosView: React.FC = () => {
               <button
                 type="button"
                 onClick={handleAddDeliveryServiceLine}
-                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[14px] cursor-pointer shadow-xs flex items-center gap-1.5 transition-colors shrink-0"
+                className="px-1.5 py-0.5.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[14px] cursor-pointer shadow-xs flex items-center gap-1.5 transition-colors shrink-0"
                 title="إضافة خدمة توصيل تلقائياً كصنف في الفاتورة لتحديد الملاحظات والسعر"
               >
                 <Truck className="w-4 h-4 text-emerald-100" />
@@ -2631,25 +3107,8 @@ export const PosView: React.FC = () => {
 
               <span className="w-px h-5 bg-slate-300 mx-0.5 shrink-0 hidden sm:block" />
 
-              {/* يد الباركود السريع - رمز فقط بدون نص */}
-              <button
-                type="button"
-                onClick={() => toggleBarcodeHandMode(!isBarcodeHandMode)}
-                className={`p-2 rounded-lg border flex items-center justify-center cursor-pointer transition-all shrink-0 ${
-                  isBarcodeHandMode
-                    ? 'bg-emerald-600 text-white border-emerald-700 shadow-inner ring-2 ring-emerald-300'
-                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100 hover:border-emerald-400 shadow-2xs'
-                }`}
-                title={isBarcodeHandMode ? 'يد الباركود: مفعل (انقر للتعطيل)' : 'يد الباركود: انتقال تلقائي للكمية ثم العودة للباركود'}
-              >
-                <Barcode className={`w-5 h-5 ${isBarcodeHandMode ? 'text-white animate-pulse' : 'text-slate-700'}`} />
-                {isBarcodeHandMode && (
-                  <span className="w-2 h-2 rounded-full bg-emerald-200 animate-ping mr-1"></span>
-                )}
-              </button>
-
               {/* سطر الباركود - خانة الباركود (تم تكبيرها بالعرض) */}
-              <div className="relative w-44 sm:w-56 shrink-0">
+              <div className="relative w-[551px] shrink-0">
                 <input
                   ref={barcodeInputRef}
                   type="text"
@@ -2666,7 +3125,7 @@ export const PosView: React.FC = () => {
                     }
                   }}
                   placeholder="باركود..."
-                  className="w-full pl-8 pr-2.5 py-1 text-[14px] bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono shadow-inner text-center font-bold"
+                  className="w-full pl-8 pr-2.5 py-1 text-[14px] bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono shadow-inner text-center font-bold h-[35px]"
                   title="اكتب أو امسح الباركود ثم اضغط Enter"
                 />
                 <button
@@ -2699,8 +3158,8 @@ export const PosView: React.FC = () => {
                 {isInlineCameraOpen && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-1" />}
               </button>
 
-              {/* إنزال خياري تجميع الكميات واستخدام آخر سعر بجانب كاميرا الباركود بخط 14 */}
-              <label className="flex items-center gap-1.5 cursor-pointer shrink-0 text-[14px] text-slate-700 font-bold bg-white hover:bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-300 select-none shadow-2xs transition-colors">
+              {/* تجميع الكميات */}
+              <label className="pos-advanced-config flex items-center gap-1.5 cursor-pointer shrink-0 text-[14px] text-slate-700 font-bold bg-white hover:bg-slate-50 px-1.5 py-0.5 rounded-lg border border-slate-300 select-none shadow-2xs transition-colors ml-2">
                 <input
                   type="checkbox"
                   checked={aggregateDuplicateItems}
@@ -2710,7 +3169,8 @@ export const PosView: React.FC = () => {
                 <span>تجميع الكميات</span>
               </label>
 
-              <label className="flex items-center gap-1.5 cursor-pointer shrink-0 text-[14px] text-slate-700 font-bold bg-white hover:bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-300 select-none shadow-2xs transition-colors">
+              {/* استخدام آخر سعر */}
+              <label className="pos-advanced-config flex items-center gap-1.5 cursor-pointer shrink-0 text-[14px] text-slate-700 font-bold bg-white hover:bg-slate-50 px-1.5 py-0.5 rounded-lg border border-slate-300 select-none shadow-2xs transition-colors">
                 <input
                   type="checkbox"
                   checked={useLastCustomerPrice}
@@ -2721,11 +3181,11 @@ export const PosView: React.FC = () => {
               </label>
 
               {/* Special Prices Button for current customer */}
-              {selectedCustomerId && selectedCustomerId !== 'pt-cust-1' && (
+              {effectivePricingCustomerId && (
                 <button
                   type="button"
                   onClick={() => setIsSpecialPricesModalOpen(true)}
-                  className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 rounded-lg font-bold text-[14px] cursor-pointer shadow-2xs flex items-center gap-1 shrink-0"
+                  className="pos-advanced-config px-1.5 py-0.5 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 rounded-lg font-bold text-[14px] cursor-pointer shadow-2xs flex items-center gap-1 shrink-0"
                   title="تحديد أو تعديل الأسعار الخاصة لهذا العميل"
                 >
                   <DollarSign className="w-4 h-4 text-amber-700" />
@@ -2766,9 +3226,6 @@ export const PosView: React.FC = () => {
                 <tr>
                   {posLayoutConfig.tableColumns.showIndex && (
                     <th className="p-2 w-8 text-center border-l border-slate-300">#</th>
-                  )}
-                  {posLayoutConfig.tableColumns.showBarcode && (
-                    <th className="p-2 w-24 border-l border-slate-300">باركود</th>
                   )}
                   {/* 1. الصنف */}
                   <th className="p-2 min-w-[200px] border-l border-slate-300">الصنف</th>
@@ -2831,10 +3288,10 @@ export const PosView: React.FC = () => {
                   if (e.key === 'Tab' && !e.shiftKey) {
                     const target = e.target as HTMLElement;
                     const rows = Array.from(e.currentTarget.querySelectorAll('tr'));
-                    const lastRow = rows[rows.length - 1] as HTMLTableRowElement | undefined;
+                    const firstRow = rows[0] as HTMLTableRowElement | undefined;
                     
-                    if (lastRow && lastRow.contains(target)) {
-                      const focusableElements = Array.from(lastRow.querySelectorAll('button:not([disabled]), [href], input:not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')) as HTMLElement[];
+                    if (firstRow && firstRow.contains(target)) {
+                      const focusableElements = Array.from(firstRow.querySelectorAll('button:not([disabled]), [href], input:not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')) as HTMLElement[];
                       const lastFocusable = focusableElements[focusableElements.length - 1];
                       
                       if (target === lastFocusable || target.closest('td:last-child')) {
@@ -2854,7 +3311,7 @@ export const PosView: React.FC = () => {
                   }
                 }}
               >
-                {tableLines.map((line, idx) => {
+                {[...tableLines].reverse().map((line, idx) => {
                   const isActive = activeRowId === line.id;
                   return (
                     <tr
@@ -2871,28 +3328,14 @@ export const PosView: React.FC = () => {
                         </td>
                       )}
 
-                      {/* Barcode input */}
-                      {posLayoutConfig.tableColumns.showBarcode && (
-                        <td className="p-1 border-l border-slate-200">
-                          <input
-                            id={`barcode-input-${line.id}`}
-                            type="text"
-                            value={line.barcode}
-                            onChange={e => handleBarcodeChangeInRow(line.id, e.target.value)}
-                            placeholder="الباركود..."
-                            className="w-full px-1.5 py-1 bg-transparent border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white rounded font-mono text-xs"
-                          />
-                        </td>
-                      )}
-
                       {/* 1. الصنف - Item Name with autocomplete + dimension toggle badge */}
                       <td className="p-1 border-l border-slate-200">
                         {line.inventoryItemId === 'srv-delivery' || line.itemName === 'خدمة توصيل' ? (
-                          <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded font-bold text-xs">
+                          <div className="flex items-center gap-1.5 px-1.5 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded font-bold text-xs">
                             <Truck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                             <span>خدمة توصيل</span>
                             <span className="text-[10px] text-emerald-700 bg-emerald-100 px-1 py-0.5 rounded font-normal mr-auto">
-                              (تحديد ملاحظات وسعر فقط)
+                              (خدمة بلا مخزن - بالتكلفة الأصلية)
                             </span>
                           </div>
                         ) : (
@@ -3184,8 +3627,8 @@ export const PosView: React.FC = () => {
                                 (line.barcode && matchItemByBarcode(i, line.barcode)) || 
                                 i.name === line.itemName
                               );
-                              const specialFromCustomer = selectedCustomerObj?.specialPrices && line.inventoryItemId && selectedCustomerObj.specialPrices[line.inventoryItemId] !== undefined;
-                              const specialFromItem = Boolean(matchedItem?.customerSpecialPrices && selectedCustomerId && matchedItem.customerSpecialPrices.some(p => p.customerId === selectedCustomerId));
+                              const specialFromCustomer = effectivePricingCustomerObj?.specialPrices && line.inventoryItemId && effectivePricingCustomerObj.specialPrices[line.inventoryItemId] !== undefined;
+                              const specialFromItem = Boolean(matchedItem?.customerSpecialPrices && effectivePricingCustomerId && matchedItem.customerSpecialPrices.some(p => p.customerId === effectivePricingCustomerId));
                               
                               if (specialFromCustomer || specialFromItem) {
                                 return (
@@ -3248,7 +3691,7 @@ export const PosView: React.FC = () => {
                               e.stopPropagation();
                               setActiveLineForAttachments(line);
                             }}
-                            className={`px-2 py-1 rounded-lg border text-xs font-bold flex items-center justify-center gap-1 mx-auto cursor-pointer transition-all shadow-2xs ${
+                            className={`px-1.5 py-0.5 rounded-lg border text-xs font-bold flex items-center justify-center gap-1 mx-auto cursor-pointer transition-all shadow-2xs ${
                               line.attachments && line.attachments.length > 0
                                 ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700 ring-2 ring-emerald-300'
                                 : 'bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border-slate-300 hover:border-blue-400'
@@ -3304,30 +3747,30 @@ export const PosView: React.FC = () => {
 
           {/* Table Summary Footer: عدد الأصناف - إجمالي القطع - الإجمالي - الخصم - الإضافي - الضريبة - المدفوع - المتبقي - سطر جديد */}
           {posLayoutConfig.showTableStatsFooter && (
-            <div className="bg-[#b7cde3] p-2 border-t-2 border-slate-400 flex flex-wrap items-center justify-between gap-2 select-none shadow-xs">
+            <div className="bg-[#b7cde3] p-0.5 border-t-2 border-slate-400 flex flex-wrap items-center justify-between gap-2 select-none shadow-xs">
               {/* Totals Breakdown Badges (عدد الأصناف | إجمالي القطع | الإجمالي | الخصم | الإضافي | الضريبة | المدفوع | المتبقي | سطر جديد) */}
               <div className="flex flex-wrap items-center gap-1.5 font-mono text-xs">
                 {/* 1. عدد الأصناف */}
                 <div
-                  className="bg-white text-slate-700 px-2 py-1 rounded-lg border border-slate-300 shadow-2xs flex items-center gap-1"
+                  className="bg-white text-slate-700 px-1.5 py-0.5 rounded-lg border border-slate-300 shadow-2xs flex items-center gap-1"
                   title="عدد الأصناف المسجلة في الفاتورة"
                 >
-                  <span className="text-[10px] text-slate-500 font-sans font-bold">عدد الأصناف:</span>
+                  <span className="text-[9px] text-slate-400 font-light font-sans font-bold">عدد الأصناف:</span>
                   <span className="font-bold text-xs text-blue-700">{activeItemsCount}</span>
                 </div>
 
                 {/* 2. إجمالي القطع */}
                 <div
-                  className="bg-white text-slate-700 px-2 py-1 rounded-lg border border-slate-300 shadow-2xs flex items-center gap-1"
+                  className="bg-white text-slate-700 px-1.5 py-0.5 rounded-lg border border-slate-300 shadow-2xs flex items-center gap-1"
                   title="إجمالي عدد القطع والكميات"
                 >
-                  <span className="text-[10px] text-slate-500 font-sans font-bold">إجمالي القطع:</span>
+                  <span className="text-[9px] text-slate-400 font-light font-sans font-bold">إجمالي القطع:</span>
                   <span className="font-bold text-xs text-emerald-700">{totalPiecesCount}</span>
                 </div>
 
                 {/* 3. الإجمالي */}
                 <div
-                  className="bg-[#122b49] text-white px-2.5 py-1 rounded-lg border border-blue-900/60 shadow-2xs flex items-center gap-1.5"
+                  className="bg-[#122b49] text-white px-1.5 py-0.5 rounded-lg border border-blue-900/60 shadow-2xs flex items-center gap-1.5"
                   title="مجموع بنود الفاتورة قبل الخصم والإضافات"
                 >
                   <span className="text-[10px] text-blue-200 font-sans font-bold">الإجمالي:</span>
@@ -3342,7 +3785,7 @@ export const PosView: React.FC = () => {
 
                 {/* 4. الخصم */}
                 <div
-                  className="bg-white text-rose-700 px-2 py-1 rounded-lg border border-rose-300 shadow-2xs flex items-center gap-1"
+                  className="bg-white text-rose-700 px-1.5 py-0.5 rounded-lg border border-rose-300 shadow-2xs flex items-center gap-1"
                   title="إجمالي الخصم الممنوح"
                 >
                   <span className="text-[10px] text-rose-500 font-sans font-bold">الخصم:</span>
@@ -3351,7 +3794,7 @@ export const PosView: React.FC = () => {
 
                 {/* 5. الإضافي */}
                 <div
-                  className="bg-white text-amber-800 px-2 py-1 rounded-lg border border-amber-300 shadow-2xs flex items-center gap-1"
+                  className="bg-white text-amber-800 px-1.5 py-0.5 rounded-lg border border-amber-300 shadow-2xs flex items-center gap-1"
                   title="المصاريف أو الرسوم الإضافية"
                 >
                   <span className="text-[10px] text-amber-600 font-sans font-bold">الإضافي:</span>
@@ -3360,7 +3803,7 @@ export const PosView: React.FC = () => {
 
                 {/* 6. الضريبة */}
                 <div
-                  className="bg-white text-blue-800 px-2 py-1 rounded-lg border border-blue-300 shadow-2xs flex items-center gap-1"
+                  className="bg-white text-blue-800 px-1.5 py-0.5 rounded-lg border border-blue-300 shadow-2xs flex items-center gap-1"
                   title="مبلغ ضريبة القيمة المضافة"
                 >
                   <span className="text-[10px] text-blue-500 font-sans font-bold">الضريبة:</span>
@@ -3369,7 +3812,7 @@ export const PosView: React.FC = () => {
 
                 {/* 7. المدفوع */}
                 <div
-                  className="bg-white text-emerald-800 px-2.5 py-1 rounded-lg border border-emerald-400 shadow-2xs flex items-center gap-1.5"
+                  className="bg-white text-emerald-800 px-1.5 py-0.5 rounded-lg border border-emerald-400 shadow-2xs flex items-center gap-1.5"
                   title="المبلغ المدفوع فعلياً نقداً وبنكياً"
                 >
                   <span className="text-[10px] text-emerald-600 font-sans font-bold">المدفوع:</span>
@@ -3378,7 +3821,7 @@ export const PosView: React.FC = () => {
 
                 {/* 8. المتبقي (بارز جداً لسرعة التحصيل) */}
                 <div
-                  className={`px-3 py-1 rounded-lg border shadow-xs flex items-center gap-1.5 transition-all ${
+                  className={`px-2 py-0.5 rounded-lg border shadow-xs flex items-center gap-1.5 transition-all ${
                     calculatedRemaining > 0
                       ? 'bg-rose-600 text-white border-rose-700 ring-2 ring-rose-400/50'
                       : 'bg-emerald-600 text-white border-emerald-700'
@@ -3397,7 +3840,7 @@ export const PosView: React.FC = () => {
 
                 {/* 9. حالة الدفع (تم رفعها للسطر الأعلى بجانب المتبقي) */}
                 <div
-                  className="bg-white/95 text-slate-800 px-2.5 py-1 rounded-lg border border-slate-300 shadow-2xs flex items-center gap-1.5 shrink-0"
+                  className="bg-white/95 text-slate-800 px-1.5 py-0.5 rounded-lg border border-slate-300 shadow-2xs flex items-center gap-1.5 shrink-0"
                   title="حالة دفع الفاتورة الحالية"
                 >
                   <span className="text-[10px] text-slate-600 font-sans font-bold">حالة الدفع:</span>
@@ -3408,24 +3851,13 @@ export const PosView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Right: Keyboard Shortcuts & Hide Button */}
+              {/* Right: Hide Button */}
               <div className="flex items-center gap-2">
-                <div className="text-[11px] font-sans text-slate-700 hidden lg:flex items-center gap-2 bg-white/80 px-2.5 py-1 rounded-md border border-slate-300 font-bold">
-                  <span>اختصارات:</span>
-                  <span className="font-mono text-blue-900 font-black" title="دفع نقدي (بدون طباعة)">F5 دفع</span>
-                  <span className="text-slate-400">|</span>
-                  <span className="font-mono text-emerald-900 font-black" title="دفع نقدي + طباعة حراري">Ctrl+Enter دفع وطباعة</span>
-                  <span className="text-slate-400">|</span>
-                  <span className="font-mono text-slate-800 font-black" title="حفظ فقط (آجل/نقدي)">Ctrl+S حفظ</span>
-                  <span className="text-slate-400">|</span>
-                  <span className="font-mono text-amber-900 font-black" title="حفظ + طباعة حراري">Ctrl+C حراري</span>
-                </div>
-
                 {isLiveCustomizing && (
                   <button
                     type="button"
                     onClick={() => handleToggleLayoutSection('showTableStatsFooter')}
-                    className="text-[10px] bg-rose-500 hover:bg-rose-600 text-white px-2 py-1 rounded-md cursor-pointer font-sans font-bold"
+                    className="text-[10px] bg-rose-500 hover:bg-rose-600 text-white px-1.5 py-0.5 rounded-md cursor-pointer font-sans font-bold"
                     title="إخفاء شريط إحصائيات الجدول"
                   >
                     ✕ إخفاء الشريط
@@ -3438,49 +3870,11 @@ export const PosView: React.FC = () => {
       </div>
 
 
-      {/* Quick Shortcuts Bar (Customizable Buttons) */}
-      {posLayoutConfig.showQuickShortcutsBar && (
-        <div className="bg-[#cfe0f2] px-3 py-1.5 border-t border-slate-300 flex items-center justify-between gap-3 flex-wrap shadow-xs">
-          {/* الاختصارات السريعة */}
-          <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
-            <span className="text-[14px] font-bold text-slate-700 shrink-0 ml-1">اختصارات سريعة:</span>
-            {posButtons
-              .filter(b => b.location === 'quick_grid' && b.isVisible)
-              .sort((a, b) => a.order - b.order)
-              .map((btn, idx, arr) => (
-                <PosCustomButtonRenderer
-                  key={btn.id}
-                  button={btn}
-                  isEditMode={isLiveCustomizing}
-                  onExecuteAction={handleExecuteButtonAction}
-                  onMoveRight={() => handleMoveButtonInLive(btn.id, 'right')}
-                  onMoveLeft={() => handleMoveButtonInLive(btn.id, 'left')}
-                  onEdit={() => setIsButtonCustomizerOpen(true)}
-                  onDelete={() => handleDeleteButtonInLive(btn.id)}
-                  canMoveRight={idx > 0}
-                  canMoveLeft={idx < arr.length - 1}
-                />
-              ))}
-
-            {isLiveCustomizing && (
-              <button
-                type="button"
-                onClick={() => setIsButtonCustomizerOpen(true)}
-                className="px-2.5 py-1 bg-amber-300 hover:bg-amber-400 text-amber-950 font-bold rounded-xl text-xs border border-dashed border-amber-600 flex items-center gap-1 cursor-pointer"
-              >
-                <Plus className="w-3 h-3" />
-                <span>+ زر اختصار</span>
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* ========================================================= */}
       {/* 4. BOTTOM PAYMENT, TREASURY & TOTALS CONSOLE */}
       {/* (شريط الحسابات، الصندوق، ألية وعملة الدفع، والإجمالي) */}
       {/* ========================================================= */}
-      <div className="bg-[#193a61] text-white p-2.5 border-t-2 border-[#143254] shadow-lg flex flex-col gap-2.5">
+      <div className="bg-[#193a61] text-white p-1 border-t-2 border-[#143254] shadow-lg flex flex-col gap-1">
         {/* 4A. Integrated Payment, Treasury & Currency Console (عملة الفاتورة وسعر الصرف، الدفع النقدي، الدفع البنكي، الصناديق، سطر الملاحظات) */}
         {posLayoutConfig.showPaymentConsole && (
           <PosBottomPaymentConsole
@@ -3537,7 +3931,7 @@ export const PosView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsButtonCustomizerOpen(true)}
-                className="px-2.5 py-1.5 bg-amber-400 hover:bg-amber-500 text-amber-950 font-bold rounded-xl text-xs border border-dashed border-amber-600 flex items-center gap-1 cursor-pointer shadow-xs ml-auto"
+                className="px-1.5 py-0.5.5 bg-amber-400 hover:bg-amber-500 text-amber-950 font-bold rounded-xl text-xs border border-dashed border-amber-600 flex items-center gap-1 cursor-pointer shadow-xs ml-auto"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>+ زر أسفل الشاشة</span>
@@ -3571,7 +3965,7 @@ export const PosView: React.FC = () => {
 
       {/* Header Sub-tools Modals */}
       {activeHeaderSubModal === 'currency' && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-5 max-w-md w-full text-slate-800 space-y-4">
             <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
               <Coins className="w-5 h-5 text-emerald-600" />
@@ -3633,7 +4027,7 @@ export const PosView: React.FC = () => {
               {/* أزرار أسعار صرف شائعة سريعة */}
               {selectedCurrencyCode !== 'ILS' && (
                 <div>
-                  <span className="block text-[11px] text-slate-500 mb-1 font-semibold">أسعار صرف مقترحة سريعة:</span>
+                  <span className="block text-[10px] text-slate-400 font-light mb-1 font-semibold">أسعار صرف مقترحة سريعة:</span>
                   <div className="flex gap-2 flex-wrap">
                     {(selectedCurrencyCode === 'USD' ? [3.65, 3.68, 3.70, 3.72, 3.75] :
                       selectedCurrencyCode === 'JOD' ? [5.15, 5.18, 5.20, 5.22, 5.25] :
@@ -3642,7 +4036,7 @@ export const PosView: React.FC = () => {
                         key={r}
                         type="button"
                         onClick={() => handleExchangeRateChange(r)}
-                        className={`px-2.5 py-1 text-xs font-mono font-bold rounded-lg border cursor-pointer transition-colors ${
+                        className={`px-1.5 py-0.5 text-xs font-mono font-bold rounded-lg border cursor-pointer transition-colors ${
                           customExchangeRate === r ? 'bg-amber-100 border-amber-500 text-amber-900' : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-700'
                         }`}
                       >
@@ -3683,7 +4077,7 @@ export const PosView: React.FC = () => {
       )}
 
       {activeHeaderSubModal === 'representative' && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-5 max-w-sm w-full text-slate-800 space-y-4">
             <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
               <Users className="w-4 h-4 text-blue-600" />
@@ -3718,7 +4112,7 @@ export const PosView: React.FC = () => {
       )}
 
       {activeHeaderSubModal === 'tax' && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-5 max-w-sm w-full text-slate-800 space-y-4">
             <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
               <Percent className="w-4 h-4 text-indigo-600" />
@@ -3762,7 +4156,7 @@ export const PosView: React.FC = () => {
       )}
 
       {activeHeaderSubModal === 'additional' && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-5 max-w-sm w-full text-slate-800 space-y-4">
             <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
               <DollarSign className="w-4 h-4 text-amber-600" />
@@ -3794,7 +4188,7 @@ export const PosView: React.FC = () => {
       )}
 
       {activeHeaderSubModal === 'discount' && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-5 max-w-sm w-full text-slate-800 space-y-4">
             <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
               <Tag className="w-4 h-4 text-rose-600" />
@@ -3849,7 +4243,7 @@ export const PosView: React.FC = () => {
       )}
 
       {activeHeaderSubModal === 'shipping' && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-5 max-w-sm w-full text-slate-800 space-y-4">
             <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
               <Truck className="w-4 h-4 text-blue-600" />
@@ -3897,7 +4291,7 @@ export const PosView: React.FC = () => {
       )}
 
       {activeHeaderSubModal === 'notes' && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-5 max-w-sm w-full text-slate-800 space-y-4">
             <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
               <FileText className="w-4 h-4 text-blue-600" />
@@ -3916,51 +4310,6 @@ export const PosView: React.FC = () => {
                 className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl cursor-pointer"
               >
                 حفظ
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeHeaderSubModal === 'details' && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl p-5 max-w-md w-full text-slate-800 space-y-4">
-            <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-              <Info className="w-4 h-4 text-blue-600" />
-              <span>تفاصيل الفاتورة الشاملة</span>
-            </h3>
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-slate-500">رقم الفاتورة:</span>
-                <span className="font-bold font-mono text-blue-700">INV-{invoiceSeqNumber}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">العميل:</span>
-                <span className="font-bold">{customerName}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">الزبون المتغير:</span>
-                <span className="font-bold text-amber-800">{customCustomerText}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">الفرع / المخزن:</span>
-                <span className="font-bold">{branch} / {warehouse}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">المندوب:</span>
-                <span className="font-bold">{representative}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">الخزنة المودع بها:</span>
-                <span className="font-bold text-emerald-700">{treasuries.find(t => t.accountCode === selectedTreasuryCode)?.name || 'الصندوق النقدي'}</span>
-              </div>
-            </div>
-            <div className="flex justify-end">
-              <button
-                onClick={() => setActiveHeaderSubModal(null)}
-                className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl cursor-pointer"
-              >
-                إغلاق
               </button>
             </div>
           </div>
@@ -4121,15 +4470,15 @@ export const PosView: React.FC = () => {
 
       {/* Customer Special Prices Modal */}
       <CustomerSpecialPricesModal
-        party={currentCustomer}
+        party={effectivePricingCustomerObj}
         isOpen={isSpecialPricesModalOpen}
         onClose={() => setIsSpecialPricesModalOpen(false)}
         onSavePrices={(prices) => {
-          if (currentCustomer) {
-            updateParty(currentCustomer.id, {
+          if (effectivePricingCustomerObj) {
+            updateParty(effectivePricingCustomerObj.id, {
               specialPrices: prices
             });
-            setTableLines(prev => applyCustomerPricingToLines({ ...currentCustomer, specialPrices: prices }, prev));
+            setTableLines(prev => applyCustomerPricingToLines({ ...effectivePricingCustomerObj, specialPrices: prices }, prev));
           }
         }}
       />

@@ -52,7 +52,7 @@ export const DashboardView: React.FC = () => {
         {/* Total Revenue */}
         <div className="bg-white p-3.5 rounded-lg border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <p className="text-[11px] text-slate-500 font-bold uppercase">إجمالي مبيعات وإيرادات النشاط</p>
+            <p className="text-[10px] text-slate-400 font-light font-bold uppercase">إجمالي مبيعات وإيرادات النشاط</p>
             <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-bold">مكتمل</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mt-1 font-mono">
@@ -66,7 +66,7 @@ export const DashboardView: React.FC = () => {
         {/* Print Orders In Progress */}
         <div className="bg-white p-3.5 rounded-lg border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <p className="text-[11px] text-slate-500 font-bold uppercase">طلبات وأوامر قيد التشغيل</p>
+            <p className="text-[10px] text-slate-400 font-light font-bold uppercase">طلبات وأوامر قيد التشغيل</p>
             <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-bold">نشط</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mt-1 font-mono">
@@ -80,7 +80,7 @@ export const DashboardView: React.FC = () => {
         {/* Paper & Raw Material Stock */}
         <div className="bg-white p-3.5 rounded-lg border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <p className="text-[11px] text-slate-500 font-bold uppercase">حالة المخزون والخامات</p>
+            <p className="text-[10px] text-slate-400 font-light font-bold uppercase">حالة المخزون والخامات</p>
             {stats.lowStockCount > 0 ? (
               <span className="text-[10px] bg-rose-50 text-rose-700 px-1.5 py-0.5 rounded font-bold">{stats.lowStockCount} نواقص</span>
             ) : (
@@ -101,7 +101,7 @@ export const DashboardView: React.FC = () => {
           className="bg-white p-3.5 rounded-lg border border-slate-200 shadow-xs hover:border-emerald-400 transition-colors cursor-pointer group"
         >
           <div className="flex items-center justify-between">
-            <p className="text-[11px] text-slate-500 font-bold uppercase group-hover:text-emerald-700 transition-colors">
+            <p className="text-[10px] text-slate-400 font-light font-bold uppercase group-hover:text-emerald-700 transition-colors">
               الخزنات والسيولة النقدية والبنكية
             </p>
             <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-bold">
@@ -111,7 +111,7 @@ export const DashboardView: React.FC = () => {
           <h2 className="text-xl sm:text-2xl font-bold text-emerald-700 mt-1 font-mono">
             {totalInflows.toLocaleString('ar-SA')} <span className="text-xs text-slate-400 font-normal">{settings.currency}</span>
           </h2>
-          <p className="text-[10px] text-slate-500 mt-2 font-medium">
+          <p className="text-[9px] text-slate-400 font-light mt-2 font-medium">
             كاش: {stats.cashBalance.toLocaleString('ar-SA')} • بنك وتطبيقات: {stats.bankBalance.toLocaleString('ar-SA')} {settings.currency}
           </p>
         </div>
@@ -223,7 +223,7 @@ export const DashboardView: React.FC = () => {
                   <div key={item.id} className="flex items-center justify-between border-b border-slate-100 pb-2 last:border-0 last:pb-0">
                     <div>
                       <p className="text-xs font-bold text-slate-800">{item.name}</p>
-                      <p className="text-[10px] text-slate-500">
+                      <p className="text-[9px] text-slate-400 font-light">
                         المتبقي: <strong className="text-rose-600 font-mono">{item.stockQuantity} {item.unit}</strong> فقط
                       </p>
                     </div>

@@ -17,7 +17,8 @@ import {
   Users,
   Building2,
   AlertCircle,
-  X
+  X,
+  RotateCcw
 } from 'lucide-react';
 
 interface PayrollSheetsViewProps {
@@ -35,6 +36,7 @@ export const PayrollSheetsView: React.FC<PayrollSheetsViewProps> = ({
     treasuries,
     deleteDraftPayrollSheet,
     approveAndDisbursePayrollSheet,
+    unapprovePayrollSheet,
     updateDraftPayrollSheet,
     setSelectedPayrollSheetForPrint,
     settings
@@ -92,6 +94,17 @@ export const PayrollSheetsView: React.FC<PayrollSheetsViewProps> = ({
     }
   };
 
+  const handleUnapprove = (id: string) => {
+    if (window.confirm('هل أنت متأكد من إلغاء اعتماد هذا الكشف؟ سيتم حذف القيود والسندات المرتبطة به وسيعود كمسودة قابلة للتعديل.')) {
+      const res = unapprovePayrollSheet(id);
+      if (res.success) {
+        alert(res.message);
+      } else {
+        alert(res.message);
+      }
+    }
+  };
+
   return (
     <div className="space-y-4" dir="rtl">
       
@@ -108,7 +121,7 @@ export const PayrollSheetsView: React.FC<PayrollSheetsViewProps> = ({
                 {payrollSheets.length} كشف مسجل
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-[10px] text-slate-400 font-light mt-1">
               إعداد مسودات الرواتب، تحديد نظام الاحتساب (شهري، أسبوعي، يومي)، اختيار خزينة الصرف، والاعتماد المحاسبي الدائم
             </p>
           </div>
@@ -221,7 +234,7 @@ export const PayrollSheetsView: React.FC<PayrollSheetsViewProps> = ({
                         <div className="font-bold text-slate-900 text-sm hover:text-blue-600 cursor-pointer" onClick={() => setSelectedSheetForDetails(sheet)}>
                           {sheet.title}
                         </div>
-                        <div className="text-[11px] text-slate-500 mt-0.5">
+                        <div className="text-[10px] text-slate-400 font-light mt-0.5">
                           الفترة: {sheet.period} ({sheet.startDate} إلى {sheet.endDate})
                         </div>
                       </td>
@@ -354,6 +367,18 @@ export const PayrollSheetsView: React.FC<PayrollSheetsViewProps> = ({
                           >
                             <Printer className="w-3.5 h-3.5" />
                           </button>
+                          
+                          {/* Unapprove if approved */}
+                          {sheet.status === 'approved' && (
+                            <button
+                              onClick={() => handleUnapprove(sheet.id)}
+                              className="px-2 py-1 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700 rounded text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer border border-rose-200"
+                              title="إلغاء الاعتماد للتعديل"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>إلغاء الاعتماد للتعديل</span>
+                            </button>
+                          )}
 
                         </div>
                       </td>
@@ -369,7 +394,7 @@ export const PayrollSheetsView: React.FC<PayrollSheetsViewProps> = ({
 
       {/* Sheet Details Modal (View Line Items) */}
       {selectedSheetForDetails && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full border border-slate-200 overflow-hidden my-auto flex flex-col max-h-[90vh]">
             
             <div className="bg-slate-900 text-white px-5 py-4 flex items-center justify-between shrink-0">

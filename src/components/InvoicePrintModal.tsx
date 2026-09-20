@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { Printer, X, CheckCircle, QrCode, FileText } from 'lucide-react';
 import { PrintHeader, ThermalReceiptHeader } from './common/PrintHeader';
+import { ReportSignatures } from './common/ReportSignatures';
 
 export const InvoicePrintModal: React.FC = () => {
   const { selectedInvoiceForPrint, setSelectedInvoiceForPrint, directPrintOptions, setDirectPrintOptions, settings } = useAccounting();
@@ -26,18 +27,22 @@ export const InvoicePrintModal: React.FC = () => {
   if (!selectedInvoiceForPrint) return null;
 
   const inv = selectedInvoiceForPrint;
-
+  const isDraftPreview = inv.id === 'draft-pos-preview' || inv.invoiceNumber?.includes('مسودة');
 
   const handlePrint = () => {
     window.print();
   };
 
+  const formattedCustomerDisplayName = `${inv.customerName || 'عميل كاشير نقدي'}${
+    inv.customCustomerText ? ` (${inv.customCustomerText})` : ''
+  }${inv.subCustomerName ? ` - زبون فرعي: ${inv.subCustomerName}` : ''}`;
+
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white">
-      <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden my-auto print:border-none print:shadow-none print:max-w-none">
+    <div className="fixed inset-0 z-[100] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto print:p-0 print:m-0 print:bg-white print:static print:overflow-visible print-modal-container">
+      <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden my-auto print:border-none print:shadow-none print:max-w-none print:w-full print:rounded-none print:overflow-visible">
         {/* Header Controls (Hidden during print) */}
-        <div className="bg-slate-50 p-4 border-b border-slate-200 flex items-center justify-between print:hidden">
-          <div className="flex items-center gap-2">
+        <div className="bg-slate-50 p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 print:hidden">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-semibold text-slate-600">طريقة العرض والطباعة:</span>
             <div className="bg-slate-200 p-0.5 rounded-lg flex text-xs">
               <button
@@ -67,17 +72,26 @@ export const InvoicePrintModal: React.FC = () => {
             </div>
           </div>
 
+          {isDraftPreview && (
+            <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-900 border border-amber-300 rounded-lg font-bold text-xs">
+              <FileText className="w-3.5 h-3.5 text-amber-700" />
+              <span>مسودة مراجعة الفاتورة قبل الحفظ</span>
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
             <button
               onClick={handlePrint}
               className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-xs transition-colors cursor-pointer"
+              title="طباعة الفاتورة للعميل لمراجعة البنود والأسعار"
             >
               <Printer className="w-4 h-4" />
-              <span>طباعة الآن</span>
+              <span>{isDraftPreview ? 'طباعة المسودة للعميل' : 'طباعة الآن'}</span>
             </button>
             <button
               onClick={() => setSelectedInvoiceForPrint(null)}
               className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 cursor-pointer"
+              title="إغلاق والعودة لشاشة الكاشير"
             >
               <X className="w-5 h-5" />
             </button>
@@ -89,11 +103,11 @@ export const InvoicePrintModal: React.FC = () => {
           <div className="p-8 space-y-6 text-slate-800 text-xs font-sans print:p-0">
             {/* Standard or Full Header Banner */}
             <PrintHeader
-              title="فاتورة ضريبية مبسطة"
-              subtitle="Simplified Tax Invoice - ZATCA & Official Tax Compliant"
+              title={isDraftPreview ? "فاتورة مبيعات (مسودة مراجعة)" : "فاتورة ضريبية مبسطة"}
+              subtitle={isDraftPreview ? "معاينة الفاتورة ومراجعة البنود قبل السداد والاعتماد" : "Simplified Tax Invoice - ZATCA & Official Tax Compliant"}
               docNumber={inv.invoiceNumber}
               docDate={inv.date}
-              badge="فاتورة مبيعات معتمدة"
+              badge={isDraftPreview ? "مسودة مراجعة للعميل" : "فاتورة مبيعات معتمدة"}
               qrCode={
                 <div className="w-18 h-18 bg-slate-50 border border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-600 p-1">
                   <QrCode className="w-12 h-12 text-slate-800" />
@@ -110,11 +124,21 @@ export const InvoicePrintModal: React.FC = () => {
                 <div><span className="text-slate-500">طريقة السداد:</span> <strong>{inv.paymentMethod === 'cash' ? 'نقدي' : inv.paymentMethod === 'card' ? 'بطاقة بنكية / مدى' : 'آجل على الحساب'}</strong></div>
               </div>
               <div className="space-y-1">
-                <div><span className="text-slate-500">العميل:</span> <strong className="text-slate-900">{inv.customerName}</strong></div>
+                <div><span className="text-slate-500">العميل:</span> <strong className="text-slate-900">{formattedCustomerDisplayName}</strong></div>
+                {(inv.customerPhone || inv.subCustomerPhone) && (
+                  <div><span className="text-slate-500">هاتف العميل:</span> <span className="font-mono">{inv.customerPhone || inv.subCustomerPhone}</span></div>
+                )}
                 {inv.customerTaxNumber && (
                   <div><span className="text-slate-500">الرقم الضريبي للعميل:</span> <span className="font-mono">{inv.customerTaxNumber}</span></div>
                 )}
-                <div><span className="text-slate-500">حالة السداد:</span> <span className="text-emerald-700 font-bold">مدفوعة بالكامل</span></div>
+                <div>
+                  <span className="text-slate-500">حالة السداد:</span>{' '}
+                  <span className={`font-bold ${isDraftPreview ? 'text-amber-700' : inv.paidAmount >= inv.totalAmount ? 'text-emerald-700' : 'text-blue-700'}`}>
+                    {isDraftPreview
+                      ? (inv.paidAmount > 0 ? `مدفوع عربون (${inv.paidAmount}) - مسودة قبل الحفظ` : 'مسودة مراجعة قبل الحفظ والسداد')
+                      : (inv.paidAmount >= inv.totalAmount ? 'مدفوعة بالكامل' : inv.paidAmount > 0 ? 'مدفوعة جزئياً' : 'آجل على الحساب')}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -158,7 +182,7 @@ export const InvoicePrintModal: React.FC = () => {
 
                   return (
                     <tr key={idx} className="hover:bg-slate-50/50">
-                      <td className="p-2 text-slate-400 font-mono text-center">{inv.items.length - idx}</td>
+                      <td className="p-2 text-slate-400 font-mono text-center">{idx + 1}</td>
                       <td className="p-2 font-bold text-slate-900">
                         <div>{it.itemName}</div>
                         {it.description && (
@@ -166,12 +190,7 @@ export const InvoicePrintModal: React.FC = () => {
                             {it.description}
                           </div>
                         )}
-                        {it.notes && (
-                          <div className="text-[10px] font-normal text-amber-900 bg-amber-50 border border-amber-200/80 rounded px-1.5 py-0.5 mt-1 inline-flex items-center gap-1">
-                            <span className="font-semibold text-amber-700">ملاحظة الصنف:</span>
-                            <span>{it.notes}</span>
-                          </div>
-                        )}
+
                         {it.attachments && it.attachments.length > 0 && (
                           <div className="text-[10px] text-emerald-800 font-medium mt-1 flex flex-wrap items-center gap-1">
                             <span className="font-bold">📎 مرفقات البند ({it.attachments.length}):</span>
@@ -250,7 +269,7 @@ export const InvoicePrintModal: React.FC = () => {
             </div>
 
             {/* Footer Notice */}
-            <div className="text-center pt-6 border-t border-slate-200 text-[11px] text-slate-500">
+            <div className="text-center pt-6 border-t border-slate-200 text-[10px] text-slate-400 font-light">
               <p>{settings.invoiceFooter}</p>
               <p className="mt-1 font-mono text-[10px] text-slate-400">شكراً لتعاملكم مع {settings.businessName}</p>
             </div>
@@ -269,7 +288,8 @@ export const InvoicePrintModal: React.FC = () => {
                   </div>
                   
                   <div className="bg-[#2b3a67] text-white px-16 py-3 rounded-xl shadow-sm text-center">
-                    <h1 className="text-3xl font-black">فاتورة مبيعات</h1>
+                    <h1 className="text-3xl font-black">{isDraftPreview ? "مسودة فاتورة مبيعات" : "فاتورة مبيعات"}</h1>
+                    {isDraftPreview && <p className="text-xs text-amber-200 mt-1">مسودة مراجعة للعميل قبل السداد والاعتماد</p>}
                   </div>
 
                   <div className="border border-[#2b3a67] rounded-md px-4 py-2 w-64 text-right flex items-center justify-between bg-[#f0f4f8]">
@@ -309,12 +329,12 @@ export const InvoicePrintModal: React.FC = () => {
                     <div className="p-4 space-y-4">
                       <div className="flex items-center">
                         <span className="font-bold text-[#2b3a67] w-28 text-base">اسم العميل :</span>
-                        <span className="flex-1 border-b border-dashed border-slate-400 min-w-0 font-bold px-2">{inv.customerName}</span>
+                        <span className="flex-1 border-b border-dashed border-slate-400 min-w-0 font-bold px-2">{formattedCustomerDisplayName}</span>
                       </div>
                       <div className="flex items-center">
                         <span className="font-bold text-[#2b3a67] w-28 text-base">رقم الهاتف :</span>
                         <span className="flex-1 border-b border-dashed border-slate-400 min-w-0 px-2 font-mono font-bold">
-                          {'—'}
+                          {inv.customerPhone || inv.subCustomerPhone || '—'}
                         </span>
                       </div>
                       <div className="flex items-center">
@@ -333,7 +353,7 @@ export const InvoicePrintModal: React.FC = () => {
                     <thead>
                       <tr className="bg-[#d2e0ee] text-[#2b3a67] font-bold text-lg">
                         <th className="border border-[#2b3a67] py-2.5 w-12">م</th>
-                        <th className="border border-[#2b3a67] py-2.5">اسم المنتج / الصنف</th>
+                        <th className="border border-[#2b3a67] py-2.5">البيان والصنف</th>
                         <th className="border border-[#2b3a67] py-2.5 w-32">الكمية</th>
                         <th className="border border-[#2b3a67] py-2.5 w-36">سعر الوحدة</th>
                         <th className="border border-[#2b3a67] py-2.5 w-36">الإجمالي</th>
@@ -403,17 +423,7 @@ export const InvoicePrintModal: React.FC = () => {
                 </div>
 
                 {/* Signatures */}
-                <div className="flex justify-between items-end px-16 pt-8 pb-4">
-                  <div className="text-center font-bold text-[#2b3a67]">
-                    <p className="mb-10 text-lg">توقيع البائع</p>
-                    <p className="border-b-[1.5px] border-dashed border-[#2b3a67] w-48 mx-auto"></p>
-                  </div>
-                  <div className="text-center font-bold text-[#2b3a67]">
-                    <p className="mb-10 text-lg">توقيع العميل</p>
-                    <p className="border-b-[1.5px] border-dashed border-[#2b3a67] w-48 mx-auto"></p>
-                  </div>
-                </div>
-
+                <ReportSignatures columns={2} rightLabel="توقيع واستلام العميل" leftLabel="توقيع وختم البائع المعتمد" />
                 <div className="text-center font-bold text-[#2b3a67] pt-2 pb-2 text-lg">
                   مع خالص الشكر والتقدير
                 </div>
@@ -424,7 +434,13 @@ export const InvoicePrintModal: React.FC = () => {
         ) : (
           /* Thermal 80mm Receipt Format (الكاشير الحراري دائماً باللوقو والعناوين والهواتف المكتوبة) */
           <div className="p-6 max-w-xs mx-auto space-y-4 text-slate-900 font-mono text-xs text-center print:p-0">
-            <ThermalReceiptHeader receiptTitle="فاتورة ضريبية مبسطة" />
+            <ThermalReceiptHeader receiptTitle={isDraftPreview ? "مسودة مراجعة الفاتورة" : "فاتورة ضريبية مبسطة"} />
+
+            {isDraftPreview && (
+              <div className="border border-dashed border-amber-600 bg-amber-50 text-amber-950 font-bold p-1 rounded text-[11px]">
+                *** مسودة مراجعة الحساب قبل السداد ***
+              </div>
+            )}
 
             <div className="border-t border-b border-dashed border-slate-400 py-2 space-y-1 text-[11px] text-right">
               <div className="flex justify-between">
@@ -437,11 +453,17 @@ export const InvoicePrintModal: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span>العميل:</span>
-                <span>{inv.customerName}</span>
+                <span className="font-bold">{formattedCustomerDisplayName}</span>
               </div>
+              {(inv.customerPhone || inv.subCustomerPhone) && (
+                <div className="flex justify-between">
+                  <span>هاتف العميل:</span>
+                  <span>{inv.customerPhone || inv.subCustomerPhone}</span>
+                </div>
+              )}
               <div className="flex justify-between">
-                <span>طريقة الدفع:</span>
-                <span>{inv.paymentMethod === 'cash' ? 'نقدي' : 'شبكة مدى'}</span>
+                <span>حالة السداد:</span>
+                <span className="font-bold">{isDraftPreview ? 'مسودة قبل الحفظ' : (inv.paymentMethod === 'cash' ? 'نقدي' : 'شبكة مدى')}</span>
               </div>
             </div>
 
@@ -467,12 +489,8 @@ export const InvoicePrintModal: React.FC = () => {
                     {it.description && (
                       <div className="text-[10px] text-slate-700 font-sans">{it.description}</div>
                     )}
-                    {it.notes && (
-                      <div className="text-[9px] text-amber-900 font-sans italic bg-amber-50/70 px-1 py-0.2 rounded border border-amber-200/60 inline-block mt-0.5">
-                        ملاحظة الصنف: {it.notes}
-                      </div>
-                    )}
-                    <div className="flex justify-between text-[10px] text-slate-500 font-mono mt-0.5">
+
+                    <div className="flex justify-between text-[9px] text-slate-400 font-light font-mono mt-0.5">
                       <span>
                         {hasDimensions
                           ? `[${it.length}×${it.width}م × ${it.count || 1} = ${it.quantity} ${it.unit || 'م²'}] `
@@ -509,7 +527,7 @@ export const InvoicePrintModal: React.FC = () => {
 
             <div className="flex flex-col items-center justify-center pt-2">
               <QrCode className="w-24 h-24 text-slate-900" />
-              <p className="text-[10px] text-slate-500 mt-1">{settings.invoiceFooter}</p>
+              <p className="text-[9px] text-slate-400 font-light mt-1">{settings.invoiceFooter}</p>
             </div>
           </div>
         )}

@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
 import { Treasury, TreasuryType, TreasuryTransaction } from '../types';
 import { posSound } from '../utils/audio';
@@ -329,7 +330,7 @@ export const TreasuriesView: React.FC = () => {
               </div>
               <div>
                 <h1 className="text-lg font-bold text-slate-900">إدارة الخزنات والصناديق والتطبيقات البنكية</h1>
-                <p className="text-xs text-slate-500">
+                <p className="text-[10px] text-slate-400 font-light">
                   الصندوق النقدي الرئيسي، حسابات التطبيقات البنكية، أجهزة مدى POS، والمحافظ الإلكترونية
                 </p>
               </div>
@@ -391,7 +392,7 @@ export const TreasuriesView: React.FC = () => {
             {totalLiquidity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
             <span className="text-xs font-normal text-slate-500">{settings.currency}</span>
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">
+          <div className="mt-1 text-[10px] text-slate-400 font-light">
             موزعة على {treasuries.length} خزينة وصندوق بنكي
           </div>
         </div>
@@ -559,7 +560,7 @@ export const TreasuriesView: React.FC = () => {
                           </span>
                         )}
                       </div>
-                      <span className="text-[11px] text-slate-500">{typeInfo.label}</span>
+                      <span className="text-[10px] text-slate-400 font-light">{typeInfo.label}</span>
                     </div>
                   </div>
 
@@ -571,7 +572,7 @@ export const TreasuriesView: React.FC = () => {
                 {/* Balance Display - Multi-Currency Separated */}
                 <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200/80 mb-3 space-y-2">
                   <div className="flex items-center justify-between border-b border-slate-200/60 pb-1">
-                    <span className="text-[10px] text-slate-500 font-bold">الرصيد الفعلي في الصندوق</span>
+                    <span className="text-[9px] text-slate-400 font-light font-bold">الرصيد الفعلي في الصندوق</span>
                     <span className="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-semibold border border-emerald-200/60">
                       مفصول بالعملة الفعلية
                     </span>
@@ -610,7 +611,7 @@ export const TreasuriesView: React.FC = () => {
                   </div>
 
                   {/* Accounting Equivalent in Base Currency */}
-                  <div className="pt-1.5 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-500">
+                  <div className="pt-1.5 border-t border-slate-200/60 flex items-center justify-between text-[10px] text-slate-400 font-light">
                     <span>المعادل التقديري المحاسبي:</span>
                     <span className="font-mono font-bold text-slate-700">
                       {treasury.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₪
@@ -643,7 +644,7 @@ export const TreasuriesView: React.FC = () => {
                   )}
 
                   {treasury.notes && (
-                    <p className="text-[11px] text-slate-500 line-clamp-2 pt-1 border-t border-slate-100">
+                    <p className="text-[10px] text-slate-400 font-light line-clamp-2 pt-1 border-t border-slate-100">
                       {treasury.notes}
                     </p>
                   )}
@@ -722,7 +723,7 @@ export const TreasuriesView: React.FC = () => {
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
           <Wallet className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <h3 className="text-base font-bold text-slate-800 mb-1">لم يتم العثور على أي خزنات أو تطبيقات تطابق البحث</h3>
-          <p className="text-xs text-slate-500 mb-4">يمكنك إضافة تطبيق بنكي جديد أو صندوق نقدي بنقرة واحدة</p>
+          <p className="text-[10px] text-slate-400 font-light mb-4">يمكنك إضافة تطبيق بنكي جديد أو صندوق نقدي بنقرة واحدة</p>
           <button
             onClick={handleOpenAdd}
             className="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
@@ -737,7 +738,7 @@ export const TreasuriesView: React.FC = () => {
       {/* 1. Add / Edit Treasury Modal */}
       {/* ========================================================================= */}
       {showAddEditModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             {/* Header */}
             <div className="px-5 py-3.5 bg-slate-800 text-white flex items-center justify-between">
@@ -885,7 +886,7 @@ export const TreasuriesView: React.FC = () => {
       {/* 2. Transfer Between Treasuries Modal */}
       {/* ========================================================================= */}
       {showTransferModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             {/* Header */}
             <div className="px-5 py-3.5 bg-slate-800 text-white flex items-center justify-between">
@@ -1012,7 +1013,7 @@ export const TreasuriesView: React.FC = () => {
                       </option>
                     ))}
                   </select>
-                  <span className="text-[10px] text-slate-500 mt-1 block">
+                  <span className="text-[9px] text-slate-400 font-light mt-1 block">
                     تبقى العملة كما هي في الصندوق الوجهة دون تحويل
                   </span>
                 </div>
@@ -1030,7 +1031,7 @@ export const TreasuriesView: React.FC = () => {
                     onChange={e => setTransferExchangeRate(Number(e.target.value) || 1.0)}
                     className="w-full bg-white border border-slate-300 rounded-md p-2 text-xs font-mono font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-500"
                   />
-                  <span className="text-[10px] text-slate-500 mt-1 block">
+                  <span className="text-[9px] text-slate-400 font-light mt-1 block">
                     {transferCurrency === 'ILS' ? 'العملة الأساسية (سعر 1.0)' : 'يستخدم لاحتساب القيد المحاسبي بالشيكل فقط'}
                   </span>
                 </div>
@@ -1061,11 +1062,7 @@ export const TreasuriesView: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">تاريخ التحويل:</label>
-                  <input
-                    type="date"
-                    required
-                    value={transferDate}
-                    onChange={e => setTransferDate(e.target.value)}
+                  <DateInput required value={transferDate} onChange={e => setTransferDate(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs font-mono focus:bg-white focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -1121,7 +1118,7 @@ export const TreasuriesView: React.FC = () => {
       {/* 3. Treasury Transactions & Movements Modal */}
       {/* ========================================================================= */}
       {showTransactionsModal && selectedTreasuryForLedger && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col">
             {/* Modal Header */}
             <div className="px-5 py-3.5 bg-slate-800 text-white flex items-center justify-between shrink-0">
@@ -1148,15 +1145,15 @@ export const TreasuriesView: React.FC = () => {
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2.5">
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center">
                   <div>
-                    <span className="text-[10px] text-slate-500 block">النوع</span>
+                    <span className="text-[9px] text-slate-400 font-light block">النوع</span>
                     <span className="text-xs font-bold text-slate-800">{getTypeInfo(selectedTreasuryForLedger.type).label}</span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-500 block">البنك / المشغل</span>
+                    <span className="text-[9px] text-slate-400 font-light block">البنك / المشغل</span>
                     <span className="text-xs font-bold text-slate-800">{selectedTreasuryForLedger.bankName || 'خزينة محلية'}</span>
                   </div>
                   <div className="col-span-2 sm:col-span-1">
-                    <span className="text-[10px] text-slate-500 block">المعادل المحاسبي (شيكل)</span>
+                    <span className="text-[9px] text-slate-400 font-light block">المعادل المحاسبي (شيكل)</span>
                     <span className="text-xs font-bold font-mono text-emerald-700">
                       {selectedTreasuryForLedger.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })} ₪
                     </span>
@@ -1165,7 +1162,7 @@ export const TreasuriesView: React.FC = () => {
 
                 {/* Balances by currency */}
                 <div className="pt-2 border-t border-slate-200">
-                  <span className="text-[10px] text-slate-500 font-bold block mb-1">الموجودات النقدية الفعلية داخل الصندوق (مفصولة بالعملة):</span>
+                  <span className="text-[9px] text-slate-400 font-light font-bold block mb-1">الموجودات النقدية الفعلية داخل الصندوق (مفصولة بالعملة):</span>
                   <div className="flex flex-wrap gap-1.5">
                     {(() => {
                       const balances = selectedTreasuryForLedger.currencyBalances && Object.keys(selectedTreasuryForLedger.currencyBalances).length > 0
@@ -1267,7 +1264,7 @@ export const TreasuriesView: React.FC = () => {
                                 )}
                               </div>
                               {tx.targetTreasuryName && (
-                                <span className="text-[10px] text-slate-500 block">
+                                <span className="text-[9px] text-slate-400 font-light block">
                                   الطرف الآخر: {tx.targetTreasuryName}
                                 </span>
                               )}

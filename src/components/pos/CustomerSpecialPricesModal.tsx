@@ -87,7 +87,7 @@ export const CustomerSpecialPricesModal: React.FC<CustomerSpecialPricesModalProp
   const activeSpecialCount = Object.keys(tempPrices).length;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 text-slate-800 text-xs" dir="rtl">
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 text-slate-800 text-xs" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl flex flex-col max-h-[90vh] overflow-hidden">
         {/* Header */}
         <div className="bg-[#1f4a7c] text-white px-5 py-3.5 flex items-center justify-between border-b border-[#143254]">
@@ -206,7 +206,7 @@ export const CustomerSpecialPricesModal: React.FC<CustomerSpecialPricesModalProp
                     <td className="py-2 px-3 font-mono font-bold text-slate-600">{item.code}</td>
                     <td className="py-2 px-3 font-semibold text-slate-900">
                       <div>{item.name}</div>
-                      {item.unit && <span className="text-[10px] text-slate-500">الوحدة: {item.unit}</span>}
+                      {item.unit && <span className="text-[9px] text-slate-400 font-light">الوحدة: {item.unit}</span>}
                     </td>
                     <td className="py-2 px-3 font-mono text-center text-slate-500 text-[11px]">
                       {item.barcode || '-'}

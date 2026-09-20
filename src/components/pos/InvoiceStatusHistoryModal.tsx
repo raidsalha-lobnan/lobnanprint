@@ -108,7 +108,7 @@ export const InvoiceStatusHistoryModal: React.FC<InvoiceStatusHistoryModalProps>
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in">
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-2xl text-xs text-slate-800 flex flex-col max-h-[90vh] overflow-hidden">
         {/* Header */}
         <div className="p-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between">
@@ -196,7 +196,7 @@ export const InvoiceStatusHistoryModal: React.FC<InvoiceStatusHistoryModalProps>
               <div className="space-y-2">
                 <label className="font-bold text-slate-700 flex items-center justify-between">
                   <span>اختر الحالة الجديدة للفاتورة:</span>
-                  <span className="text-[10px] text-slate-500 font-normal">
+                  <span className="text-[9px] text-slate-400 font-light font-normal">
                     الحالة السابقة: <strong className="text-slate-800">{currentMeta.label}</strong>
                   </span>
                 </label>
@@ -238,7 +238,7 @@ export const InvoiceStatusHistoryModal: React.FC<InvoiceStatusHistoryModalProps>
                             {opt.isAccounting ? '● محاسبي' : '○ غير محاسبي'}
                           </span>
                         </div>
-                        <p className="text-[10px] text-slate-500 font-normal leading-tight">
+                        <p className="text-[9px] text-slate-400 font-light font-normal leading-tight">
                           {opt.description}
                         </p>
                       </button>
@@ -260,7 +260,7 @@ export const InvoiceStatusHistoryModal: React.FC<InvoiceStatusHistoryModalProps>
                   rows={2}
                   className="w-full p-2.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                 />
-                <span className="text-[10px] text-slate-500 block">
+                <span className="text-[9px] text-slate-400 font-light block">
                   * سيتم حفظ هذه الملاحظة وتوثيقها باسمك وتاريخ ووقت العملية في السجل الدائم للنظام.
                 </span>
               </div>
@@ -293,7 +293,7 @@ export const InvoiceStatusHistoryModal: React.FC<InvoiceStatusHistoryModalProps>
                   <History className="w-4 h-4 text-blue-600" />
                   <span>سجل تغييرات حالات الفاتورة المسجلة في النظام:</span>
                 </h4>
-                <span className="text-[11px] text-slate-500 font-mono">
+                <span className="text-[10px] text-slate-400 font-light font-mono">
                   إجمالي التغييرات: {historyList.length}
                 </span>
               </div>

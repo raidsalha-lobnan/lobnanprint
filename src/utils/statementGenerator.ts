@@ -208,7 +208,7 @@ export function generateAccountStatement(params: {
         refNum: inv.invoiceNumber,
         type: 'invoice',
         category: 'withdrawal',
-        typeLabel: inv.type === 'pos' ? 'فاتورة مبيعات كاشير (سحوبات)' : 'فاتورة مبيعات (سحوبات)',
+        typeLabel: 'فاتورة مبيعات',
         description: `فاتورة مبيعات (${inv.items.length} أصناف) - إجمالي ${inv.totalAmount.toFixed(2)}${subCustNote}`,
         invoiceNotes: inv.notes,
         subtotal: inv.subtotal,
@@ -236,7 +236,7 @@ export function generateAccountStatement(params: {
           refNum: `PAY-${inv.invoiceNumber}`,
           type: 'receipt',
           category: 'receipt',
-          typeLabel: 'سداد فوري مع الفاتورة (مقبوضات)',
+          typeLabel: 'سند قبض',
           description: `سداد قيمة الفاتورة (${pmtMethodLabel})`,
           paymentMethod: inv.paymentMethod,
           paymentMethodLabel: pmtMethodLabel,
@@ -277,8 +277,8 @@ export function generateAccountStatement(params: {
         refNum: job.orderNumber,
         type: 'invoice',
         category: 'withdrawal',
-        typeLabel: 'فاتورة بيع (أمر تشغيل مسلّم)',
-        description: `فاتورة بيع - أمر تشغيل مطبعة مسلّم: ${job.title} (${job.quantity} نسخة)${job.paperType ? ` - ورق: ${job.paperType}` : ''}`,
+        typeLabel: 'فاتورة مبيعات',
+        description: `فاتورة مبيعات - أمر تشغيل مطبعة: ${job.title} (${job.quantity} نسخة)${job.paperType ? ` - ورق: ${job.paperType}` : ''}`,
         items: [
           {
             itemName: job.title,
@@ -307,7 +307,7 @@ export function generateAccountStatement(params: {
             refNum: `DEP-${job.orderNumber}`,
             type: 'receipt',
             category: 'receipt',
-            typeLabel: 'عربون أمر تشغيل (مقبوضات)',
+            typeLabel: 'سند قبض',
             description: `عربون مستلم لأمر التشغيل المسلّم ${job.orderNumber}`,
             debit: 0,
             credit: job.depositPaid
@@ -327,6 +327,7 @@ export function generateAccountStatement(params: {
         total: it.total,
         count: 1,
         discount: 0,
+        notes: (it as any).notes || (it as any).description,
         unit: (it as any).unit
       }));
 
@@ -336,8 +337,8 @@ export function generateAccountStatement(params: {
         refNum: pur.invoiceNumber,
         type: 'purchase',
         category: 'withdrawal', // For supplier, supplies/purchases
-        typeLabel: 'فاتورة توريد خامات',
-        description: `فاتورة توريد خامات ومستلزمات${pur.supplierInvoiceNumber ? ` (فاتورة مورد #${pur.supplierInvoiceNumber})` : ''} - ${pur.items.map(i => i.itemName).slice(0, 2).join('، ')}`,
+        typeLabel: 'فاتورة مشتريات',
+        description: `فاتورة مشتريات${pur.supplierInvoiceNumber ? ` (فاتورة مورد #${pur.supplierInvoiceNumber})` : ''} - ${pur.items.map(i => i.itemName).slice(0, 2).join('، ')}`,
         invoiceNotes: pur.notes,
         subtotal: pur.subtotal,
         discountTotal: 0,
@@ -356,7 +357,7 @@ export function generateAccountStatement(params: {
           refNum: `DISB-${pur.invoiceNumber}`,
           type: 'payment',
           category: 'disbursement',
-          typeLabel: 'سداد فوري مع فاتورة التوريد (صرف)',
+          typeLabel: 'سند صرف',
           description: `سداد مسدد للمورد (${pur.paymentMethod === 'cash' ? 'نقداً' : 'تحويل بنكي'})`,
           paymentMethod: pur.paymentMethod,
           paymentMethodLabel: pur.paymentMethod === 'cash' ? 'نقداً (الصندوق)' : 'تحويل بنكي',
@@ -377,7 +378,7 @@ export function generateAccountStatement(params: {
         refNum: ret.returnNumber,
         type: 'purchase_return',
         category: 'receipt',
-        typeLabel: 'إشعار مدين / مردودات مشتريات',
+        typeLabel: 'مردودات مشتريات',
         description: `مرتجع خامات للمورد (${ret.items.map(i => `${i.itemName} × ${i.quantity}`).join('، ')})${ret.notes ? ` - ${ret.notes}` : ''}`,
         invoiceNotes: ret.notes,
         subtotal: ret.totalAmount,
@@ -397,7 +398,7 @@ export function generateAccountStatement(params: {
         refNum: ret.returnNumber,
         type: 'sales_return',
         category: 'receipt',
-        typeLabel: 'مردودات مبيعات (دائن)',
+        typeLabel: 'مردودات مبيعات',
         description: `مرتجع مبيعات للعميل${ret.invoiceNumber ? ` (عن فاتورة ${ret.invoiceNumber})` : ''}: ${ret.items.map(i => `${i.itemName} × ${i.quantity}`).join('، ')}`,
         invoiceNotes: ret.notes,
         voucherNotes: ret.notes,
@@ -448,7 +449,7 @@ export function generateAccountStatement(params: {
           refNum: vch.voucherNumber,
           type: 'receipt',
           category: 'receipt',
-          typeLabel: 'سند قبض نقدية / مقبوضات',
+          typeLabel: 'سند قبض',
           description: vch.description || 'سند قبض وتحصيل دفعة نقدية من العميل',
           voucherNotes: vchNote,
           paymentMethod: vch.paymentMethod,
@@ -472,7 +473,7 @@ export function generateAccountStatement(params: {
           refNum: vch.voucherNumber,
           type: 'payment',
           category: 'disbursement',
-          typeLabel: isCust ? 'سند صرف للعميل (استرداد/صرف)' : 'سند صرف وسداد لمورد (صرف)',
+          typeLabel: 'سند صرف',
           description: vch.description || (isCust ? 'سند صرف واسترداد للعميل' : 'سند صرف وسداد دفعة للمورد'),
           voucherNotes: vchNote,
           paymentMethod: vch.paymentMethod,
@@ -491,7 +492,8 @@ export function generateAccountStatement(params: {
   });
 
   // 7. Journal Entries (قيد اليومية العامة)
-  journalEntries.forEach(entry => {
+  // Only include manual journal entries to prevent duplicating automatic system entries
+  journalEntries.filter(e => !e.referenceType || e.referenceType === 'manual').forEach(entry => {
     entry.lines.forEach((line, lIdx) => {
       const isMatch = (line.description && line.description.includes(party.name)) ||
                       (entry.description && entry.description.includes(party.name)) ||
@@ -737,7 +739,7 @@ export function generateEmployeeStatement(params: {
         date: record.date,
         refNum: record.voucherNumber || `ADV-${record.id.slice(0, 6)}`,
         type: 'advance',
-        typeLabel: 'سلفة نقدية مسحوبة',
+        typeLabel: 'سلفة',
         description: record.notes || `سلفة نقدية مستلمة (${record.paymentMethod === 'cash' ? 'نقداً' : 'تحويل'})`,
         entitlement: 0,
         advance: record.amount,
@@ -754,7 +756,7 @@ export function generateEmployeeStatement(params: {
         date: record.date,
         refNum: record.voucherNumber || `PAY-${record.id.slice(0, 6)}`,
         type: 'payment_disbursement',
-        typeLabel: 'سند صرف وتسليم راتب',
+        typeLabel: 'صرف راتب',
         description: record.notes || `صرف الراتب المستحق عن فترة ${record.period || 'الشهر'}`,
         entitlement: 0,
         advance: 0,
@@ -777,7 +779,7 @@ export function generateEmployeeStatement(params: {
           date: adv.date,
           refNum: adv.voucherNumber || `ADV-${adv.id.slice(0, 6)}`,
           type: 'advance',
-          typeLabel: 'سلفة نقدية على الراتب',
+          typeLabel: 'سلفة',
           description: adv.reason || 'طلب سلفة نقدية معتمدة',
           entitlement: 0,
           advance: adv.amount,
@@ -797,7 +799,7 @@ export function generateEmployeeStatement(params: {
         date: ded.date,
         refNum: `DED-${ded.id.slice(0, 6)}`,
         type: 'deduction',
-        typeLabel: 'خصم وجزاء إداري',
+        typeLabel: 'خصم',
         description: ded.reason || 'خصم إداري',
         entitlement: 0,
         advance: 0,
@@ -816,7 +818,7 @@ export function generateEmployeeStatement(params: {
         date: inc.date,
         refNum: `INC-${inc.id.slice(0, 6)}`,
         type: 'incentive',
-        typeLabel: 'مكافأة وحافز إنجاز',
+        typeLabel: 'مكافأة',
         description: inc.reason || 'مكافأة تميز وحافز أداء',
         entitlement: inc.amount,
         advance: 0,
@@ -840,8 +842,8 @@ export function generateEmployeeStatement(params: {
           date: vch.date,
           refNum: vch.voucherNumber,
           type: 'payment_disbursement',
-          typeLabel: 'سند صرف نقدية من الخزينة للموظف',
-          description: vch.description || `سند صرف نقدية للموظف ${employee.name}`,
+          typeLabel: 'سند صرف',
+          description: vch.description || `سند صرف للموظف ${employee.name}`,
           entitlement: 0,
           advance: 0,
           deduction: 0,
@@ -873,7 +875,7 @@ export function generateEmployeeStatement(params: {
             date: accrualDate,
             refNum: `SAL-${monthStr}`,
             type: 'salary_accrual',
-            typeLabel: 'استحقاق الراتب والبدلات الشهري',
+            typeLabel: 'راتب شهري',
             description: `استحقاق راتب شهر ${monthStr} (أساسي: ${salaryBase.toFixed(2)}${allowances > 0 ? ` + بدلات: ${allowances.toFixed(2)}` : ''})`,
             entitlement: totalMonthSalary,
             advance: 0,

@@ -1,10 +1,13 @@
+import { resizeAndCompressImage } from '../utils/imageCompress';
 import React, { useState } from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { CurrencySettings } from './settings/CurrencySettings';
 import { OfflineSqlSettings } from './settings/OfflineSqlSettings';
 import { UnitsOfMeasureSettings } from './settings/UnitsOfMeasureSettings';
 import { DatabaseZeroingSettings } from './settings/DatabaseZeroingSettings';
+import { TelegramSettings } from './settings/TelegramSettings';
 import { PrintHeader, ThermalReceiptHeader } from './common/PrintHeader';
+import { OfficialStamp } from './common/OfficialStamp';
 import {
   Settings,
   Building,
@@ -42,9 +45,15 @@ interface SettingsViewProps {
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'general' }) => {
-  const { settings, updateSettings, resetAllData, exportDataJSON, importDataJSON } = useAccounting();
+  const { settings, updateSettings, resetAllData, exportDataJSON, importDataJSON, currentUser, roles } = useAccounting();
 
-  const [activeTab, setActiveTab] = useState<'general' | 'units' | 'shortcuts' | 'currency' | 'sql' | 'backup' | 'reset_db'>(initialTab);
+  const isSystemAdmin = React.useMemo(() => {
+    if (!currentUser) return true;
+    const role = roles.find(r => r.id === currentUser.roleId);
+    return !role || role.code === 'SYS_ADMIN' || role.code === 'GEN_MGR';
+  }, [currentUser, roles]);
+
+  const [activeTab, setActiveTab] = useState<'general' | 'units' | 'shortcuts' | 'currency' | 'sql' | 'backup' | 'reset_db' | 'telegram'>(initialTab as any);
 
   React.useEffect(() => {
     if (initialTab) {
@@ -57,10 +66,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
   const [activityType, setActivityType] = useState(settings.activityType || '');
   const [taxNumber, setTaxNumber] = useState(settings.taxNumber || '');
   const [crNumber, setCrNumber] = useState(settings.crNumber || '');
+  const [showTaxNumberInPrints, setShowTaxNumberInPrints] = useState<boolean>(settings.showTaxNumberInPrints !== false); // default true
+  const [showCrNumberInPrints, setShowCrNumberInPrints] = useState<boolean>(settings.showCrNumberInPrints !== false); // default true
   
-  // اللوقو والهيدر الكامل
+    // اللوقو والهيدر الكامل والختم والتوقيع
   const [logoUrl, setLogoUrl] = useState<string>(settings.logoUrl || '');
   const [headerImageUrl, setHeaderImageUrl] = useState<string>(settings.headerImageUrl || '');
+  const [stampUrl, setStampUrl] = useState<string>(settings.stampUrl || '');
+  const [signatureUrl, setSignatureUrl] = useState<string>(settings.signatureUrl || '');
 
   // العناوين المتعددة
   const [addresses, setAddresses] = useState<string[]>(() => {
@@ -92,11 +105,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
       alert('يرجى اختيار ملف صورة صالح (PNG, JPG, SVG, WebP)');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setLogoUrl(event.target?.result as string);
-    };
-    reader.readAsDataURL(file);
+    resizeAndCompressImage(file, 400, 400).then(setLogoUrl).catch(console.error);
   };
 
   // Full Header banner file upload handler
@@ -107,11 +116,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
       alert('يرجى اختيار ملف صورة صالح (PNG, JPG, SVG, WebP)');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setHeaderImageUrl(event.target?.result as string);
-    };
-    reader.readAsDataURL(file);
+    resizeAndCompressImage(file, 1200, 300).then(setHeaderImageUrl).catch(console.error);
+  };
+
+  
+  const handleStampUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    resizeAndCompressImage(file, 300, 300).then(setStampUrl).catch(console.error);
+  };
+
+  const handleSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    resizeAndCompressImage(file, 300, 300).then(setSignatureUrl).catch(console.error);
   };
 
   // Multiple Addresses handlers
@@ -152,8 +170,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
       activityType,
       taxNumber,
       crNumber,
-      logoUrl: logoUrl.trim() || undefined,
-      headerImageUrl: headerImageUrl.trim() || undefined,
+      showTaxNumberInPrints,
+      showCrNumberInPrints,
+      logoUrl: logoUrl.trim() || '',
+      headerImageUrl: headerImageUrl.trim() || '',
+      stampUrl: stampUrl.trim() || '',
+      signatureUrl: signatureUrl.trim() || '',
       addresses: addresses.length > 0 ? addresses : [primaryAddress],
       phones: phones.length > 0 ? phones : [primaryPhone],
       phone: primaryPhone,
@@ -174,7 +196,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
     reader.onload = (event) => {
       try {
         const json = event.target?.result as string;
-        const ok = importDataJSON(json);
+        
+        // Always ask about facility settings separately to give granular control
+        const replaceFacilitySettings = window.confirm("هل ترغب في استبدال إعدادات المنشأة الحالية (كالاسم، الشعار، الفروع، الترويسة، الضريبة) بتلك الموجودة في النسخة الاحتياطية؟\n\nاختر 'موافق' للاستبدال.\nاختر 'إلغاء' للاحتفاظ بإعدادات المنشأة الحالية.");
+        const keepFacilitySettings = !replaceFacilitySettings;
+
+        // Ask about other settings (roles, users, etc.)
+        const includeSettings = window.confirm("هل ترغب في استيراد إعدادات النظام الأخرى والمستخدمين والصلاحيات من النسخة الاحتياطية؟\n\nاختر 'موافق' لاستيرادها.\nاختر 'إلغاء' لاستيراد البيانات المالية فقط والإبقاء على إعداداتك الحالية.");
+        
+        let keepTelegramSettings = true;
+        if (includeSettings || !keepFacilitySettings) {
+           const replaceTelegram = window.confirm("هل ترغب في استبدال إعدادات التلجرام الحالية بتلك الموجودة في النسخة الاحتياطية؟\n\nاختر 'موافق' للاستبدال.\nاختر 'إلغاء' للاحتفاظ بإعدادات التلجرام الحالية.");
+           keepTelegramSettings = !replaceTelegram;
+        }
+        
+        const ok = importDataJSON(json, includeSettings, keepTelegramSettings, keepFacilitySettings);
         if (ok) {
           alert('تم استيراد البيانات بنجاح.');
           window.location.reload();
@@ -198,7 +234,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
           </div>
           <div>
             <h2 className="text-sm font-bold text-slate-900">إعدادات النظام والمنشأة</h2>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[10px] text-slate-400 font-light">
               إدارة بيانات المنشأة، تعدد العملات وأسعار الصرف، الربط بقواعد بيانات SQL، والنسخ الاحتياطي
             </p>
           </div>
@@ -277,6 +313,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
         >
           <Server className="w-3.5 h-3.5" />
           <span>التشغيل المحلي وربط خادم SQL</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('telegram')}
+          className={`w-full text-right px-3 py-2.5 rounded-lg flex items-center gap-2 transition-colors ${
+            activeTab === 'telegram'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+          }`}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" x2="11" y1="2" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+          <span>تكامل تليجرام (البوت)</span>
         </button>
 
         <button
@@ -365,25 +414,36 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
 
               <div>
                 <label className="block text-slate-700 font-semibold mb-1 text-[11px]">الرقم الضريبي الرسمي (VAT):</label>
-                <input
-                  type="text"
-                  required
-                  value={taxNumber}
-                  onChange={e => setTaxNumber(e.target.value)}
-                  placeholder="310984725100003"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 font-mono font-bold text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
-                />
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={taxNumber}
+                    onChange={e => setTaxNumber(e.target.value)}
+                    placeholder="اختياري"
+                    className="flex-1 bg-slate-50 border border-slate-200 rounded-lg p-2 font-mono font-bold text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
+                  />
+                  <label className="flex items-center gap-1.5 cursor-pointer text-[10px] text-slate-600 font-semibold bg-slate-50 border border-slate-200 px-2 py-1.5 rounded-lg shrink-0">
+                    <input type="checkbox" checked={showTaxNumberInPrints} onChange={e => setShowTaxNumberInPrints(e.target.checked)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+                    عرض في الطباعة
+                  </label>
+                </div>
               </div>
-
+              
               <div>
-                <label className="block text-slate-700 font-semibold mb-1 text-[11px]">رقم السجل التجاري (CR):</label>
-                <input
-                  type="text"
-                  value={crNumber}
-                  onChange={e => setCrNumber(e.target.value)}
-                  placeholder="1010729384"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 font-mono text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
-                />
+                <label className="block text-slate-700 font-semibold mb-1 text-[11px]">رقم السجل التجاري / الترخيص:</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={crNumber}
+                    onChange={e => setCrNumber(e.target.value)}
+                    placeholder="اختياري"
+                    className="flex-1 bg-slate-50 border border-slate-200 rounded-lg p-2 font-mono font-bold text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
+                  />
+                  <label className="flex items-center gap-1.5 cursor-pointer text-[10px] text-slate-600 font-semibold bg-slate-50 border border-slate-200 px-2 py-1.5 rounded-lg shrink-0">
+                    <input type="checkbox" checked={showCrNumberInPrints} onChange={e => setShowCrNumberInPrints(e.target.checked)} className="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+                    عرض في الطباعة
+                  </label>
+                </div>
               </div>
             </div>
           </div>
@@ -429,7 +489,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
                       </span>
                     )}
                   </div>
-                  <p className="text-[11px] text-slate-500 mb-3">
+                  <p className="text-[10px] text-slate-400 font-light mb-3">
                     يظهر اللوقو في ترويسة الكشوفات القياسية، ويظهر دائماً أعلى فواتير الكاشير الحراري.
                   </p>
 
@@ -495,7 +555,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
                       </span>
                     )}
                   </div>
-                  <p className="text-[11px] text-slate-500 mb-3">
+                  <p className="text-[10px] text-slate-400 font-light mb-3">
                     ترويسة مصممة مسبقاً بعرض الصفحة تحتوي الشعار والاسم والبيانات. عند رفعه يُعتمد لكل المطبوعات الرسمية.
                   </p>
 
@@ -538,7 +598,117 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
                       </label>
                     </div>
                   </div>
-                </div>
+                </div>\n
+                {/* Stamp & Signature Section */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+                  {/* Stamp Upload */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                        <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
+                        <span>3. ختم المنشأة الرسمي (أبعاد 4 سم دائري)</span>
+                      </span>
+                      {stampUrl && (
+                        <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded">
+                          مرفوع ✓ (4cm دائري مع افكت الحبر)
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[9px] text-slate-400 font-light mb-3 leading-relaxed">
+                      يتم ضبط أبعاد الختم بدقة عند الطباعة على 4 سم دائري مع تطبيق تأثير حبر الختم الواقعي والميلان الطبيعي على كافة الفواتير والسندات والكشوفات.
+                    </p>
+                    <div className="flex items-center gap-3">
+                      {stampUrl ? (
+                        <div className="relative w-20 h-20 bg-white border border-slate-300 rounded-full p-1.5 flex items-center justify-center shadow-xs shrink-0 group overflow-hidden">
+                          <img
+                            src={stampUrl}
+                            alt="Stamp Preview"
+                            className="max-w-full max-h-full object-contain rounded-full -rotate-6 mix-blend-multiply filter contrast-125 saturate-110"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setStampUrl('')}
+                            className="absolute -top-1 -right-1 bg-red-100 text-red-600 rounded-full p-1 border border-red-200 opacity-0 group-hover:opacity-100 transition shadow-xs hover:bg-red-200 hover:text-red-700 z-10"
+                            title="إزالة الختم"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="w-20 h-20 bg-white border border-slate-300 border-dashed rounded-full flex flex-col items-center justify-center text-slate-400 shrink-0">
+                          <ImageIcon className="w-5 h-5 mb-1 opacity-50" />
+                          <span className="text-[9px] font-bold">بدون ختم</span>
+                        </div>
+                      )}
+                      <div className="flex-1">
+                        <label className="inline-flex items-center justify-center gap-1.5 w-full bg-white hover:bg-slate-100 text-slate-700 font-bold border border-slate-300 rounded-lg px-3 py-2 text-xs shadow-2xs transition cursor-pointer">
+                          <Upload className="w-3.5 h-3.5 text-blue-600" />
+                          <span>{stampUrl ? 'تغيير الختم' : 'رفع ختم الشركة (PNG / 4cm دائري)'}</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleStampUpload}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Signature Upload */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                        <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
+                        <span>4. توقيع المدير / المخول</span>
+                      </span>
+                      {signatureUrl && (
+                        <span className="bg-emerald-100 text-emerald-800 border border-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded">
+                          مرفوع ✓
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[9px] text-slate-400 font-light mb-3 leading-relaxed">
+                      يظهر بجوار الختم الرسمي لاعتماد الفواتير والسندات في المعاملات الرسمية.
+                    </p>
+                    <div className="flex items-center gap-3">
+                      {signatureUrl ? (
+                        <div className="relative w-20 h-20 bg-white border border-slate-300 rounded-lg p-1.5 flex items-center justify-center shadow-xs shrink-0 group">
+                          <img
+                            src={signatureUrl}
+                            alt="Signature Preview"
+                            className="max-w-full max-h-full object-contain"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setSignatureUrl('')}
+                            className="absolute -top-2 -right-2 bg-red-100 text-red-600 rounded-full p-1 border border-red-200 opacity-0 group-hover:opacity-100 transition shadow-xs hover:bg-red-200 hover:text-red-700"
+                            title="إزالة التوقيع"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="w-20 h-20 bg-white border border-slate-300 border-dashed rounded-lg flex flex-col items-center justify-center text-slate-400 shrink-0">
+                          <ImageIcon className="w-5 h-5 mb-1 opacity-50" />
+                          <span className="text-[9px] font-bold">بدون توقيع</span>
+                        </div>
+                      )}
+                      <div className="flex-1">
+                        <label className="inline-flex items-center justify-center gap-1.5 w-full bg-white hover:bg-slate-100 text-slate-700 font-bold border border-slate-300 rounded-lg px-3 py-2 text-xs shadow-2xs transition cursor-pointer">
+                          <Upload className="w-3.5 h-3.5 text-blue-600" />
+                          <span>{signatureUrl ? 'تغيير التوقيع' : 'رفع التوقيع (PNG)'}</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleSignatureUpload}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>\n
               </div>
             </div>
           </div>
@@ -549,7 +719,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
               <PhoneIcon className="w-4 h-4 text-blue-600" />
               <span>أرقام الهواتف والتواصل المتعددة (إدارة، مبيعات، فاكس، واتساب)</span>
             </h3>
-            <p className="text-[11px] text-slate-500 mb-2.5">
+            <p className="text-[10px] text-slate-400 font-light mb-2.5">
               يمكنك إضافة عدة أرقام هواتف لتظهر في ترويسة الفواتير والكشوفات وإيصالات الكاشير الحراري.
             </p>
 
@@ -613,7 +783,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
               <MapPin className="w-4 h-4 text-blue-600" />
               <span>عناوين وفروع المنشأة المتعددة</span>
             </h3>
-            <p className="text-[11px] text-slate-500 mb-2.5">
+            <p className="text-[10px] text-slate-400 font-light mb-2.5">
               سجّل كافة عناوين وفروع المنشأة لتظهر بتنسيق رسمي في الترويسة والكاشير الحراري.
             </p>
 
@@ -744,15 +914,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
                       activityType,
                       taxNumber,
                       crNumber,
+                      showTaxNumberInPrints,
+                      showCrNumberInPrints,
                       logoUrl,
                       headerImageUrl,
                       addresses,
                       phones
                     }}
                   />
-                  <p className="text-[10px] text-slate-400 text-center mt-2 italic">
+                  
+                  {/* Live Stamp & Signature Footer Preview in A4 */}
+                  <div className="mt-6 pt-4 border-t border-slate-200 grid grid-cols-2 gap-4 text-center text-xs">
+                    <div className="space-y-1 flex flex-col items-center">
+                      <span className="font-bold text-slate-700 block text-[11px]">توقيع واعتماد الإدارة</span>
+                      <div className="h-16 flex items-center justify-center">
+                        {signatureUrl ? (
+                          <img src={signatureUrl} alt="Signature Preview" className="max-h-14 max-w-[120px] object-contain mix-blend-multiply opacity-90" />
+                        ) : (
+                          <div className="border-b border-dashed border-slate-400 w-28 mt-8"></div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-1 flex flex-col items-center">
+                      <span className="font-bold text-slate-700 block text-[11px]">الختم الرسمي (4 سم دائري)</span>
+                      <div className="flex items-center justify-center">
+                        <OfficialStamp stampUrl={stampUrl} showDefaultIfEmpty={!stampUrl} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] text-slate-400 text-center mt-3 italic">
                     {headerImageUrl
-                      ? 'تم اعتماد الهيدر الكامل بنجاح لكل الكشوفات والأوراق المطبوعة.'
+                      ? 'تم اعتماد الهيدر الكامل والختم 4 سم الدائري بنجاح لكافة الكشوفات والمطبوعات.'
                       : 'في حال عدم رفع هيدر، تظهر الترويسة باللوقو مع اسم المنشأة والعناوين والهواتف.'}
                   </p>
                 </div>
@@ -771,6 +965,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
                       activityType,
                       taxNumber,
                       crNumber,
+                      showTaxNumberInPrints,
+                      showCrNumberInPrints,
                       logoUrl,
                       addresses,
                       phones
@@ -818,7 +1014,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
                 <SlidersHorizontal className="w-4 h-4 text-blue-600" />
                 <span>تخصيص اختصارات الشاشة الرئيسية للمستخدم</span>
               </h3>
-              <p className="text-[11px] text-slate-500 mt-0.5">
+              <p className="text-[10px] text-slate-400 font-light mt-0.5">
                 اختر العمليات الدائمة التي ترغب في عرضها كأزرار وصول سريع على شاشتك الرئيسية
               </p>
             </div>
@@ -912,7 +1108,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
                       <ItemIcon className="w-3.5 h-3.5 text-blue-600" />
                       <span>{item.label}</span>
                     </div>
-                    <p className="text-[10px] text-slate-500 mt-0.5">{item.desc}</p>
+                    <p className="text-[9px] text-slate-400 font-light mt-0.5">{item.desc}</p>
                   </div>
                 </label>
               );
@@ -927,6 +1123,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
       {/* Tab 3: Offline-First & SQL Server Integration */}
       {activeTab === 'sql' && <OfflineSqlSettings />}
 
+      {activeTab === 'telegram' && <TelegramSettings />}
+
       {/* Tab 4: Backup and Data Maintenance */}
       {activeTab === 'backup' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 space-y-3 text-xs">
@@ -934,7 +1132,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
             <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
             <span>النسخ الاحتياطي وإدارة البيانات</span>
           </h3>
-          <p className="text-[11px] text-slate-500">
+          <p className="text-[10px] text-slate-400 font-light">
             يمكنك تصدير قاعدة البيانات المحاسبية كاملة بملف JSON للرجوع إليها في أي وقت أو نقلها لجهاز آخر، كما يمكنك استعادة البيانات الأولية للتجربة.
           </p>
 
@@ -976,7 +1174,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
                 <span>تصفير قاعدة البيانات وبدء التشغيل الفعلي (خاص بالمدير)</span>
               </div>
               <p className="text-[11px] text-rose-800 leading-relaxed">
-                تصفير كافة الحركات التجريبية والعملاء والموردين والأصناف حتى تاريخ معين، وتصفير أرصدة المخزون والديون للبدء الفعلي بعد التجربة.
+                تصفير كافة الحركات التجريبية والعملاء والموردين والأصناف ضمن نطاق تاريخ معين، وتصفير أرصدة المخزون والديون للبدء الفعلي.
               </p>
             </div>
             <button

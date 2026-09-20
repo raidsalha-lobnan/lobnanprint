@@ -110,11 +110,21 @@ export const PrintOrdersView: React.FC = () => {
     hasPermission
   } = useAccounting();
 
+  const ALL_STATUSES = [...WORKSHOP_STATUSES, ...(hasPermission('edit_invoices') ? [{ id: 'delivered' as any, label: 'تم التسليم', color: 'text-emerald-700', border: 'border-emerald-300', bg: 'bg-emerald-50/50', badgeBg: 'bg-emerald-100', badgeText: 'text-emerald-900', description: 'تم تسليمها للعميل نهائياً' }] : [])];
+
   // Navigation and Filter States
   const [activeViewMode, setActiveViewMode] = useState<'kanban' | 'list'>('kanban');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedInvoiceId, setCopiedInvoiceId] = useState<string | null>(null);
+  const [expandedInvoices, setExpandedInvoices] = useState<Set<string>>(new Set());
+
+  const toggleExpand = (id: string) => {
+    const newSet = new Set(expandedInvoices);
+    if(newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setExpandedInvoices(newSet);
+  };
 
   // Modals state
   const [activeAttachmentTarget, setActiveAttachmentTarget] = useState<{
@@ -160,7 +170,7 @@ export const PrintOrdersView: React.FC = () => {
   // Filter invoices to ONLY include the 5 workshop work statuses:
   // أي فاتورة يتم تغير حالتها لتم التسليم لا تظهر في شاشة أوامر الطباعة والورشة ويتم اعتماد حالة الفاتورة أنه تم التسليم
   const workshopInvoices = invoices.filter((inv) => {
-    if (inv.workflowStatus === 'delivered' || inv.status === 'delivered' || inv.workflowStatus === 'completed') {
+    if (!hasPermission('edit_invoices') && (inv.workflowStatus === 'delivered' || inv.status === 'delivered' || inv.workflowStatus === 'completed')) {
       return false;
     }
     const normalized = normalizeWorkflowStatus(inv.workflowStatus);
@@ -192,10 +202,10 @@ export const PrintOrdersView: React.FC = () => {
   });
 
   // Calculate stats count per stage (excluding delivered)
-  const countsByStatus = WORKSHOP_STATUSES.reduce((acc, col) => {
+  const countsByStatus = ALL_STATUSES.reduce((acc, col) => {
     acc[col.id] = invoices.filter((inv) => 
-      inv.workflowStatus !== 'delivered' &&
-      inv.status !== 'delivered' &&
+      /* inv.workflowStatus !== 'delivered' &&
+      inv.status !== 'delivered' && */
       normalizeWorkflowStatus(inv.workflowStatus) === col.id
     ).length;
     return acc;
@@ -217,7 +227,7 @@ export const PrintOrdersView: React.FC = () => {
     posSound.success();
     finishInvoicePrinting(inv.id);
   };
-
+  
   const handleDirectStatusChange = (invoice: Invoice, newStatus: PosInvoiceWorkflowStatus) => {
     if (!canChangeStatus) {
       posSound.error();
@@ -234,7 +244,7 @@ export const PrintOrdersView: React.FC = () => {
       {
         notes: isDelivered
           ? 'اعتماد الفاتورة (تم التسليم) وأرشفتها من شاشة أوامر الطباعة والورشة'
-          : `تغيير الحالة في شاشة الورشة إلى "${WORKSHOP_STATUSES.find((s) => s.id === newStatus)?.label || newStatus}"`,
+          : `تغيير الحالة في شاشة الورشة إلى "${ALL_STATUSES.find((s) => s.id === newStatus)?.label || newStatus}"`,
         userName: currentUser?.fullName || currentUser?.username || 'فني الورشة',
         userId: currentUser?.id
       }
@@ -257,7 +267,7 @@ export const PrintOrdersView: React.FC = () => {
   // Actions: بدء الطباعة، إنهاء الطباعة، إضافة ملاحظة فنية، تغيير الحالة حسب الصلاحية
   const renderInvoiceCard = (invoice: Invoice, isListView = false) => {
     const normalizedStatus = normalizeWorkflowStatus(invoice.workflowStatus) || 'design';
-    const statusMeta = WORKSHOP_STATUSES.find((s) => s.id === normalizedStatus)!;
+    const statusMeta = ALL_STATUSES.find((s) => s.id === normalizedStatus)!;
     const isPrintingNow = normalizedStatus === 'print_internal';
     const isReadyForDelivery = normalizedStatus === 'ready';
 
@@ -275,13 +285,13 @@ export const PrintOrdersView: React.FC = () => {
         }`}
       >
         <div className="space-y-3">
-          {/* Top Row: Invoice Number, Sub-Customer Badge, Delivery Date */}
-          <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-            <div className="flex items-center gap-2">
+          {/* Top Row: Compact Header with Invoice, Status, Customer, and Notes */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2">
+            <div className="flex items-center gap-2 flex-wrap flex-1">
               <button
                 type="button"
                 onClick={() => handleCopyNumber(invoice.invoiceNumber, invoice.id)}
-                className="flex items-center gap-1 font-mono font-bold text-xs sm:text-sm text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 transition-colors"
+                className="flex items-center gap-1 font-mono font-bold text-[11px] sm:text-xs text-blue-700 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded border border-blue-200 transition-colors shrink-0"
                 title="نسخ رقم الفاتورة"
               >
                 <span>{invoice.invoiceNumber}</span>
@@ -294,57 +304,43 @@ export const PrintOrdersView: React.FC = () => {
 
               {/* Status Badge */}
               <span
-                className={`text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-full border ${statusMeta.badgeBg} ${statusMeta.badgeText} ${statusMeta.border}`}
+                className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusMeta.badgeBg} ${statusMeta.badgeText} ${statusMeta.border}`}
               >
                 {statusMeta.label}
               </span>
+
+              {/* Customer Name & Sub-Name */}
+              <div className="flex items-center gap-1.5 mr-1 shrink-0">
+                <strong className="text-slate-900 text-[11px] sm:text-xs font-bold truncate max-w-[150px] sm:max-w-[200px]" title={invoice.customerName}>
+                  {invoice.customerName}
+                </strong>
+                {invoice.subCustomerName && (
+                  <span className="text-indigo-800 font-bold bg-indigo-50 px-1.5 py-0.5 rounded text-[10px] border border-indigo-100 truncate max-w-[100px]" title={invoice.subCustomerName}>
+                    {invoice.subCustomerName}
+                  </span>
+                )}
+              </div>
+
+              {/* Invoice Notes */}
+              {invoice.notes && (
+                 <div className="text-amber-800 bg-amber-50/50 border border-amber-100 rounded px-1.5 py-0.5 text-[10px] sm:text-xs truncate max-w-[200px] sm:max-w-[300px] flex items-center gap-1" title={invoice.notes}>
+                   <FileText className="w-3 h-3 opacity-70" />
+                   <span className="truncate">{invoice.notes}</span>
+                 </div>
+              )}
             </div>
 
             {/* Delivery Date */}
             <div
-              className="flex items-center gap-1 text-[11px] font-mono text-slate-700 bg-slate-50 px-2 py-0.5 rounded border border-slate-200"
+              className="flex items-center gap-1 text-[10px] font-mono text-slate-700 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 shrink-0"
               title="تاريخ التسليم المتفق عليه"
             >
-              <Calendar className="w-3.5 h-3.5 text-amber-600" />
+              <Calendar className="w-3 h-3 text-amber-600" />
               <span className="font-semibold text-slate-500">تسليم:</span>
               <strong className="text-slate-800">
                 {invoice.deliveryDate || invoice.date || 'غير محدد'}
               </strong>
             </div>
-          </div>
-
-          {/* Customer Name & Sub-Name */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-            <div className="bg-slate-50/70 p-2 rounded-lg border border-slate-100">
-              <span className="text-[10px] text-slate-500 block">اسم العميل (الزبون):</span>
-              <strong className="text-slate-900 text-xs sm:text-sm font-bold truncate block">
-                {invoice.customerName}
-              </strong>
-            </div>
-
-            <div className="bg-slate-50/70 p-2 rounded-lg border border-slate-100">
-              <span className="text-[10px] text-slate-500 block">الاسم الفرعي:</span>
-              <span className="text-slate-800 font-semibold truncate block">
-                {invoice.subCustomerName ? (
-                  <span className="text-indigo-800 font-bold bg-indigo-50 px-1.5 py-0.5 rounded text-[11px]">
-                    {invoice.subCustomerName}
-                  </span>
-                ) : (
-                  <span className="text-slate-400">- غير محدد -</span>
-                )}
-              </span>
-            </div>
-          </div>
-
-          {/* Invoice Notes */}
-          <div className="bg-amber-50/40 border border-amber-200/70 rounded-lg p-2 text-xs">
-            <div className="flex items-center gap-1 text-amber-900 font-bold text-[10px] mb-0.5">
-              <FileText className="w-3 h-3 text-amber-700" />
-              <span>ملاحظات الفاتورة:</span>
-            </div>
-            <p className="text-slate-700 text-[11px] sm:text-xs leading-relaxed">
-              {invoice.notes ? invoice.notes : <span className="text-slate-400 italic">لا توجد ملاحظات خاصة</span>}
-            </p>
           </div>
 
           {/* Invoice Table: جدول الفاتورة */}
@@ -354,7 +350,7 @@ export const PrintOrdersView: React.FC = () => {
                 <Layers className="w-3.5 h-3.5 text-blue-600" />
                 <span>جدول بنود الفاتورة ({invoice.items.length})</span>
               </div>
-              <span className="text-[10px] text-slate-500 font-normal">
+              <span className="text-[9px] text-slate-400 font-light font-normal">
                 المقاسات، المواصفات، والملفات المرفقة
               </span>
             </div>
@@ -382,12 +378,12 @@ export const PrintOrdersView: React.FC = () => {
                             {it.itemName}
                           </div>
                           {it.dimensions && (
-                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                            <div className="text-[9px] text-slate-400 font-light font-mono mt-0.5">
                               المقاس: <strong className="text-slate-700">{it.dimensions}</strong>
                             </div>
                           )}
                           {it.length && it.width && (
-                            <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                            <div className="text-[9px] text-slate-400 font-light font-mono mt-0.5">
                               الأبعاد: {it.length} × {it.width} سم
                             </div>
                           )}
@@ -397,7 +393,7 @@ export const PrintOrdersView: React.FC = () => {
                           <span className="font-mono font-bold text-slate-800 text-xs">
                             {it.quantity}
                           </span>
-                          <span className="text-[10px] text-slate-500 mr-1">{it.unit || 'قطعة'}</span>
+                          <span className="text-[9px] text-slate-400 font-light mr-1">{it.unit || 'قطعة'}</span>
                         </td>
 
                         <td className="p-2 align-top max-w-[160px]">
@@ -447,7 +443,23 @@ export const PrintOrdersView: React.FC = () => {
             </div>
           </div>
 
-          {/* Technical Notes Snippet (if any exist) */}
+          {/* Toggle Expand Button */}
+        <div className="flex justify-center -mt-1 relative z-10">
+          <button 
+            type="button"
+            onClick={() => toggleExpand(invoice.id)}
+            className="bg-white text-[10px] font-bold text-slate-500 hover:text-blue-600 hover:bg-slate-50 border border-slate-200 px-3 py-1 rounded-full shadow-xs transition-colors flex items-center gap-1"
+          >
+            {expandedInvoices.has(invoice.id) ? 'إخفاء التفاصيل ▲' : 'تفاصيل أكثر ▼'}
+          </button>
+        </div>
+
+        {/* Expanded Area */}
+
+        {expandedInvoices.has(invoice.id) && (
+          <div className="pt-2 space-y-3">
+            {/* Technical Notes Snippet */}
+
           {(invoice.technicalNotes || []).length > 0 && (
             <div className="bg-indigo-50/50 border border-indigo-200/80 rounded-lg p-2.5 space-y-1.5">
               <div className="flex items-center justify-between text-[11px] text-indigo-950 font-bold">
@@ -466,7 +478,7 @@ export const PrintOrdersView: React.FC = () => {
 
               {invoice.technicalNotes?.slice(-2).map((tn) => (
                 <div key={tn.id} className="bg-white p-2 rounded border border-indigo-100 text-[11px] text-slate-800">
-                  <div className="flex justify-between text-[10px] text-slate-500 mb-0.5">
+                  <div className="flex justify-between text-[9px] text-slate-400 font-light mb-0.5">
                     <span className="font-bold text-indigo-900">{tn.userName}</span>
                     <span className="font-mono">{tn.createdAt}</span>
                   </div>
@@ -496,9 +508,12 @@ export const PrintOrdersView: React.FC = () => {
               <span className="font-mono text-emerald-700">{invoice.printFinishedAt.split('T')[0]}</span>
             </div>
           )}
+        
         </div>
-
-        {/* Action Controls Toolbar:
+        )}
+      </div>
+      
+      {/* Action Controls Toolbar:
             - إضافة ملاحظة فنية
             - بدء الطباعة
             - إنهاء الطباعة
@@ -507,7 +522,7 @@ export const PrintOrdersView: React.FC = () => {
         <div className="mt-4 pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
           {/* Status Change Selector (Governed by Permission) */}
           <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-slate-500 font-semibold">الحالة:</span>
+            <span className="text-[10px] text-slate-400 font-light font-semibold">الحالة:</span>
             {canChangeStatus ? (
               <select
                 value={normalizedStatus}
@@ -588,11 +603,11 @@ export const PrintOrdersView: React.FC = () => {
               title="إنهاء الطباعة وتحويل الفاتورة إلى جاهز للتسليم"
             >
               <CheckSquare className="w-3 h-3" />
-              <span>{isReadyForDelivery ? 'مكتمل وجاهز' : 'إنهاء الطباعة'}</span>
+              <span>{isReadyForDelivery ? 'مكتمل وجاهز' : 'مكتمل وجاهز'}</span>
             </button>
 
             {/* Mark as Delivered (تسليم للعميل واعتماد حالة الفاتورة تم التسليم) */}
-            {isReadyForDelivery && (
+            {isReadyForDelivery && hasPermission('edit_invoices') && (
               <button
                 type="button"
                 onClick={() => {
@@ -626,7 +641,7 @@ export const PrintOrdersView: React.FC = () => {
               </div>
               <div>
                 <h2 className="text-lg font-bold text-slate-900">شاشة أوامر الطباعة والورشة</h2>
-                <p className="text-xs text-slate-500">
+                <p className="text-[10px] text-slate-400 font-light">
                   تصنيف فواتير العمل التشغيلية (تصميم - بانتظار الاعتماد - طباعة خارجي - طباعة داخلي - جاهز للتسليم) وإدارة المرفقات
                 </p>
               </div>
@@ -701,7 +716,7 @@ export const PrintOrdersView: React.FC = () => {
             </span>
           </button>
 
-          {WORKSHOP_STATUSES.map((st) => {
+          {ALL_STATUSES.map((st) => {
             const count = countsByStatus[st.id] || 0;
             const isSelected = selectedStatusFilter === st.id;
 
@@ -735,14 +750,14 @@ export const PrintOrdersView: React.FC = () => {
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
           <Printer className="w-12 h-12 mx-auto mb-3 opacity-30 text-blue-600" />
           <h3 className="text-base font-bold text-slate-700">لا توجد أوامر تشغيل مطابقة في الورشة</h3>
-          <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
+          <p className="text-[10px] text-slate-400 font-light max-w-md mx-auto mt-1">
             يتم إظهار الفواتير التشغيلية المندرجة تحت إحدى حالات العمل الخمسة: (تصميم - بانتظار الاعتماد - طباعة خارجي - طباعة داخلي - جاهز للتسليم).
           </p>
         </div>
       ) : activeViewMode === 'kanban' ? (
         /* KANBAN BOARD: 5 STRICT WORK STATUS COLUMNS */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 items-start">
-          {WORKSHOP_STATUSES.filter(
+          {ALL_STATUSES.filter(
             (col) => selectedStatusFilter === 'all' || selectedStatusFilter === col.id
           ).map((col) => {
             const colInvoices = workshopInvoices.filter(

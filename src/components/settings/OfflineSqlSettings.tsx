@@ -171,7 +171,7 @@ export const OfflineSqlSettings: React.FC = () => {
               <h3 className="text-sm font-bold text-slate-900">
                 قاعدة بيانات البرنامج الرئيسي (السحابية) والحفظ الفوري بالذاكرة المحلية
               </h3>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[10px] text-slate-400 font-light">
                 الذاكرة المحلية LocalStorage تعمل فورياً وتلقائياً لضمان عدم توقف العمل عند انقطاع الإنترنت والمزامنة التلقائية عند عودته
               </p>
             </div>
@@ -197,7 +197,7 @@ export const OfflineSqlSettings: React.FC = () => {
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
           <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
-            <span className="text-[11px] text-slate-500 block">حالة الذاكرة المحلية (LocalStorage):</span>
+            <span className="text-[10px] text-slate-400 font-light block">حالة الذاكرة المحلية (LocalStorage):</span>
             <div className="flex items-center gap-1.5 mt-1">
               <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
               <strong className="text-slate-800 text-xs">نشط وتلقائي 100%</strong>
@@ -206,7 +206,7 @@ export const OfflineSqlSettings: React.FC = () => {
           </div>
 
           <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
-            <span className="text-[11px] text-slate-500 block">قاعدة بيانات البرنامج الرئيسي:</span>
+            <span className="text-[10px] text-slate-400 font-light block">قاعدة بيانات البرنامج الرئيسي:</span>
             <div className="flex items-center gap-1.5 mt-1">
               <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
               <strong className="text-slate-800 text-xs">
@@ -219,7 +219,7 @@ export const OfflineSqlSettings: React.FC = () => {
           </div>
 
           <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
-            <span className="text-[11px] text-slate-500 block">التعديلات المعلقة للمزامنة:</span>
+            <span className="text-[10px] text-slate-400 font-light block">التعديلات المعلقة للمزامنة:</span>
             <div className="flex items-center gap-1.5 mt-1">
               <strong className={`text-xs ${pendingSyncCount > 0 ? 'text-amber-600 font-bold' : 'text-emerald-600 font-bold'}`}>
                 {pendingSyncCount > 0 ? `${pendingSyncCount} تعديل بانتظار المزامنة` : 'كافة البيانات متزامنة بالكامل'}
@@ -264,7 +264,7 @@ export const OfflineSqlSettings: React.FC = () => {
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-900">إعدادات الربط بخادم الويب وقاعدة بيانات SQL</h3>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[10px] text-slate-400 font-light">
                 تهيئة الاتصال التلقائي بخادم API أو سرفر قواعد البيانات (PostgreSQL, MySQL, SQLite)
               </p>
             </div>
@@ -366,7 +366,7 @@ export const OfflineSqlSettings: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
-            <div className="text-[11px] text-slate-500 flex items-center gap-2">
+            <div className="text-[10px] text-slate-400 font-light flex items-center gap-2">
               <span>آخر مزامنة ناجحة:</span>
               <strong className="text-slate-700 font-mono">{lastSyncTime || 'لم تتم مزامنة بعد'}</strong>
             </div>
@@ -419,7 +419,7 @@ export const OfflineSqlSettings: React.FC = () => {
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-900">تصدير واستخراج نسخة SQL فورية (SQL Dump)</h3>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[10px] text-slate-400 font-light">
                 توليد ملف SQL كامل يحتوي على بنية الجداول (DDL) وكافة البيانات المحاسبية (INSERTs) جاهز للاستيراد في خادمك.
               </p>
             </div>
@@ -466,7 +466,7 @@ export const OfflineSqlSettings: React.FC = () => {
 
       {/* SQL Preview Modal */}
       {showSqlPreview && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-5 max-w-3xl w-full text-slate-800 space-y-3 animate-in fade-in zoom-in duration-150 flex flex-col max-h-[85vh]">
             <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
               <div className="flex items-center gap-2">

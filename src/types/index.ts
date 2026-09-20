@@ -24,19 +24,13 @@ export interface JournalEntry {
   entryNumber: string;
   date: string;
   description: string;
-  referenceType: 'pos_invoice' | 'print_order' | 'purchase' | 'purchase_return' | 'sales_return' | 'manual' | 'expense' | 'receipt' | 'payment' | 'transfer' | 'cogs';
+  referenceType: 'pos_invoice' | 'print_order' | 'purchase' | 'purchase_return' | 'sales_return' | 'manual' | 'expense' | 'receipt' | 'payment' | 'transfer' | 'cogs' | 'clearance';
   referenceId?: string;
   lines: JournalEntryLine[];
   createdAt: string;
 }
 
-export type ItemCategory = 
-  | 'books'          // كتب وروايات ومراجع
-  | 'stationery'     // قرطاسية وأدوات مكتبية ومدرسية
-  | 'print_raw'      // خامات مطبعة (ورق، أحبار، رولات، كوشيه)
-  | 'print_service'  // خدمات طباعة وتصميم وتجليد
-  | 'copy_scan'      // تصوير مستندات وسكان وطباعة فورية
-  | 'shields_gifts'; // دروع تكريم وهدايا دعائية ومطبوعات جلدية
+export type ItemCategory = string; // دروع تكريم وهدايا دعائية ومطبوعات جلدية
 
 export type BarcodeFormat = 'CODE128' | 'EAN13' | 'QR';
 
@@ -253,14 +247,24 @@ export interface PrintJobOrder {
 export type PaymentMethod = 'cash' | 'card' | 'bank_transfer' | 'credit';
 
 export interface LineAttachment {
+
   id: string;
   name: string;
   size?: number;
   type?: string;
   data?: string;
+  localBlobId?: string;       // معرف الملف المخزن محلياً بجودة أصلية كاملة
+  driveFileId?: string;       // معرف الملف في Google Drive
+  driveWebViewLink?: string;  // رابط المعاينة المباشر في Google Drive
+  driveDownloadLink?: string; // رابط التحميل المباشر من Google Drive
+  storageType?: 'drive' | 'local' | 'embedded' | 'link';
   uploadedAt?: string;
-  isOriginal?: boolean;      // هل هو مرفق أصلي محمي من الحذف
-  uploadedBy?: string;       // اسم المستخدم الذي أرفقه
+  isOriginal?: boolean;
+  isModified?: boolean;
+  modifiedAt?: string;
+  uploadedByUserId?: string;
+  uploadedByUserName?: string;       // هل هو مرفق أصلي محمي من الحذف
+  uploadedBy?: string;        // اسم المستخدم الذي أرفقه
 }
 
 export interface InvoiceTechnicalNote {
@@ -508,7 +512,7 @@ export interface PaymentVoucher {
 
 export interface CurrencyInfo {
   code: string;           // 'ILS', 'USD', 'JOD', 'EUR', 'SAR', 'EGP'
-  name: string;           // 'شيكل فلسطيني', 'دولار أمريكي', 'دينار أردني', etc.
+  name: string;           // 'شيكل', 'دولار أمريكي', 'دينار أردني', etc.
   symbol: string;         // '₪', '$', 'د.أ', '€', 'ر.س', 'ج.م'
   rateAgainstBase: number;// 1 unit of currency = X Base (ILS) (e.g. 1 USD = 3.70 ILS, 1 JOD = 5.20 ILS, 1 ILS = 1.0)
   isBase: boolean;        // true for ILS
@@ -531,14 +535,18 @@ export interface BusinessSettings {
   businessName: string;
   businessNameEn: string;
   activityType: string;
-  taxNumber: string;
-  crNumber: string;
+  taxNumber?: string;
+  crNumber?: string;
+  showTaxNumberInPrints?: boolean;
+  showCrNumberInPrints?: boolean;
   phone: string;
   email: string;
   address: string;
   // إمكانية رفع لوقو المنشأة وهيدر الطباعة والعناوين والهواتف المتعددة
-  logoUrl?: string;           // صورة لوقو المنشأة (Base64 أو رابط)
+    logoUrl?: string;           // صورة لوقو المنشأة (Base64 أو رابط)
   headerImageUrl?: string;    // صورة هيدر كامل لكافة الكشوفات والأوراق المطبوعة
+  stampUrl?: string;          // ختم المنشأة (Base64 أو رابط)
+  signatureUrl?: string;      // توقيع المدير/المخول (Base64 أو رابط)
   addresses?: string[];       // قائمة عناوين وفروع المنشأة المتعددة
   phones?: string[];          // قائمة أرقام الهواتف والجوالات المتعددة
   name?: string;              // الاسم البديل المتوافق
@@ -553,7 +561,8 @@ export interface BusinessSettings {
   unitsOfMeasure?: UnitOfMeasure[]; // وحدات القياس المعتمدة وخصائصها
   sqlServerConfig?: SqlServerConfig;
   defaultPosLayout?: any; // تخطيط وتنسيق شاشة الكاشير الافتراضي للنظام
-  homeShortcuts?: string[]; // قائمة معرفات الاختصارات المفعلة في الشاشة الرئيسية
+  telegramConfig?: { botToken: string; defaultChatId: string; enabled: boolean };
+  homeShortcuts?: string[];  categories?: CategoryDefinition[]; // قائمة معرفات الاختصارات المفعلة في الشاشة الرئيسية
 }
 
 export type TreasuryType = 
@@ -666,6 +675,7 @@ export interface EmployeeAdvance {
   reason: string;
   status: 'pending' | 'deducted' | 'cancelled';
   disbursedImmediately: boolean;
+  isCarryOver?: boolean;
   voucherNumber?: string;
   payrollSheetId?: string;
   payrollSheetTitle?: string;
@@ -722,6 +732,8 @@ export interface PayrollSheet {
   title: string; // e.g. مسير رواتب شهر سبتمبر 2026
   salaryType: SalaryType; // 'monthly' | 'weekly' | 'daily'
   period: string; // e.g. "سبتمبر 2026"
+  startDate?: string;
+  endDate?: string;
   createdAt: string;
   status: 'draft' | 'approved'; // 'draft' مسودة | 'approved' معتمد ومصروف
   disbursedAt?: string;
@@ -737,6 +749,28 @@ export interface PayrollSheet {
   employeesCount: number;
   voucherNumber?: string;
   notes?: string;
+}
+
+export interface ExpenseItem {
+  id: string;
+  date: string;
+  expenseAccountCode: string;
+  expenseAccountName: string;
+  category: 'maintenance' | 'rent' | 'utilities' | 'marketing' | 'hospitality' | 'supplies' | 'other';
+  categoryName: string;
+  amount: number;
+  paymentMethod: 'cash' | 'bank_transfer' | PaymentMethod;
+  treasuryAccountCode: string;
+  treasuryName: string;
+  beneficiary: string;
+  taxInvoiceNumber?: string;
+  notes: string;
+  createdAt: string;
+  currency?: string;
+  currencySymbol?: string;
+  exchangeRate?: number;
+  voucherNumber?: string;
+  journalEntryId?: string;
 }
 
 // Convenient aliases for POS & Financial components
@@ -770,7 +804,8 @@ export * from './companyBranchUser';
 // Database Zeroing & Clean Start (تصفير قاعدة البيانات لبدء التشغيل الفعلي)
 export interface DatabaseZeroingOptions {
   cutoffDate: string; // YYYY-MM-DD
-  scope: 'up_to_date' | 'all'; // تصفير حتى هذا التاريخ فقط أو تصفير شامل
+  fromDate?: string; // YYYY-MM-DD
+  scope: 'up_to_date' | 'from_date' | 'date_range' | 'all'; // تصفير حتى هذا التاريخ فقط، من تاريخ معين، بين تاريخين، أو تصفير شامل
 
   // 1. العمليات والحركات المالية والتجارية
   resetInvoices: boolean;           // فواتير المبيعات ونقاط البيع
@@ -780,24 +815,32 @@ export interface DatabaseZeroingOptions {
   resetVouchers: boolean;           // سندات القبض والصرف
   resetJournalEntries: boolean;     // قيود اليومية وحركات الحسابات
   resetPrintOrders: boolean;        // أوامر تشغيل المطبعة والورشة
-  resetStockMovements: boolean;      // حركات المخزون والمناقلات
-  resetWarehouseOperations: boolean;// عمليات المستودعات
-  resetPayroll: boolean;            // مسيرات الرواتب وسلف ومكافآت وخصومات الموظفين
+  resetDebtClearings?: boolean;     // عمليات المقاصة وتسوية الديون
+  resetExpenses?: boolean;          // المصروفات والمصاريف التشغيلية
 
-  // 2. العملاء والموردين والأطراف
+  // 2. المخازن والأصناف والكرتات المخزنية وكل ما يتعلق بالصنف
+  zeroInventoryStock: boolean;      // تصفير كميات وأرصدة المخزون لجميع الأصناف (0.00 لبدء جرد فعلي)
+  resetManualInventoryItems: boolean;// حذف كرتات الأصناف والمنتجات والخامات المضافة
+  resetStockMovements: boolean;      // حركات المخزون بالكامل (صرف، قبض/توريد، جرد، بيع، شراء، تبديل وتغيير ومناقلات)
+  resetWarehouseOperations: boolean;// عمليات المستودعات وأذونات الصرف والتوريد
+  resetManualWarehouses: boolean;   // حذف المستودعات الإضافية المضافة يدوياً
+
+  // 3. الموظفون والرواتب ومستحقاتهم بالكامل
+  resetEmployees: boolean;          // حذف أسماء وسجلات الموظفين
+  resetPayroll: boolean;            // كشوف ومسيرات الرواتب
+  resetEmployeeAdvances?: boolean;  // سلف الموظفين
+  resetEmployeeDeductions?: boolean;// خصومات وجزاءات الموظفين
+  resetEmployeeIncentives?: boolean;// مكافآت وحوافز الموظفين
+
+  // 4. العملاء والموردين والأطراف
   resetManualParties: boolean;      // حذف العملاء والموردين المضافين يدوياً
   zeroPartyBalances: boolean;       // تصفير أرصدة الذمم والمديونيات لجميع العملاء والموردين (0.00 ₪)
 
-  // 3. المخازن والأصناف والمستودعات
-  zeroInventoryStock: boolean;      // تصفير كميات وأرصدة المخزون لجميع الأصناف (0 لبدء جرد فعلي)
-  resetManualInventoryItems: boolean;// حذف الأصناف والمنتجات والخامات المضافة يدوياً
-  resetManualWarehouses: boolean;   // حذف المستودعات الإضافية المضافة يدوياً
-
-  // 4. الصناديق والخزنات والحسابات البنكية
+  // 5. الصناديق والخزنات والحسابات البنكية
   zeroTreasuryBalances: boolean;    // تصفير أرصدة وحركات الصناديق والخزنات لتصبح 0.00 ₪
   resetManualTreasuries: boolean;   // حذف الصناديق والحسابات البنكية المضافة يدوياً
 
-  // 5. شجرة الحسابات والدليل المحاسبي
+  // 6. شجرة الحسابات والدليل المحاسبي
   zeroAccountBalances: boolean;     // تصفير أرصدة حسابات الدليل المحاسبي لتبدأ من 0.00 ₪
 }
 
@@ -814,6 +857,13 @@ export interface ZeroingExecutionResult {
     deletedPrintOrders: number;
     deletedStockMovements: number;
     deletedWarehouseOperations: number;
+    deletedDebtClearings: number;
+    deletedExpenses: number;
+    deletedEmployees: number;
+    deletedPayrollSheets: number;
+    deletedEmployeeAdvances: number;
+    deletedEmployeeDeductions: number;
+    deletedEmployeeIncentives: number;
     deletedPayrollRecords: number;
     deletedManualParties: number;
     zeroedPartyBalances: number;

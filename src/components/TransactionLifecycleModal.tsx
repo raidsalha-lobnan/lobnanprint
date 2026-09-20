@@ -137,7 +137,7 @@ export const TransactionLifecycleModal: React.FC = () => {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
       <div className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-auto flex flex-col max-h-[92vh]">
         {/* Header */}
         <div className="bg-slate-900 text-white p-5 border-b border-slate-800 flex items-center justify-between">
@@ -212,7 +212,7 @@ export const TransactionLifecycleModal: React.FC = () => {
                         {step.title}
                       </span>
                     </div>
-                    <span className="text-[10px] text-slate-500 truncate max-w-[110px]">
+                    <span className="text-[9px] text-slate-400 font-light truncate max-w-[110px]">
                       {step.badge}
                     </span>
                   </button>
@@ -272,7 +272,7 @@ export const TransactionLifecycleModal: React.FC = () => {
               <div className="border border-slate-200 rounded-xl overflow-hidden">
                 <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 font-bold text-xs text-slate-800 flex justify-between items-center">
                   <span>الأصناف والخدمات في الفاتورة ({inv.items.length})</span>
-                  <span className="text-[11px] text-slate-500">طريقة الدفع: {inv.paymentMethod === 'cash' ? 'نقدي' : inv.paymentMethod === 'card' ? 'شبكة' : 'آجل'}</span>
+                  <span className="text-[10px] text-slate-400 font-light">طريقة الدفع: {inv.paymentMethod === 'cash' ? 'نقدي' : inv.paymentMethod === 'card' ? 'شبكة' : 'آجل'}</span>
                 </div>
                 <table className="w-full text-right text-xs">
                   <thead className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
@@ -350,14 +350,14 @@ export const TransactionLifecycleModal: React.FC = () => {
                           <td className="p-3 text-center font-mono font-bold text-emerald-700 bg-emerald-50/50">{mov.balanceAfter}</td>
                           <td className="p-3 font-mono text-slate-700">{mov.unitPrice.toLocaleString('ar-SA')} {settings.currency}</td>
                           <td className="p-3 font-mono font-bold text-slate-900">{mov.totalValue.toLocaleString('ar-SA')} {settings.currency}</td>
-                          <td className="p-3 text-[11px] text-slate-500">{mov.date} {mov.time}</td>
+                          <td className="p-3 text-[10px] text-slate-400 font-light">{mov.date} {mov.time}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               ) : (
-                <div className="p-6 bg-slate-50 rounded-xl border border-slate-200 text-center text-xs text-slate-500">
+                <div className="p-6 bg-slate-50 rounded-xl border border-slate-200 text-center text-[10px] text-slate-400 font-light">
                   الأصناف المشتملة في هذه الفاتورة خدمات رقمية أو تصوير فوري بدون خصم مخزني فيزيائي.
                 </div>
               )}
@@ -387,7 +387,7 @@ export const TransactionLifecycleModal: React.FC = () => {
                     </span>
                   )}
                   {customer && (
-                    <span className="text-[11px] text-slate-500 block mt-1">
+                    <span className="text-[10px] text-slate-400 font-light block mt-1">
                       هاتف: {customer.phone || 'غير مسجل'}
                     </span>
                   )}
@@ -500,7 +500,7 @@ export const TransactionLifecycleModal: React.FC = () => {
                       <span className="font-mono text-indigo-700 text-sm block font-bold">
                         RCT-INV-{inv.invoiceNumber.replace('INV-', '')}
                       </span>
-                      <span className="text-xs text-slate-500">
+                      <span className="text-[10px] text-slate-400 font-light">
                         سند قبض فوري مقيد لحساب الفاتورة
                       </span>
                     </div>
@@ -649,7 +649,7 @@ export const TransactionLifecycleModal: React.FC = () => {
                   })}
                 </div>
               ) : (
-                <div className="p-6 bg-slate-50 rounded-xl border border-slate-200 text-center text-xs text-slate-500">
+                <div className="p-6 bg-slate-50 rounded-xl border border-slate-200 text-center text-[10px] text-slate-400 font-light">
                   يتم إرفاق القيود التلقائية لدفتر اليومية فور حفظ الفاتورة.
                 </div>
               )}
@@ -755,7 +755,7 @@ export const TransactionLifecycleModal: React.FC = () => {
             <span>المرحلة السابقة</span>
           </button>
 
-          <div className="text-xs text-slate-500 font-medium">
+          <div className="text-[10px] text-slate-400 font-light font-medium">
             المرحلة <strong className="text-slate-900 font-bold">{activeStep + 1}</strong> من <strong className="text-slate-900 font-bold">{steps.length}</strong>: {steps[activeStep].title}
           </div>
 

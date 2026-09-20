@@ -433,7 +433,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3">
+    <div className="fixed inset-0 z-[100] bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3">
       <div className="bg-white rounded-xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-200 flex flex-col max-h-[92vh]">
         {/* Modal Header */}
         <div className="px-4 py-2.5 bg-slate-900 text-white flex items-center justify-between">
@@ -665,7 +665,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               )}
 
               {!lastScannedItem && !notFoundBarcode && (
-                <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-light">
                   <Info className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                   <span>
                     يدعم النظام أيضاً <strong>أجهزة قراءة الباركود اللاسلكية والـ USB</strong> مباشرة بمجرد توجيه الباركود.
@@ -738,7 +738,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
         {/* Footer Actions */}
         <div className="px-4 py-2 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs">
-          <span className="text-[10px] text-slate-500">
+          <span className="text-[9px] text-slate-400 font-light">
             {mode === 'input'
               ? 'بمجرد قراءة الباركود، تُغلق الشاشة تلقائياً ويتم الانتقال إلى حقل الكمية، ثم Enter للرجوع للباركود'
               : 'بمجرد قراءة الباركود، تُغلق الشاشة تلقائياً ويتم الانتقال لتعديل كمية الصنف، ثم Enter للرجوع للباركود'}

@@ -1,18 +1,23 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   X,
   Upload,
   Paperclip,
   FileText,
-  Image as ImageIcon,
   Trash2,
   Download,
   Plus,
   Check,
   ExternalLink,
-  Info
+  Info,
+  Cloud,
+  CheckCircle2,
+  Loader2,
+  HardDrive
 } from 'lucide-react';
 import { LineAttachment } from '../../types';
+import { saveBinaryAttachment, getBinaryAttachment, downloadBlobFile } from '../../utils/fileStorage';
+import { uploadFileToGoogleDrive, getSavedDriveToken, requestDriveAccessToken } from '../../services/googleDriveService';
 
 interface LineAttachmentsModalProps {
   isOpen: boolean;
@@ -33,44 +38,132 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
   const [linkInput, setLinkInput] = useState('');
   const [linkNameInput, setLinkNameInput] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [uploadingFiles, setUploadingFiles] = useState<Record<string, { name: string; progress: number }>>({});
+  const [isDriveConnected, setIsDriveConnected] = useState<boolean>(Boolean(getSavedDriveToken()));
+  const [isConnectingDrive, setIsConnectingDrive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Sync state when opened
-  React.useEffect(() => {
+  useEffect(() => {
     setItems(attachments || []);
+    setIsDriveConnected(Boolean(getSavedDriveToken()));
   }, [attachments, isOpen]);
 
   if (!isOpen) return null;
 
-  const handleFiles = (files: FileList | null) => {
+  const handleConnectDrive = async () => {
+    setIsConnectingDrive(true);
+    try {
+      await requestDriveAccessToken();
+      setIsDriveConnected(true);
+    } catch (err) {
+      console.warn('Google Drive token request deferred:', err);
+    } finally {
+      setIsConnectingDrive(false);
+    }
+  };
+
+  const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
-    Array.from(files).forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const dataUrl = e.target?.result as string;
-        const newAttachment: LineAttachment = {
-          id: 'att-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-          name: file.name,
-          size: file.size,
-          type: file.type,
-          data: dataUrl,
-          uploadedAt: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })
-        };
-        setItems(prev => [...prev, newAttachment]);
+    const fileList = Array.from(files);
+
+    for (const file of fileList) {
+      const attId = 'att-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+      
+      // 1. Save locally to IndexedDB as high-capacity raw binary Blob (100% lossless)
+      await saveBinaryAttachment(attId, file, file.name, file.type);
+
+      // 2. Generate lightweight thumbnail if it is a small image (< 300KB)
+      let previewDataUrl: string | undefined = undefined;
+      if (file.type.startsWith('image/') && file.size < 300 * 1024) {
+        previewDataUrl = await new Promise((res) => {
+          const reader = new FileReader();
+          reader.onload = (e) => res(e.target?.result as string);
+          reader.onerror = () => res(undefined);
+          reader.readAsDataURL(file);
+        });
+      }
+
+      const newAttachment: LineAttachment = {
+        id: attId,
+        name: file.name,
+        size: file.size,
+        type: file.type || 'application/octet-stream',
+        data: previewDataUrl,
+        localBlobId: attId,
+        storageType: 'local',
+        uploadedAt: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })
       };
-      // Read as data URL for persistence and preview
-      reader.readAsDataURL(file);
-    });
+
+      setItems(prev => [...prev, newAttachment]);
+
+      // 3. Background upload to Google Drive (lobnanprint@gmail.com) if token available or requested
+      if (isDriveConnected || getSavedDriveToken()) {
+        setUploadingFiles(prev => ({ ...prev, [attId]: { name: file.name, progress: 10 } }));
+        try {
+          const driveRes = await uploadFileToGoogleDrive(file, file.name, (prog) => {
+            setUploadingFiles(prev => ({ ...prev, [attId]: { name: file.name, progress: prog } }));
+          });
+
+          setItems(prev => prev.map(item => {
+            if (item.id === attId) {
+              return {
+                ...item,
+                driveFileId: driveRes.fileId,
+                driveWebViewLink: driveRes.webViewLink,
+                driveDownloadLink: driveRes.webContentLink,
+                storageType: 'drive'
+              };
+            }
+            return item;
+          }));
+        } catch (err) {
+          console.warn('Drive upload background fallback to local binary storage:', err);
+        } finally {
+          setUploadingFiles(prev => {
+            const next = { ...prev };
+            delete next[attId];
+            return next;
+          });
+        }
+      }
+    }
+  };
+
+  const handleDownloadAttachment = async (att: LineAttachment) => {
+    if (att.localBlobId) {
+      const stored = await getBinaryAttachment(att.localBlobId);
+      if (stored?.blob) {
+        downloadBlobFile(stored.blob, att.name);
+        return;
+      }
+    }
+
+    if (att.driveWebViewLink || att.driveDownloadLink) {
+      window.open(att.driveDownloadLink || att.driveWebViewLink, '_blank');
+      return;
+    }
+
+    if (att.data) {
+      const a = document.createElement('a');
+      a.href = att.data;
+      a.download = att.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
   };
 
   const handleAddExternalLink = () => {
     if (!linkInput.trim()) return;
     const newAttachment: LineAttachment = {
       id: 'att-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-      name: linkNameInput.trim() || 'رابط تصميم خارجي (Drive / Cloud)',
+      name: linkNameInput.trim() || 'رابط تصميم خارجي (Google Drive / Cloud)',
       data: linkInput.trim(),
+      driveWebViewLink: linkInput.trim(),
       type: 'link',
+      storageType: 'link',
       uploadedAt: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })
     };
     setItems(prev => [...prev, newAttachment]);
@@ -111,7 +204,7 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
       <div
         className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden text-slate-800 animate-in zoom-in-95 duration-200"
         dir="rtl"
@@ -124,7 +217,7 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold flex items-center gap-2">
-                <span>مرفقات البند والتصاميم</span>
+                <span>مرفقات البند والتصاميم عالية الدقة</span>
                 <span className="text-xs bg-amber-400 text-amber-950 font-black px-2 py-0.5 rounded-full">
                   {items.length} مرفق
                 </span>
@@ -144,8 +237,44 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
           </button>
         </div>
 
+        {/* Cloud & Quality Status Bar */}
+        <div className="bg-slate-800 text-white px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs border-b border-slate-700">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              جودة أصلية 100% بدون أي ضغط أو تقليل حجم
+            </span>
+            <span className="text-slate-400 hidden sm:inline">|</span>
+            <span className="text-slate-300 flex items-center gap-1 text-[11px]">
+              <HardDrive className="w-3.5 h-3.5 text-blue-400" />
+              تخزين ثنائي عالي السعة
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-slate-300 flex items-center gap-1">
+              <Cloud className="w-3.5 h-3.5 text-blue-400" />
+              Google Drive (lobnanprint@gmail.com):
+            </span>
+            {isDriveConnected ? (
+              <span className="text-[10px] bg-emerald-500 text-white font-black px-2 py-0.5 rounded-full">
+                متصل وجاهز
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={handleConnectDrive}
+                disabled={isConnectingDrive}
+                className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white font-bold px-2.5 py-0.5 rounded-full cursor-pointer transition-colors flex items-center gap-1"
+              >
+                {isConnectingDrive ? <Loader2 className="w-3 h-3 animate-spin" /> : 'تنشيط الربط السحابي'}
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Content Body */}
-        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto bg-slate-50/50">
+        <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto bg-slate-50/50">
           {/* Drag & Drop Upload Zone */}
           <div
             onDragOver={(e) => {
@@ -174,28 +303,44 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
               accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml,.pdf,.ai,.psd,.eps,.svg,.cdr,.tif,.tiff,.zip,.rar"
             />
             <div className="flex flex-col items-center gap-2">
-              <div className="p-3 bg-blue-100 text-blue-700 rounded-full">
+              <div className="p-3 bg-blue-100 text-blue-700 rounded-full shadow-xs">
                 <Upload className="w-6 h-6" />
               </div>
               <div className="font-bold text-slate-800 text-sm">
                 انقر لاختيار ملفات أو اسحب وأفلت ملفات الطباعة والتصاميم هنا
               </div>
               <div className="text-xs text-slate-600 font-medium">
-                الصيغ المعتمدة لأعمال الطباعة حسب إعدادات النظام:
+                يتم حفظ الملفات بحجمها الكامل وجودتها الأصلية دون التغيير فيها نهائياً
               </div>
               {/* Badges for Supported Print Formats */}
               <div className="flex flex-wrap items-center justify-center gap-1.5 mt-1">
                 <span className="px-2 py-0.5 rounded text-[11px] font-black bg-rose-100 text-rose-800 border border-rose-300">PDF</span>
-                <span className="px-2 py-0.5 rounded text-[11px] font-black bg-teal-100 text-teal-800 border border-teal-300">JPG</span>
-                <span className="px-2 py-0.5 rounded text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">PNG</span>
+                <span className="px-2 py-0.5 rounded text-[11px] font-black bg-teal-100 text-teal-800 border border-teal-300">JPG / PNG</span>
                 <span className="px-2 py-0.5 rounded text-[11px] font-black bg-orange-100 text-orange-900 border border-orange-300">AI (Illustrator)</span>
                 <span className="px-2 py-0.5 rounded text-[11px] font-black bg-blue-100 text-blue-900 border border-blue-300">PSD (Photoshop)</span>
                 <span className="px-2 py-0.5 rounded text-[11px] font-black bg-purple-100 text-purple-900 border border-purple-300">EPS</span>
                 <span className="px-2 py-0.5 rounded text-[11px] font-black bg-amber-100 text-amber-900 border border-amber-300">SVG</span>
-                <span className="px-2 py-0.5 rounded text-[11px] font-black bg-slate-100 text-slate-700 border border-slate-300">CDR / وغيرها</span>
+                <span className="px-2 py-0.5 rounded text-[11px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">CDR (CorelDraw)</span>
+                <span className="px-2 py-0.5 rounded text-[11px] font-black bg-indigo-100 text-indigo-900 border border-indigo-300">ZIP / RAR</span>
               </div>
             </div>
           </div>
+
+          {/* Upload Progress Display */}
+          {Object.keys(uploadingFiles).length > 0 && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
+              <div className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                <span>جارٍ الرفع بجودة أصلية إلى Google Drive...</span>
+              </div>
+              {Object.entries(uploadingFiles).map(([id, info]: [string, { name: string; progress: number }]) => (
+                <div key={id} className="text-[11px] text-blue-800 flex items-center justify-between">
+                  <span className="truncate max-w-[200px]">{info.name}</span>
+                  <span className="font-mono font-bold">100% جودة كاملة</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* External Link Section */}
           <div className="bg-white p-3.5 rounded-xl border border-slate-200">
@@ -215,7 +360,7 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
                 type="text"
                 value={linkInput}
                 onChange={(e) => setLinkInput(e.target.value)}
-                placeholder="الصق الرابط هنا https://..."
+                placeholder="الصق الرابط هنا https://drive.google.com/..."
                 className="text-xs border border-slate-300 rounded-lg px-3 py-2 flex-1 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
               />
               <button
@@ -286,26 +431,27 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
                               {att.name}
                             </span>
                           </div>
-                          <div className="text-[10px] text-slate-500 flex items-center gap-2 mt-0.5">
+                          <div className="text-[9px] text-slate-400 font-light flex items-center gap-2 mt-0.5">
                             {att.size && <span>{formatFileSize(att.size)}</span>}
                             {att.uploadedAt && <span>{att.uploadedAt}</span>}
+                            {att.driveFileId && (
+                              <span className="text-blue-600 font-medium flex items-center gap-0.5">
+                                <Cloud className="w-2.5 h-2.5" /> Drive
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-1">
-                        {att.data && (
-                          <a
-                            href={att.data}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            download={!isLink ? att.name : undefined}
-                            className="p-1.5 hover:bg-slate-100 text-slate-600 hover:text-blue-600 rounded-lg transition-colors cursor-pointer"
-                            title="فتح / تحميل"
-                          >
-                            {isLink ? <ExternalLink className="w-4 h-4" /> : <Download className="w-4 h-4" />}
-                          </a>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadAttachment(att)}
+                          className="p-1.5 hover:bg-slate-100 text-slate-600 hover:text-blue-600 rounded-lg transition-colors cursor-pointer"
+                          title="فتح / تحميل الملف بالجودة الأصلية"
+                        >
+                          {isLink ? <ExternalLink className="w-4 h-4" /> : <Download className="w-4 h-4" />}
+                        </button>
                         <button
                           type="button"
                           onClick={() => handleDelete(att.id)}
@@ -325,9 +471,9 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
 
         {/* Footer Actions */}
         <div className="p-4 bg-slate-100 border-t border-slate-200 flex items-center justify-between">
-          <div className="text-xs text-slate-500 flex items-center gap-1.5">
-            <Info className="w-4 h-4 text-blue-500" />
-            <span>يتم ربط المرفقات مباشرة بهذا البند وحفظها مع الفاتورة وطلب الطباعة</span>
+          <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1.5">
+            <Info className="w-4 h-4 text-blue-500 shrink-0" />
+            <span>يتم حفظ المرفقات بجودتها الأصلية وربطها تلقائياً مع الفاتورة وأمر التشغيل</span>
           </div>
 
           <div className="flex items-center gap-2">

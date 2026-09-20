@@ -92,11 +92,21 @@ export const LoginView: React.FC<{ onLocalLogin?: (id: string) => void }> = ({ o
     setResetSent(false);
 
     try {
+      let userEmail = email.toLowerCase();
       if (isLogin) {
-        await signInWithEmailAndPassword(auth, email, password);
+        const res = await signInWithEmailAndPassword(auth, email, password);
+        if (res.user && res.user.email) userEmail = res.user.email.toLowerCase();
       } else {
-        await createUserWithEmailAndPassword(auth, email, password);
+        const res = await createUserWithEmailAndPassword(auth, email, password);
+        if (res.user && res.user.email) userEmail = res.user.email.toLowerCase();
       }
+      
+      const sessionId = Date.now().toString(36) + Math.random().toString(36).substring(2);
+      localStorage.setItem('active_session_id', sessionId);
+      try {
+        await setDoc(doc(db, 'userSessions', userEmail), { sessionId, timestamp: Date.now() });
+      } catch(e) {}
+      
     } catch (err: any) {
       console.error(err);
       setErrorCode(err.code);

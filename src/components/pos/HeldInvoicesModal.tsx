@@ -35,7 +35,7 @@ export const HeldInvoicesModal: React.FC<HeldInvoicesModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden text-slate-800">
         <div className="bg-slate-800 text-white px-5 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -80,7 +80,7 @@ export const HeldInvoicesModal: React.FC<HeldInvoicesModalProps> = ({
                         <span>{inv.heldAt}</span>
                       </span>
                     </div>
-                    <div className="text-[11px] text-slate-500 font-sans">
+                    <div className="text-[10px] text-slate-400 font-light font-sans">
                       عدد البنود: <span className="font-bold text-slate-700 font-mono">{inv.lines.length}</span> |
                       إجمالي الفاتورة: <span className="font-bold text-blue-700 font-mono">{inv.totalAmount.toFixed(2)} {settings.currency}</span>
                     </div>
