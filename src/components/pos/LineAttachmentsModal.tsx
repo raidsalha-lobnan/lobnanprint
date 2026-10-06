@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { LineAttachment } from '../../types';
 import { saveBinaryAttachment, getBinaryAttachment, downloadBlobFile } from '../../utils/fileStorage';
+import { resizeAndCompressImage } from '../../utils/imageCompress';
 import {
   uploadFileToGoogleDrive,
   getSavedDriveToken,
@@ -74,12 +75,30 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync state when opened
+  // Sync state when opened and restore previews for items lacking data
   useEffect(() => {
-    setItems(attachments || []);
+    const initialList = attachments || [];
+    setItems(initialList);
     setIsDriveConnected(Boolean(getSavedDriveToken()));
     setSharedEmails(getSavedSharedDriveEmails());
     getDriveFolderUrl().then(url => setDriveFolderUrl(url));
+
+    // Restore any image data from IndexedDB if not in memory
+    initialList.forEach(async (att) => {
+      if ((att.type?.startsWith('image/') || att.name?.match(/\.(jpg|jpeg|png|webp|gif)$/i)) && !att.data && att.localBlobId) {
+        const stored = await getBinaryAttachment(att.localBlobId);
+        if (stored?.blob) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const dataUrl = e.target?.result as string;
+            if (dataUrl) {
+              setItems(prev => prev.map(item => item.id === att.id ? { ...item, data: dataUrl } : item));
+            }
+          };
+          reader.readAsDataURL(stored.blob);
+        }
+      }
+    });
   }, [attachments, isOpen]);
 
   if (!isOpen) return null;
@@ -109,15 +128,19 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
       // 1. Save locally to IndexedDB as high-capacity raw binary Blob (100% lossless)
       await saveBinaryAttachment(attId, file, file.name, file.type);
 
-      // 2. Generate lightweight thumbnail if it is a small image (< 300KB)
+      // 2. Generate lightweight thumbnail / dataURL for all images
       let previewDataUrl: string | undefined = undefined;
-      if (file.type.startsWith('image/') && file.size < 300 * 1024) {
-        previewDataUrl = await new Promise((res) => {
-          const reader = new FileReader();
-          reader.onload = (e) => res(e.target?.result as string);
-          reader.onerror = () => res(undefined);
-          reader.readAsDataURL(file);
-        });
+      if (file.type.startsWith('image/')) {
+        try {
+          previewDataUrl = await resizeAndCompressImage(file, 800, 800, 0.75);
+        } catch {
+          previewDataUrl = await new Promise((res) => {
+            const reader = new FileReader();
+            reader.onload = (e) => res(e.target?.result as string);
+            reader.onerror = () => res(undefined);
+            reader.readAsDataURL(file);
+          });
+        }
       }
 
       const newAttachment: LineAttachment = {

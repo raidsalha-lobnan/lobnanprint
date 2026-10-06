@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { posSound } from '../../utils/audio';
 import { getBinaryAttachment, downloadBlobFile, saveBinaryAttachment } from '../../utils/fileStorage';
+import { resizeAndCompressImage } from '../../utils/imageCompress';
 import { uploadFileToGoogleDrive, getSavedDriveToken } from '../../services/googleDriveService';
 
 interface WorkshopAttachmentModalProps {
@@ -97,13 +98,17 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
     await saveBinaryAttachment(attId, file, file.name, file.type);
 
     let previewDataUrl: string | undefined = undefined;
-    if (file.type.startsWith('image/') && file.size < 300 * 1024) {
-      previewDataUrl = await new Promise((res) => {
-        const reader = new FileReader();
-        reader.onload = (ev) => res(ev.target?.result as string);
-        reader.onerror = () => res(undefined);
-        reader.readAsDataURL(file);
-      });
+    if (file.type.startsWith('image/')) {
+      try {
+        previewDataUrl = await resizeAndCompressImage(file, 800, 800, 0.75);
+      } catch {
+        previewDataUrl = await new Promise((res) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => res(ev.target?.result as string);
+          reader.onerror = () => res(undefined);
+          reader.readAsDataURL(file);
+        });
+      }
     }
 
     const newAtt: LineAttachment = {

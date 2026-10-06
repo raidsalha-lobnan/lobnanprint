@@ -40,9 +40,9 @@ export function getAllStoredDraftsAsInvoices(): Invoice[] {
               count: Number(it.count) || Number(it.quantity) || 1,
               unit: it.unit || 'حبة',
               unitPrice: Number(it.unitPrice) || Number(it.price) || 0,
-              discount: Number(it.discount) || 0,
               total: Number(it.totalAmount) || Number(it.total) || ((Number(it.quantity) || 1) * (Number(it.unitPrice) || Number(it.price) || 0)),
-              attachments: it.attachments || []
+              attachments: it.attachments || [],
+              imageThumbnail: it.imageThumbnail || ''
             }));
 
             const total = Number(d.totalAmount) || items.reduce((sum: number, it: any) => sum + (Number(it.total) || 0), 0);

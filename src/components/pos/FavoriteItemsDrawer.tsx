@@ -24,31 +24,48 @@ export const FavoriteItemsDrawer: React.FC<FavoriteItemsDrawerProps> = ({
 
   if (!isOpen) return null;
 
-  // استخراج التصنيفات ديناميكياً من الأصناف المسجلة
+  // استخراج التصنيفات ديناميكياً من الأصناف المسجلة وإعدادات النظام
   const categoryNameMap: Record<string, string> = {
     print_raw: 'خامات ومواد الطباعة',
     stationery: 'قرطاسية ومكتبية',
     books: 'كتب وروايات وملازم',
     print_service: 'خدمات الطباعة',
     copy_scan: 'تصوير ومستندات',
-    shields_gifts: 'دروع وهدايا'
+    shields_gifts: 'دروع وهدايا',
+    office_supplies: 'أدوات مكتبية',
+    packaging: 'تغليف وتجليد',
+    gifts: 'هدايا وتذكارات',
+    services: 'خدمات سريعة'
   };
 
-  const rawCategories = (Array.from(
-    new Set(
-      (inventory || [])
-        .map(i => (i.category || '').trim())
-        .filter(Boolean)
-    )
-  ) as string[]).filter(cat => !/^\d{5,}$/.test(cat));
+  const settingsCategories = settings?.categories || [];
+  const settingsMap = new Map<string, string>();
+  settingsCategories.forEach(cat => {
+    if (cat && cat.id) {
+      settingsMap.set(cat.id, cat.name);
+      settingsMap.set(cat.name, cat.name);
+    }
+  });
+
+  const rawCategories = Array.from(
+    new Set([
+      ...(inventory || []).map(i => (i.category || '').trim()).filter(Boolean),
+      ...settingsCategories.map(c => c.id)
+    ])
+  ).filter(cat => !/^\d{5,}$/.test(cat));
 
   const dynamicCategories = rawCategories.map(catKey => {
+    const resolvedName = settingsMap.get(catKey) || categoryNameMap[catKey] || catKey;
+    const catItems = (inventory || []).filter(i => {
+      const itemCat = (i.category || '').trim();
+      return itemCat === catKey || (settingsMap.get(itemCat) === resolvedName);
+    });
     return {
       id: catKey,
-      label: categoryNameMap[catKey] || catKey,
-      count: (inventory || []).filter(i => (i.category || '').trim() === catKey).length
+      label: `${resolvedName} (${catItems.length})`,
+      count: catItems.length
     };
-  }).filter(c => c.count > 0);
+  }).filter(c => c.count > 0 || settingsCategories.some(sc => sc.id === c.id));
 
   const categories = [
     { id: 'favorites_only', label: `⭐ المفضلة (${(inventory || []).filter(i => i.isFavorite).length})` },
@@ -76,7 +93,16 @@ export const FavoriteItemsDrawer: React.FC<FavoriteItemsDrawerProps> = ({
     if (selectedCategory === 'all') {
       return true;
     }
-    return (item.category || '').trim() === selectedCategory;
+
+    const itemCat = (item.category || '').trim();
+    const targetCatDef = settingsCategories.find(c => c.id === selectedCategory || c.name === selectedCategory);
+    const targetName = targetCatDef?.name || categoryNameMap[selectedCategory] || selectedCategory;
+
+    return (
+      itemCat === selectedCategory ||
+      itemCat === targetName ||
+      (targetCatDef && (itemCat === targetCatDef.id || itemCat === targetCatDef.name))
+    );
   });
 
   const handlePickItem = (item: InventoryItem) => {

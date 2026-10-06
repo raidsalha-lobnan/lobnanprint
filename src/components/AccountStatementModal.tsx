@@ -27,7 +27,9 @@ import {
   BadgeDollarSign,
   Briefcase,
   ChevronDown,
-  Info
+  Info,
+  Image as ImageIcon,
+  Eye
 } from 'lucide-react';
 import { OfficialStamp } from './common/OfficialStamp';
 import { Party, Employee } from '../types';
@@ -89,6 +91,7 @@ export const AccountStatementModal: React.FC = () => {
   const [filterType, setFilterType] = useState<'all' | 'debit' | 'credit'>('all');
   const [showItemDetails, setShowItemDetails] = useState<boolean>(true);
   const [showImageThumbnailsInStatement, setShowImageThumbnailsInStatement] = useState<boolean>(true);
+  const [previewModalImage, setPreviewModalImage] = useState<{ url: string; name: string } | null>(null);
 
   // Active party or employee
   const currentParty = useMemo(() => {
@@ -429,15 +432,24 @@ export const AccountStatementModal: React.FC = () => {
               )}
 
               {statementMode === 'party' && (
-                <label className="flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer font-bold select-none">
-                  <input
-                    type="checkbox"
-                    checked={showImageThumbnailsInStatement}
-                    onChange={e => setShowImageThumbnailsInStatement(e.target.checked)}
-                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
-                  />
-                  <span>كشف تفصيلي بالصور (إظهار مصغرات تحت الفاتورة)</span>
-                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowImageThumbnailsInStatement(prev => !prev)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all flex items-center gap-1.5 border select-none ${
+                    showImageThumbnailsInStatement
+                      ? 'bg-purple-600 text-white border-purple-700 shadow-2xs hover:bg-purple-700'
+                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                  }`}
+                  title={showImageThumbnailsInStatement ? 'إخفاء مصغرات صور الأصناف من الكشف' : 'إظهار مصغرات صور الأصناف تحت جدول الفاتورة'}
+                >
+                  <ImageIcon className={`w-3.5 h-3.5 ${showImageThumbnailsInStatement ? 'text-amber-300' : 'text-purple-600'}`} />
+                  <span>{showImageThumbnailsInStatement ? 'إخفاء صور الأصناف' : 'إظهار صور الأصناف 🖼️'}</span>
+                  <span className={`text-[9.5px] px-1.5 py-0.2 rounded font-mono font-bold ${
+                    showImageThumbnailsInStatement ? 'bg-purple-800 text-purple-100' : 'bg-slate-100 text-slate-500'
+                  }`}>
+                    {showImageThumbnailsInStatement ? 'مفعل' : 'معطل'}
+                  </span>
+                </button>
               )}
 
               {statementMode === 'party' && (
@@ -868,36 +880,61 @@ export const AccountStatementModal: React.FC = () => {
                                   </table>
 
                                   {/* كشف تفصيلي بالصور: شريط المصغرات التفصيلي بالصور تحت جدول الفاتورة مباشرة */}
-                                  {showImageThumbnailsInStatement && row.items && row.items.some(it => it.imageThumbnail) && (
-                                    <div className="bg-slate-50/50 p-2.5 border-t border-slate-200">
-                                      <div className="text-[11px] font-bold text-slate-700 mb-1.5 flex items-center gap-1.5 select-none">
-                                        <FileText className="w-3.5 h-3.5 text-blue-600" />
-                                        <span>الصور المصغرة المرفقة بالبنود تحت هذه الفاتورة:</span>
+                                  {showImageThumbnailsInStatement && row.items && row.items.some(it => 
+                                    it.imageThumbnail || (it.attachments && it.attachments.some(a => a.data || a.type?.startsWith('image/')))
+                                  ) && (
+                                    <div className="bg-slate-50/70 p-2.5 border-t border-slate-200">
+                                      <div className="text-[11px] font-bold text-slate-700 mb-2 flex items-center justify-between select-none">
+                                        <div className="flex items-center gap-1.5 text-purple-900 font-bold">
+                                          <ImageIcon className="w-3.5 h-3.5 text-purple-600" />
+                                          <span>مصغرات صور الأصناف المرفقة بالفاتورة:</span>
+                                        </div>
+                                        <span className="text-[9.5px] text-slate-400 font-normal print:hidden">
+                                          (انقر على أي صورة لتكبيرها والمعاينة)
+                                        </span>
                                       </div>
-                                      <div className="flex flex-wrap gap-3">
-                                        {row.items.flatMap(it => 
-                                          parseThumbnails(it.imageThumbnail).map((imgStr, imgIdx) => ({
+                                      <div className="flex flex-wrap gap-2.5">
+                                        {row.items.flatMap(it => {
+                                          const thumbs = parseThumbnails(it.imageThumbnail);
+                                          const attImgs = (it.attachments || [])
+                                            .filter(a => a.data || a.type?.startsWith('image/'))
+                                            .map(a => a.data || '');
+                                          const allImgs = Array.from(new Set([...thumbs, ...attImgs].filter(Boolean)));
+                                          return allImgs.map(imgStr => ({
                                             imgStr,
                                             itemName: it.itemName,
-                                            itemCode: it.itemCode
-                                          }))
-                                        ).map((imgObj, idx) => (
-                                          <div key={idx} className="flex flex-col items-center bg-white border border-slate-200 rounded-md p-1.5 shadow-2xs w-[85px] print:w-[80px]">
-                                            <div className="w-[72px] h-[72px] print:w-[68px] print:h-[68px] rounded overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center">
+                                            itemCode: it.itemCode,
+                                            unitPrice: it.unitPrice,
+                                            quantity: it.quantity,
+                                            unit: it.unit
+                                          }));
+                                        }).map((imgObj, idx) => (
+                                          <div
+                                            key={idx}
+                                            onClick={() => setPreviewModalImage({ url: imgObj.imgStr, name: imgObj.itemName })}
+                                            className="flex flex-col items-center bg-white border border-slate-200 hover:border-purple-400 hover:shadow-sm rounded-lg p-1.5 shadow-2xs w-[90px] print:w-[82px] cursor-pointer transition-all group"
+                                            title={`معاينة وتكبير صورة "${imgObj.itemName}"\nالسعر: ${imgObj.unitPrice.toFixed(2)} ${settings.currency || '₪'}`}
+                                          >
+                                            <div className="relative w-[78px] h-[78px] print:w-[72px] print:h-[72px] rounded-md overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
                                               <img
                                                 src={imgObj.imgStr}
                                                 alt={imgObj.itemName}
-                                                className="w-full h-full object-cover"
+                                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                                onError={(e) => {
+                                                  e.currentTarget.style.display = 'none';
+                                                }}
                                               />
+                                              <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center print:hidden">
+                                                <Eye className="w-4 h-4 text-white" />
+                                              </div>
                                             </div>
-                                            <div className="text-[9px] text-slate-700 font-bold text-center truncate w-full mt-1" title={imgObj.itemName}>
+                                            <div className="text-[9.5px] text-slate-800 font-bold text-center truncate w-full mt-1 group-hover:text-purple-700" title={imgObj.itemName}>
                                               {imgObj.itemName}
                                             </div>
-                                            {imgObj.itemCode && (
-                                              <div className="text-[8px] text-slate-400 font-mono text-center truncate w-full">
-                                                {imgObj.itemCode}
-                                              </div>
-                                            )}
+                                            <div className="flex items-center justify-between w-full text-[8.5px] font-mono text-slate-500 mt-0.5 border-t border-slate-100 pt-0.5">
+                                              <span>{imgObj.quantity} {imgObj.unit || 'حبة'}</span>
+                                              <span className="font-bold text-purple-700">{imgObj.unitPrice.toFixed(2)}</span>
+                                            </div>
                                           </div>
                                         ))}
                                       </div>
@@ -1034,6 +1071,50 @@ export const AccountStatementModal: React.FC = () => {
             تم استخراج كشف الحساب المالي آلياً عبر نظام إدارة الحسابات والمطابع - يرجى مراجعة الإدارة المالية في حال وجود أي استفسار أو تدقيق.
           </div>
         </div>
+
+        {/* Image Preview Lightbox Modal */}
+        {previewModalImage && (
+          <div
+            className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150 print:hidden"
+            onClick={() => setPreviewModalImage(null)}
+          >
+            <div
+              className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-300 animate-in zoom-in-95 duration-150"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="p-3.5 bg-slate-900 text-white flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4 text-purple-400" />
+                  <span className="font-bold text-sm truncate">{previewModalImage.name}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPreviewModalImage(null)}
+                  className="p-1 rounded-lg hover:bg-white/20 text-slate-300 hover:text-white cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-4 bg-slate-950 flex items-center justify-center max-h-[75vh] overflow-hidden">
+                <img
+                  src={previewModalImage.url}
+                  alt={previewModalImage.name}
+                  className="max-h-[70vh] max-w-full object-contain rounded-lg shadow-lg"
+                />
+              </div>
+              <div className="p-3 bg-slate-100 border-t border-slate-200 flex items-center justify-between text-xs">
+                <span className="text-slate-600 font-medium">صورة مصغرة لبند الفاتورة في كشف الحساب</span>
+                <button
+                  type="button"
+                  onClick={() => setPreviewModalImage(null)}
+                  className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg cursor-pointer transition-colors"
+                >
+                  إغلاق
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

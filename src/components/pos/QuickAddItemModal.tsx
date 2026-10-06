@@ -184,12 +184,22 @@ export const QuickAddItemModal: React.FC<QuickAddItemModalProps> = ({
                 onChange={e => setCategory(e.target.value)}
                 className="w-full border border-slate-300 rounded-lg p-2 text-xs bg-white font-bold text-slate-700 outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
               >
-                <option value="office_supplies">أدوات مكتبية ومدرسية</option>
-                <option value="printing_paper">ورق ومواد طباعة</option>
-                <option value="copy_scan">خدمات تصوير وتصميم</option>
-                <option value="gifts">هدايا ودروع تذكارية</option>
-                <option value="packaging">تغليف وتجليد</option>
-                <option value="other">أصناف أخرى</option>
+                {(settings.categories && settings.categories.length > 0) ? (
+                  settings.categories.map(cat => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value="office_supplies">أدوات مكتبية ومدرسية</option>
+                    <option value="stationery">قرطاسية ومكتبية</option>
+                    <option value="print_raw">خامات ومواد الطباعة</option>
+                    <option value="copy_scan">خدمات تصوير وتصميم</option>
+                    <option value="books">كتب وروايات وملازم</option>
+                    <option value="shields_gifts">دروع وهدايا</option>
+                  </>
+                )}
               </select>
             </div>
 

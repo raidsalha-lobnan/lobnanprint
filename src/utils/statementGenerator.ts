@@ -11,7 +11,8 @@ import {
   Employee,
   EmployeeAdvance,
   EmployeeDeduction,
-  EmployeeIncentive
+  EmployeeIncentive,
+  LineAttachment
 } from '../types';
 import { isInvoiceAccountingEligible } from './invoiceStatusUtils';
 
@@ -29,6 +30,8 @@ export interface StatementItemDetail {
   unit?: string;
   notes?: string;
   description?: string;
+  imageThumbnail?: string;
+  attachments?: LineAttachment[];
 }
 
 export interface StatementRow {
@@ -187,21 +190,26 @@ export function generateAccountStatement(params: {
         ? ` [الزبون الفرعي: ${inv.subCustomerName || inv.customCustomerText}]`
         : '';
 
-      const itemsDetail: StatementItemDetail[] = (inv.items || []).map(it => ({
-        itemId: it.itemId,
-        itemCode: (it as any).itemCode,
-        itemName: it.itemName,
-        quantity: it.quantity,
-        unitPrice: it.unitPrice,
-        total: it.total,
-        length: it.length,
-        width: it.width,
-        count: it.count || 1,
-        discount: it.discount || 0,
-        unit: it.unit,
-        notes: (it as any).notes || it.description,
-        description: it.description
-      }));
+      const itemsDetail: StatementItemDetail[] = (inv.items || []).map(it => {
+        const itAny = it as any;
+        return {
+          itemId: it.itemId,
+          itemCode: itAny.itemCode || itAny.item?.code || '',
+          itemName: it.itemName,
+          quantity: it.quantity,
+          unitPrice: it.unitPrice,
+          total: it.total,
+          length: it.length,
+          width: it.width,
+          count: it.count || 1,
+          discount: it.discount || 0,
+          unit: it.unit,
+          notes: itAny.notes || it.description,
+          description: it.description,
+          imageThumbnail: itAny.imageThumbnail || itAny.item?.imageUrl || '',
+          attachments: it.attachments || []
+        };
+      });
 
       // Invoices count as Withdrawals (سحوبات - مدين)
       allTx.push({

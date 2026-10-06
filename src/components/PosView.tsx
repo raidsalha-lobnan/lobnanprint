@@ -2623,7 +2623,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
       discount: 0,
       tax: 0,
       total: draft.totalAmount >= 0 ? draft.totalAmount : Number(((draft.quantity || 1) * (draft.unitPrice || 0)).toFixed(2)),
-      attachments: [],
+      attachments: (draft as any).attachments || [],
+      imageThumbnail: (draft as any).imageThumbnail || matchedItem?.imageUrl || '',
       inventoryItemId: matchedItem?.id
     };
 
@@ -2705,6 +2706,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
         taxRate: it.taxRate,
         total: it.total,
         attachments: it.attachments || [],
+        imageThumbnail: it.imageThumbnail || invItem?.imageUrl || '',
         inventoryItemId: it.itemId
       };
     });
