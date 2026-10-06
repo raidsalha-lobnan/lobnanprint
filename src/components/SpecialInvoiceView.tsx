@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DateInput } from '../components/common/DateInput';
-import { X, Maximize2, Printer, Save } from 'lucide-react';
+import { X, Maximize2, Printer, Save, Truck, Plus, Trash2 } from 'lucide-react';
 import { OfficialStamp } from './common/OfficialStamp';
 import { useAccounting } from '../context/AccountingContext';
 import { Party, InventoryItem } from '../types';
@@ -31,14 +31,38 @@ export const SpecialInvoiceView: React.FC<SpecialInvoiceViewProps> = ({ onClose 
   const isResizing = useRef(false);
   const resizeStart = useRef({ x: 0, y: 0, initialW: 0, initialH: 0 });
 
-  // Invoice Data State
+  // Invoice Data State with draft recovery across refreshes
   const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(() => {
+    try {
+      const saved = localStorage.getItem('special_inv_draft');
+      if (saved) return JSON.parse(saved).date || new Date().toISOString().split('T')[0];
+    } catch {}
+    return new Date().toISOString().split('T')[0];
+  });
   
   // Customer Data
-  const [customerName, setCustomerName] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
-  const [customerAddress, setCustomerAddress] = useState('');
+  const [customerName, setCustomerName] = useState(() => {
+    try {
+      const saved = localStorage.getItem('special_inv_draft');
+      if (saved) return JSON.parse(saved).customerName || '';
+    } catch {}
+    return '';
+  });
+  const [customerPhone, setCustomerPhone] = useState(() => {
+    try {
+      const saved = localStorage.getItem('special_inv_draft');
+      if (saved) return JSON.parse(saved).customerPhone || '';
+    } catch {}
+    return '';
+  });
+  const [customerAddress, setCustomerAddress] = useState(() => {
+    try {
+      const saved = localStorage.getItem('special_inv_draft');
+      if (saved) return JSON.parse(saved).customerAddress || '';
+    } catch {}
+    return '';
+  });
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   
   // Seller Data
@@ -47,16 +71,67 @@ export const SpecialInvoiceView: React.FC<SpecialInvoiceViewProps> = ({ onClose 
   const [sellerAddress, setSellerAddress] = useState('');
 
   // Items
-  const [items, setItems] = useState(
-    Array(12).fill(null).map(() => ({ name: '', itemNotes: '', quantity: '', price: '', total: '' }))
-  );
+  const [items, setItems] = useState<Array<{ name: string; itemNotes: string; quantity: string; price: string; total: string }>>(() => {
+    try {
+      const saved = localStorage.getItem('special_inv_draft');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed.items) && parsed.items.length > 0) return parsed.items;
+      }
+    } catch {}
+    return Array(12).fill(null).map(() => ({ name: '', itemNotes: '', quantity: '', price: '', total: '' }));
+  });
   
   const [activeItemIndex, setActiveItemIndex] = useState<number | null>(null);
 
   // Totals
-  const [notes, setNotes] = useState('');
-  const [discount, setDiscount] = useState('');
-  const [tax, setTax] = useState('');
+  const [notes, setNotes] = useState(() => {
+    try {
+      const saved = localStorage.getItem('special_inv_draft');
+      if (saved) return JSON.parse(saved).notes || '';
+    } catch {}
+    return '';
+  });
+  const [discount, setDiscount] = useState(() => {
+    try {
+      const saved = localStorage.getItem('special_inv_draft');
+      if (saved) return JSON.parse(saved).discount || '';
+    } catch {}
+    return '';
+  });
+  const [tax, setTax] = useState(() => {
+    try {
+      const saved = localStorage.getItem('special_inv_draft');
+      if (saved) return JSON.parse(saved).tax || '';
+    } catch {}
+    return '';
+  });
+
+  // حفظ مسودة الفاتورة الخاصة تلقائياً عند أي تعديل
+  useEffect(() => {
+    try {
+      const hasContent = customerName.trim() !== '' || customerPhone.trim() !== '' || notes.trim() !== '' || items.some(it => it.name.trim() !== '');
+      if (hasContent) {
+        localStorage.setItem('special_inv_draft', JSON.stringify({
+          customerName, customerPhone, customerAddress, items, notes, discount, tax, date
+        }));
+      } else {
+        localStorage.removeItem('special_inv_draft');
+      }
+    } catch {}
+  }, [customerName, customerPhone, customerAddress, items, notes, discount, tax, date]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      try {
+        localStorage.setItem('special_inv_draft', JSON.stringify({
+          customerName, customerPhone, customerAddress, items, notes, discount, tax, date
+        }));
+      } catch {}
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [customerName, customerPhone, customerAddress, items, notes, discount, tax, date]);
 
   // Initialization
   useEffect(() => {
@@ -114,6 +189,45 @@ export const SpecialInvoiceView: React.FC<SpecialInvoiceViewProps> = ({ onClose 
       newItems[index].total = (qty * invItem.sellingPrice).toFixed(2);
     }
     setItems(newItems);
+  };
+  const handleAddDeliveryService = () => {
+    const deliveryService = inventory.find(
+      i => i.id === 'srv-delivery' || i.name.includes('خدمة توصيل') || i.name.includes('توصيل')
+    );
+    const price = deliveryService ? deliveryService.sellingPrice.toString() : '20';
+    
+    // Check if there's an empty line to replace, else append
+    const emptyIndex = items.findIndex(it => !it.name.trim() && !it.itemNotes.trim() && !it.total);
+    if (emptyIndex !== -1) {
+      const newItems = [...items];
+      newItems[emptyIndex] = {
+        name: deliveryService ? deliveryService.name : 'خدمة توصيل',
+        itemNotes: 'خدمة توصيل طلبات',
+        quantity: '1',
+        price: price,
+        total: price
+      };
+      setItems(newItems);
+    } else {
+      setItems(prev => [
+        ...prev,
+        {
+          name: deliveryService ? deliveryService.name : 'خدمة توصيل',
+          itemNotes: 'خدمة توصيل طلبات',
+          quantity: '1',
+          price: price,
+          total: price
+        }
+      ]);
+    }
+    posSound.playSuccessBeep();
+  };
+
+  const handleAddNewLine = () => {
+    setItems(prev => [
+      ...prev,
+      { name: '', itemNotes: '', quantity: '', price: '', total: '' }
+    ]);
   };
 
   const subTotal = items.reduce((acc, item) => acc + (parseFloat(item.total) || 0), 0);
@@ -206,7 +320,9 @@ export const SpecialInvoiceView: React.FC<SpecialInvoiceViewProps> = ({ onClose 
       items: validItems.map(i => ({
         id: Math.random().toString(36).substr(2, 9),
         inventoryItemId: '',
-        name: [i.name, i.itemNotes].filter(Boolean).join(' - '),
+        name: i.name.trim() || i.itemNotes.trim(),
+        description: i.itemNotes.trim() || undefined,
+        notes: i.itemNotes.trim() || undefined,
         quantity: Number(i.quantity) || 1,
         unitPrice: Number(i.price) || 0,
         total: Number(i.total),
@@ -414,13 +530,39 @@ export const SpecialInvoiceView: React.FC<SpecialInvoiceViewProps> = ({ onClose 
               </div>
             </div>
 
+            {/* Table Actions Header */}
+            <div className="flex items-center justify-between mb-2 no-print">
+              <span className="text-xs font-bold text-slate-600">بنود الفاتورة:</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleAddDeliveryService}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white shadow-2xs transition-colors cursor-pointer"
+                  title="إضافة خدمة توصيل تلقائياً كبند في الفاتورة"
+                >
+                  <Truck className="w-3.5 h-3.5" />
+                  <span>+ خدمة توصيل</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddNewLine}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition-colors cursor-pointer"
+                  title="إضافة سطر بند جديد"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ إضافة سطر</span>
+                </button>
+              </div>
+            </div>
+
             {/* Table */}
             <div className="border border-[#1f375b] rounded-lg overflow-hidden mb-6 relative">
               <table className="w-full text-center border-collapse relative">
                 <thead>
                   <tr className="bg-[#1f375b]/10 text-[#1f375b] font-bold text-sm">
                     <th className="py-2 border-b border-l border-[#1f375b] w-12">م</th>
-                    <th className="py-2 border-b border-l border-[#1f375b]">البيان والصنف</th>
+                    <th className="py-2 border-b border-l border-[#1f375b] w-48">الصنف</th>
+                    <th className="py-2 border-b border-l border-[#1f375b]">البيان</th>
                     <th className="py-2 border-b border-l border-[#1f375b] w-24">الكمية</th>
                     <th className="py-2 border-b border-l border-[#1f375b] w-24">سعر الوحدة</th>
                     <th className="py-2 border-b border-[#1f375b] w-32">الإجمالي</th>
@@ -432,35 +574,24 @@ export const SpecialInvoiceView: React.FC<SpecialInvoiceViewProps> = ({ onClose 
                     return (
                       <tr key={idx} className="group">
                         <td className="py-1 border-b border-l border-[#1f375b] font-bold text-sm bg-slate-50/50">{idx + 1}</td>
+                        {/* عمود الصنف المستقل */}
                         <td className="border-b border-l border-[#1f375b] p-0 relative bg-white">
-                          <div className="flex items-center w-full h-full px-2">
-                            <input 
-                              type="text" 
-                              value={item.name}
-                              onChange={(e) => {
-                                handleItemChange(idx, 'name', e.target.value);
-                                setActiveItemIndex(idx);
-                              }}
-                              onFocus={() => setActiveItemIndex(idx)}
-                              onClick={(e) => e.stopPropagation()}
-                              className="flex-1 py-1.5 text-sm text-right focus:outline-none bg-transparent"
-                              
-                            />
-                            
-                            {(item.name || item.itemNotes) && <span className="text-[#1f375b] font-bold mx-1 select-none">/</span>}
-                            
-                            <input 
-                              type="text" 
-                              value={item.itemNotes}
-                              onChange={(e) => handleItemChange(idx, 'itemNotes', e.target.value)}
-                              className="flex-1 py-1.5 text-sm text-right focus:outline-none bg-transparent text-slate-600"
-                              
-                            />
-                          </div>
+                          <input 
+                            type="text" 
+                            value={item.name}
+                            onChange={(e) => {
+                              handleItemChange(idx, 'name', e.target.value);
+                              setActiveItemIndex(idx);
+                            }}
+                            onFocus={() => setActiveItemIndex(idx)}
+                            onClick={(e) => e.stopPropagation()}
+                            placeholder="اختر أو اكتب الصنف..."
+                            className="w-full px-2.5 py-1.5 text-sm font-bold text-right focus:outline-none bg-transparent"
+                          />
 
                           {/* Item Dropdown */}
                           {activeItemIndex === idx && itemResults.length > 0 && (
-                            <div className="absolute top-full right-0 w-1/2 mt-1 bg-white border border-slate-200 rounded shadow-lg z-50 max-h-48 overflow-y-auto no-print text-right">
+                            <div className="absolute top-full right-0 w-full mt-1 bg-white border border-slate-200 rounded shadow-lg z-50 max-h-48 overflow-y-auto no-print text-right">
                               {itemResults.map(invItem => (
                                 <div 
                                   key={invItem.id} 
@@ -473,6 +604,17 @@ export const SpecialInvoiceView: React.FC<SpecialInvoiceViewProps> = ({ onClose 
                               ))}
                             </div>
                           )}
+                        </td>
+
+                        {/* عمود البيان المستقل */}
+                        <td className="border-b border-l border-[#1f375b] p-0 bg-white">
+                          <input 
+                            type="text" 
+                            value={item.itemNotes}
+                            onChange={(e) => handleItemChange(idx, 'itemNotes', e.target.value)}
+                            placeholder="البيان، الشرح، أو تفاصيل البند..."
+                            className="w-full px-2.5 py-1.5 text-sm text-right focus:outline-none bg-transparent text-slate-700 placeholder:text-slate-400"
+                          />
                         </td>
                         <td className="border-b border-l border-[#1f375b] p-0 bg-white">
                           <input 

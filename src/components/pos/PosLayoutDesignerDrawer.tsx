@@ -35,6 +35,11 @@ interface PosLayoutDesignerDrawerProps {
   onToggleLiveCustomizing?: () => void;
   isLiveEditActive?: boolean;
   isLiveCustomizing?: boolean;
+  onResetColumnWidths?: () => void;
+  userName?: string;
+  isAdmin?: boolean;
+  onApplyAsSystemDefault?: (config: PosLayoutConfig) => void;
+  onResetToAdminDefaults?: () => void;
 }
 
 export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = ({
@@ -50,7 +55,12 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
   onToggleLiveEdit,
   onToggleLiveCustomizing,
   isLiveEditActive,
-  isLiveCustomizing
+  isLiveCustomizing,
+  onResetColumnWidths,
+  userName,
+  isAdmin = false,
+  onApplyAsSystemDefault,
+  onResetToAdminDefaults
 }) => {
   const activeConfig = config || layoutConfig || DEFAULT_POS_LAYOUT_CONFIG;
   const [localConfig, setLocalConfig] = React.useState<PosLayoutConfig>(activeConfig);
@@ -107,13 +117,13 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
             </div>
             <div>
               <h2 className="text-base font-bold flex items-center gap-2">
-                <span>مصمم واجهة الكاشير الشامل</span>
+                <span>مصمم واجهة الكاشير</span>
                 <span className="text-[10px] bg-amber-400 text-amber-950 font-black px-2 py-0.5 rounded-full">
-                  تخصيص كامل
+                  {userName ? `شاشة: ${userName}` : 'تخصيص كامل'}
                 </span>
               </h2>
               <p className="text-xs text-blue-200">
-                أظهر أو احذف أي قسم تريده لتصميم الشاشة بالشكل الأنسب لسرعة عملك
+                تخصيص شاشتك الفردية المستقلة مع إمكانية التوريث من إعدادات مدير النظام
               </p>
             </div>
           </div>
@@ -126,6 +136,27 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Admin System Baseline Banner */}
+        {isAdmin && onApplyAsSystemDefault && (
+          <div className="p-2.5 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200 flex items-center justify-between gap-2 text-amber-950">
+            <div className="flex items-center gap-1.5 text-[11px] font-bold">
+              <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>أنت بصلاحية مدير النظام: يمكنك اعتماد إعداداتك كمرجعية لجميع المستخدمين</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onApplyAsSystemDefault(localConfig || activeConfig);
+                onClose();
+              }}
+              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-amber-950 font-black rounded-lg text-[10px] shadow-xs cursor-pointer whitespace-nowrap transition"
+              title="حفظ هذا التنسيق كشاشة البداية الافتراضية لكافة مستخدمي النظام"
+            >
+              ⭐ اعتماد كافتراضي للنظام
+            </button>
+          </div>
+        )}
 
         {/* Quick Action Buttons Toolbar inside Designer */}
         <div className="p-2.5 bg-slate-100 border-b border-slate-200 flex items-center justify-between gap-2">
@@ -319,6 +350,16 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
               <label className="flex items-center gap-2 p-2 rounded-xl bg-white border border-slate-200 hover:bg-emerald-50/50 cursor-pointer">
                 <input
                   type="checkbox"
+                  checked={localConfig.tableColumns.showItemCode !== false}
+                  onChange={() => handleToggleColumn('showItemCode')}
+                  className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
+                />
+                <span className="font-bold text-slate-800">عمود رقم الصنف</span>
+              </label>
+
+              <label className="flex items-center gap-2 p-2 rounded-xl bg-white border border-slate-200 hover:bg-emerald-50/50 cursor-pointer">
+                <input
+                  type="checkbox"
                   checked={localConfig.tableColumns.showNotes}
                   onChange={() => handleToggleColumn('showNotes')}
                   className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
@@ -409,12 +450,39 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
               <label className="flex items-center gap-2 p-2 rounded-xl bg-white border border-slate-200 hover:bg-emerald-50/50 cursor-pointer">
                 <input
                   type="checkbox"
+                  checked={localConfig.tableColumns.showImageThumbnail}
+                  onChange={() => handleToggleColumn('showImageThumbnail')}
+                  className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
+                />
+                <span className="font-bold text-slate-800">عمود صورة البند</span>
+              </label>
+
+              <label className="flex items-center gap-2 p-2 rounded-xl bg-white border border-slate-200 hover:bg-emerald-50/50 cursor-pointer">
+                <input
+                  type="checkbox"
                   checked={localConfig.tableColumns.showDeleteButton}
                   onChange={() => handleToggleColumn('showDeleteButton')}
                   className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
                 />
                 <span className="font-bold text-slate-800">زر الحذف السريع (✕)</span>
               </label>
+            </div>
+
+            {/* Note & Reset button for Excel-like column widths */}
+            <div className="mt-2.5 p-2 bg-blue-50/80 rounded-xl border border-blue-200/80 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
+              <span className="text-[11px] text-blue-900 font-medium">
+                💡 يمكنك سحب فواصل الأعمدة بالماوس لتكبيرها أو تصغيرها مثل إكسل تماماً.
+              </span>
+              {onResetColumnWidths && (
+                <button
+                  type="button"
+                  onClick={onResetColumnWidths}
+                  className="shrink-0 px-2 py-1 bg-white hover:bg-blue-100 text-blue-800 hover:text-blue-950 font-bold rounded-lg border border-blue-300 flex items-center gap-1.5 cursor-pointer text-[11px] shadow-2xs transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3 text-blue-600" />
+                  <span>إعادة ضبط عرض الأعمدة</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -524,7 +592,26 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
         </div>
 
         {/* Drawer Footer */}
-        <div className="p-3 bg-slate-100 border-t border-slate-200 flex items-center justify-end gap-2 flex-wrap">
+        <div className="p-3 bg-slate-100 border-t border-slate-200 flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            {onResetToAdminDefaults && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm('هل ترغب في استعادة إعدادات شاشة مدير النظام الافتراضية؟')) {
+                    onResetToAdminDefaults();
+                    onClose();
+                  }
+                }}
+                className="px-2.5 py-1.5 bg-white hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold rounded-xl flex items-center gap-1 cursor-pointer text-xs transition"
+                title="إلغاء التخصيصات الفردية والرجوع لإعدادات شاشة مدير النظام"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                <span>استعادة شاشة مدير النظام 🔄</span>
+              </button>
+            )}
+          </div>
+
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -533,13 +620,29 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
             >
               إلغاء
             </button>
+
+            {isAdmin && onApplyAsSystemDefault && (
+              <button
+                type="button"
+                onClick={() => {
+                  onApplyAsSystemDefault(localConfig || activeConfig);
+                  onClose();
+                }}
+                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-amber-950 font-black rounded-xl flex items-center gap-1 cursor-pointer shadow-xs text-xs transition"
+                title="اعتماد هذا التنسيق كشاشة البداية الافتراضية لكافة المستخدمين الجدد"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>اعتماد كافتراضي للنظام ⭐</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleSaveAndApply}
               className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs text-xs"
             >
               <Check className="w-4 h-4" />
-              <span>حفظ وتطبيق</span>
+              <span>حفظ لشاشتي الحالية ✓</span>
             </button>
           </div>
         </div>

@@ -43,6 +43,7 @@ export interface AutocompleteComboboxProps {
   inputClassName?: string;
   showCode?: boolean;
   autoFocus?: boolean;
+  clearOnFocus?: boolean;
   inputRef?: React.RefObject<HTMLInputElement | null>;
   id?: string;
 }
@@ -104,6 +105,7 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
   inputClassName = '',
   showCode = true,
   autoFocus = false,
+  clearOnFocus = false,
   inputRef: externalInputRef,
   id
 }) => {
@@ -452,9 +454,24 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
             setHighlightedIndex(-1);
             updatePosition();
           }}
-          onFocus={() => {
+          onFocus={(e) => {
+            if (clearOnFocus) {
+              setInputText('');
+              if (onChangeText) onChangeText('');
+              onSelect({ id: '', name: '' });
+              try {
+                e.currentTarget.value = '';
+              } catch {}
+            }
             setIsOpen(true);
             updatePosition();
+          }}
+          onMouseDown={() => {
+            if (clearOnFocus && activeInputRef.current && document.activeElement !== activeInputRef.current) {
+              setInputText('');
+              if (onChangeText) onChangeText('');
+              onSelect({ id: '', name: '' });
+            }
           }}
           onKeyDown={handleKeyDown}
           className={`w-full bg-white border border-slate-300 rounded-lg pr-8 pl-14 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all font-medium disabled:bg-slate-100 disabled:cursor-not-allowed ${inputClassName}`}
@@ -562,7 +579,7 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
                           {isSelected && <Check className="w-3 h-3 text-blue-600 shrink-0" />}
                         </div>
 
-                        {item.subText && (
+                        {entityType !== 'item' && item.subText && (
                           <div className="text-[9px] text-slate-400 font-light truncate mt-0.5">
                             {item.subText}
                           </div>
@@ -570,7 +587,7 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
                       </div>
                     </div>
 
-                    {item.badge && (
+                    {entityType !== 'item' && item.badge && (
                       <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 bg-slate-100 text-slate-700 border border-slate-200">
                         {item.badge}
                       </span>

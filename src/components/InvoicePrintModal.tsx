@@ -3,6 +3,19 @@ import { useAccounting } from '../context/AccountingContext';
 import { Printer, X, CheckCircle, QrCode, FileText } from 'lucide-react';
 import { PrintHeader, ThermalReceiptHeader } from './common/PrintHeader';
 import { ReportSignatures } from './common/ReportSignatures';
+import { formatDateDisplay } from '../utils/dateUtils';
+
+const parseThumbnails = (val?: string): string[] => {
+  if (!val) return [];
+  const trimmed = val.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
+  }
+  return [val];
+};
 
 export const InvoicePrintModal: React.FC = () => {
   const { selectedInvoiceForPrint, setSelectedInvoiceForPrint, directPrintOptions, setDirectPrintOptions, settings } = useAccounting();
@@ -39,7 +52,9 @@ export const InvoicePrintModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto print:p-0 print:m-0 print:bg-white print:static print:overflow-visible print-modal-container">
-      <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden my-auto print:border-none print:shadow-none print:max-w-none print:w-full print:rounded-none print:overflow-visible">
+      <div className={`bg-white rounded-2xl w-full shadow-2xl border border-slate-200 overflow-hidden my-auto transition-all duration-300 print:border-none print:shadow-none print:max-w-none print:w-full print:rounded-none print:overflow-visible ${
+        printFormat === 'thermal' ? 'max-w-[400px]' : 'max-w-[950px]'
+      }`}>
         {/* Header Controls (Hidden during print) */}
         <div className="bg-slate-50 p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 print:hidden">
           <div className="flex items-center gap-2 flex-wrap">
@@ -120,8 +135,8 @@ export const InvoicePrintModal: React.FC = () => {
             <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
               <div className="space-y-1">
                 <div><span className="text-slate-500">رقم الفاتورة:</span> <strong className="font-mono text-slate-900">{inv.invoiceNumber}</strong></div>
-                <div><span className="text-slate-500">تاريخ الإصدار:</span> <span className="font-mono">{inv.date}</span></div>
-                <div><span className="text-slate-500">طريقة السداد:</span> <strong>{inv.paymentMethod === 'cash' ? 'نقدي' : inv.paymentMethod === 'card' ? 'بطاقة بنكية / مدى' : 'آجل على الحساب'}</strong></div>
+                <div><span className="text-slate-500">تاريخ الإصدار:</span> <span className="font-mono">{formatDateDisplay(inv.date)}</span></div>
+                <div><span className="text-slate-500">طريقة السداد:</span> <strong>{inv.paymentMethod === 'cash' ? 'نقدي' : (inv.paymentMethod === 'card' || inv.paymentMethod === 'bank_transfer') ? (inv.paymentMethod === 'bank_transfer' ? 'تحويل بنكي' : 'بطاقة بنكية / مدى') : 'آجل على الحساب'}</strong></div>
               </div>
               <div className="space-y-1">
                 <div><span className="text-slate-500">العميل:</span> <strong className="text-slate-900">{formattedCustomerDisplayName}</strong></div>
@@ -158,7 +173,8 @@ export const InvoicePrintModal: React.FC = () => {
               <thead className="bg-slate-100 text-slate-800 font-black border-b border-slate-300">
                 <tr>
                   <th className="p-2 w-7 text-center">#</th>
-                  <th className="p-2">الصنف والبيان</th>
+                  <th className="p-2 min-w-[120px]">الصنف</th>
+                  <th className="p-2 min-w-[120px]">البيان</th>
                   <th className="p-2 w-14 text-center">الطول</th>
                   <th className="p-2 w-14 text-center">العرض</th>
                   <th className="p-2 w-12 text-center">العدد</th>
@@ -183,17 +199,29 @@ export const InvoicePrintModal: React.FC = () => {
                   return (
                     <tr key={idx} className="hover:bg-slate-50/50">
                       <td className="p-2 text-slate-400 font-mono text-center">{idx + 1}</td>
+                      {/* عمود الصنف */}
                       <td className="p-2 font-bold text-slate-900">
-                        <div>{it.itemName}</div>
-                        {it.description && (
-                          <div className="text-[11px] font-normal text-slate-600 mt-0.5">
-                            {it.description}
+                        <div>
+                          <span>{it.itemName}</span>
+                          {(it.notes || it.description) && (it.notes !== it.itemName) && (
+                            <span className="text-slate-600 font-normal text-xs"> / {it.notes || it.description}</span>
+                          )}
+                        </div>
+                        {it.imageThumbnail && (
+                          <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                            {parseThumbnails(it.imageThumbnail).map((imgStr, imgIdx) => (
+                              <img
+                                key={imgIdx}
+                                src={imgStr}
+                                alt="معاينة"
+                                className="w-9 h-9 object-cover rounded border border-slate-300 shadow-2xs"
+                              />
+                            ))}
                           </div>
                         )}
-
                         {it.attachments && it.attachments.length > 0 && (
                           <div className="text-[10px] text-emerald-800 font-medium mt-1 flex flex-wrap items-center gap-1">
-                            <span className="font-bold">📎 مرفقات البند ({it.attachments.length}):</span>
+                            <span className="font-bold">📎 مرفقات ({it.attachments.length}):</span>
                             {it.attachments.map((att, aIdx) => (
                               <span key={aIdx} className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded px-1.5 py-0.5 text-[9px] font-mono">
                                 {att.name}
@@ -201,6 +229,10 @@ export const InvoicePrintModal: React.FC = () => {
                             ))}
                           </div>
                         )}
+                      </td>
+                      {/* عمود البيان */}
+                      <td className="p-2 text-slate-700 text-xs font-normal">
+                        {it.notes || it.description || '-'}
                       </td>
                       <td className="p-2 text-center font-mono font-medium">
                         {hasDimensions && length > 0 ? length : '—'}
@@ -353,10 +385,11 @@ export const InvoicePrintModal: React.FC = () => {
                     <thead>
                       <tr className="bg-[#d2e0ee] text-[#2b3a67] font-bold text-lg">
                         <th className="border border-[#2b3a67] py-2.5 w-12">م</th>
-                        <th className="border border-[#2b3a67] py-2.5">البيان والصنف</th>
-                        <th className="border border-[#2b3a67] py-2.5 w-32">الكمية</th>
-                        <th className="border border-[#2b3a67] py-2.5 w-36">سعر الوحدة</th>
-                        <th className="border border-[#2b3a67] py-2.5 w-36">الإجمالي</th>
+                        <th className="border border-[#2b3a67] py-2.5 w-48">الصنف</th>
+                        <th className="border border-[#2b3a67] py-2.5">البيان</th>
+                        <th className="border border-[#2b3a67] py-2.5 w-28">الكمية</th>
+                        <th className="border border-[#2b3a67] py-2.5 w-32">سعر الوحدة</th>
+                        <th className="border border-[#2b3a67] py-2.5 w-32">الإجمالي</th>
                       </tr>
                     </thead>
                     <tbody className="text-base font-bold text-[#2b3a67]">
@@ -366,8 +399,11 @@ export const InvoicePrintModal: React.FC = () => {
                         return (
                           <tr key={idx} className="h-[2.1rem]">
                             <td className="border border-[#2b3a67] font-mono">{idx + 1}</td>
-                            <td className="border border-[#2b3a67] px-3 text-right font-semibold">
+                            <td className="border border-[#2b3a67] px-3 text-right font-bold truncate">
                               {item ? item.itemName : ''}
+                            </td>
+                            <td className="border border-[#2b3a67] px-3 text-right font-medium text-sm text-[#1e293b]">
+                              {item ? (item.notes || item.description || '') : ''}
                             </td>
                             <td className="border border-[#2b3a67] font-mono">
                               {item ? item.quantity : ''}
@@ -449,7 +485,7 @@ export const InvoicePrintModal: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span>التاريخ والوقت:</span>
-                <span>{inv.date}</span>
+                <span>{formatDateDisplay(inv.date)}</span>
               </div>
               <div className="flex justify-between">
                 <span>العميل:</span>
@@ -463,7 +499,17 @@ export const InvoicePrintModal: React.FC = () => {
               )}
               <div className="flex justify-between">
                 <span>حالة السداد:</span>
-                <span className="font-bold">{isDraftPreview ? 'مسودة قبل الحفظ' : (inv.paymentMethod === 'cash' ? 'نقدي' : 'شبكة مدى')}</span>
+                <span className="font-bold">
+                  {isDraftPreview
+                    ? 'مسودة قبل الحفظ'
+                    : inv.paymentMethod === 'cash'
+                    ? 'نقدي'
+                    : inv.paymentMethod === 'bank_transfer'
+                    ? 'تحويل بنكي'
+                    : inv.paymentMethod === 'card'
+                    ? 'شبكة مدى'
+                    : 'آجل على الحساب'}
+                </span>
               </div>
             </div>
 
@@ -483,12 +529,14 @@ export const InvoicePrintModal: React.FC = () => {
                 return (
                   <div key={idx} className="border-b border-dotted border-slate-300 pb-1">
                     <div className="flex justify-between font-bold text-slate-900">
-                      <span className="truncate max-w-[170px]">{it.itemName}</span>
+                      <span className="max-w-[190px] leading-tight">
+                        {it.itemName}
+                        {(it.notes || it.description) && (it.notes !== it.itemName) && (
+                          <span className="text-slate-600 font-normal text-[10px]"> / {it.notes || it.description}</span>
+                        )}
+                      </span>
                       <span className="font-mono">{it.total.toFixed(2)}</span>
                     </div>
-                    {it.description && (
-                      <div className="text-[10px] text-slate-700 font-sans">{it.description}</div>
-                    )}
 
                     <div className="flex justify-between text-[9px] text-slate-400 font-light font-mono mt-0.5">
                       <span>

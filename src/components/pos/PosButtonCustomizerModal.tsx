@@ -35,6 +35,7 @@ interface PosButtonCustomizerModalProps {
   onToggleLiveEdit: () => void;
   isLiveEditActive: boolean;
   inventory: InventoryItem[];
+  onResetToAdminDefaults?: () => void;
 }
 
 const COLOR_OPTIONS: { value: PosButtonColorScheme; label: string; bg: string }[] = [
@@ -77,7 +78,7 @@ const AVAILABLE_ICONS = [
 const ACTION_OPTIONS: { type: PosButtonActionType; label: string }[] = [
   { type: 'open_camera_scanner', label: 'تشغيل كاميرا الباركود المباشرة 📷' },
   { type: 'save_invoice', label: 'حفظ الفاتورة (F5)' },
-  { type: 'save_and_print', label: 'حفظ وطباعة (F10)' },
+  { type: 'save_and_print', label: 'حفظ وطباعة حراري (Alt+C)' },
   { type: 'save_and_print_a4_custom', label: 'حفظ وطباعة A4 (تصميم 2)' },
   { type: 'quick_pay_cash', label: 'سداد نقدي سريع' },
   { type: 'pay_cash_and_print', label: 'سداد نقدي وطباعة الإيصال' },
@@ -114,7 +115,8 @@ export const PosButtonCustomizerModal: React.FC<PosButtonCustomizerModalProps> =
   onSaveButtons,
   onToggleLiveEdit,
   isLiveEditActive,
-  inventory
+  inventory,
+  onResetToAdminDefaults
 }) => {
   const [activeTab, setActiveTab] = useState<PosButtonLocation>('bottom_bar');
   const [localButtons, setLocalButtons] = useState<PosCustomButton[]>(buttons);
@@ -547,7 +549,7 @@ export const PosButtonCustomizerModal: React.FC<PosButtonCustomizerModalProps> =
                     type="text"
                     value={formShortcut}
                     onChange={e => setFormShortcut(e.target.value)}
-                    placeholder="مثال: F5, F10, F9..."
+                    placeholder="مثال: Alt+C, Ctrl+S, F9..."
                     className="w-full border border-slate-300 rounded-xl px-3 py-2 bg-white font-mono font-bold"
                   />
                 </div>
@@ -775,7 +777,26 @@ export const PosButtonCustomizerModal: React.FC<PosButtonCustomizerModalProps> =
         </div>
 
         {/* Modal Footer */}
-        <div className="p-3 bg-slate-100 border-t border-slate-200 flex flex-wrap items-center justify-end gap-2 text-xs">
+        <div className="p-3 bg-slate-100 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2">
+            {onResetToAdminDefaults && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm('هل ترغب في استعادة أزرار واختصارات شاشة مدير النظام الافتراضية؟')) {
+                    onResetToAdminDefaults();
+                    onClose();
+                  }
+                }}
+                className="px-3 py-2 bg-white hover:bg-slate-200 text-slate-700 border border-slate-300 font-bold rounded-xl flex items-center gap-1.5 cursor-pointer transition shadow-2xs"
+                title="إلغاء التخصيصات الفردية والرجوع للأزرار الافتراضية لمدير النظام"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                <span>استعادة أزرار مدير النظام 🔄</span>
+              </button>
+            )}
+          </div>
+
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -790,7 +811,7 @@ export const PosButtonCustomizerModal: React.FC<PosButtonCustomizerModalProps> =
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs"
             >
               <Save className="w-4 h-4" />
-              <span>حفظ التعديلات واعتماد الواجهة</span>
+              <span>حفظ التعديلات لشاشتي ✓</span>
             </button>
           </div>
         </div>

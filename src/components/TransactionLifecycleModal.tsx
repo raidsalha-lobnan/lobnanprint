@@ -22,7 +22,8 @@ import {
   Sparkles,
   Receipt,
   Clock,
-  ExternalLink
+  ExternalLink,
+  Truck
 } from 'lucide-react';
 
 export const TransactionLifecycleModal: React.FC = () => {
@@ -61,14 +62,28 @@ export const TransactionLifecycleModal: React.FC = () => {
   const relatedTreasuryCash = treasuries.find(t => t.accountCode === (inv as any).cashTreasuryCode || t.accountCode === '1101');
   const relatedTreasuryBank = treasuries.find(t => t.accountCode === (inv as any).bankTreasuryCode || t.accountCode === '1102');
 
-  // 4. Identify COGS & Profit
+  // 4. Identify Delivery Fee, COGS & Profit
+  const isDeliveryItem = (item: any) =>
+    item.itemId === 'srv-delivery' ||
+    item.itemId === 'srv-delivery-mobile' ||
+    item.barcode === 'DELIVERY' ||
+    item.itemName === 'خدمة توصيل' ||
+    item.itemName?.trim().startsWith('توصيل');
+
+  const deliveryTotal = inv.items.reduce((sum, item) => {
+    return sum + (isDeliveryItem(item) ? (item.total || item.unitPrice * item.quantity) : 0);
+  }, 0);
+
   const totalCogsCalculated = inv.items.reduce((sum, item) => {
+    if (isDeliveryItem(item)) return sum; // خدمة التوصيل لا تتطلب مخازن ولا تدخل في تكلفة البضاعة
     const matchedInvItem = inventory.find(i => i.id === item.itemId);
     const purchaseCost = matchedInvItem?.purchasePrice || (item as any).purchasePrice || 0;
     return sum + (purchaseCost * item.quantity);
   }, 0);
 
-  const netRevenue = inv.baseTotalAmount ? (inv.baseTotalAmount - inv.taxAmount) : (inv.subtotal - inv.discountTotal);
+  const rawNet = inv.baseTotalAmount ? (inv.baseTotalAmount - inv.taxAmount) : (inv.subtotal - inv.discountTotal);
+  // صافي إيراد المنشأة الفعلي يستثني خدمة التوصيل لأنها مستحقة لعامل التوصيل بالكامل دون أي مربح
+  const netRevenue = Math.max(0, rawNet - deliveryTotal);
   const grossProfit = Math.max(0, netRevenue - totalCogsCalculated);
   const profitMargin = netRevenue > 0 ? ((grossProfit / netRevenue) * 100).toFixed(1) : '0';
 
@@ -272,7 +287,7 @@ export const TransactionLifecycleModal: React.FC = () => {
               <div className="border border-slate-200 rounded-xl overflow-hidden">
                 <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 font-bold text-xs text-slate-800 flex justify-between items-center">
                   <span>الأصناف والخدمات في الفاتورة ({inv.items.length})</span>
-                  <span className="text-[10px] text-slate-400 font-light">طريقة الدفع: {inv.paymentMethod === 'cash' ? 'نقدي' : inv.paymentMethod === 'card' ? 'شبكة' : 'آجل'}</span>
+                  <span className="text-[10px] text-slate-400 font-light">طريقة الدفع: {inv.paymentMethod === 'cash' ? 'نقدي' : (inv.paymentMethod === 'card' || inv.paymentMethod === 'bank_transfer') ? (inv.paymentMethod === 'bank_transfer' ? 'بنكي' : 'شبكة') : 'آجل'}</span>
                 </div>
                 <table className="w-full text-right text-xs">
                   <thead className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
@@ -467,11 +482,11 @@ export const TransactionLifecycleModal: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <span className="text-slate-500 font-bold">الخزينة النقدية أو البنكية المتأثرة</span>
                     <span className="text-[11px] bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md font-mono">
-                      {inv.paymentMethod === 'card' ? '1102 - بنك/شبكة' : '1101 - الصندوق النقدي'}
+                      {(inv.paymentMethod === 'card' || inv.paymentMethod === 'bank_transfer') ? '1102 - بنك/شبكة' : '1101 - الصندوق النقدي'}
                     </span>
                   </div>
                   <div className="text-sm font-bold text-slate-900">
-                    {inv.paymentMethod === 'card' ? (relatedTreasuryBank?.name || 'الحساب البنكي / الشبكة') : (relatedTreasuryCash?.name || 'الصندوق النقدي (الكاشير)')}
+                    {(inv.paymentMethod === 'card' || inv.paymentMethod === 'bank_transfer') ? (relatedTreasuryBank?.name || 'الحساب البنكي / الشبكة') : (relatedTreasuryCash?.name || 'الصندوق النقدي (الكاشير)')}
                   </div>
                   <div className="text-xs text-slate-600 flex justify-between border-t border-slate-200 pt-2">
                     <span>المبلغ المودع بالخزينة:</span>
@@ -526,7 +541,7 @@ export const TransactionLifecycleModal: React.FC = () => {
               {/* Profit Analysis Metrics */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                  <span className="text-slate-500 block mb-1">صافي إيراد البيع</span>
+                  <span className="text-slate-500 block mb-1">صافي إيراد مبيعات المنشأة</span>
                   <strong className="text-slate-900 font-mono text-base font-black">
                     {netRevenue.toLocaleString('ar-SA')} {settings.currency}
                   </strong>
@@ -553,6 +568,21 @@ export const TransactionLifecycleModal: React.FC = () => {
                   </strong>
                 </div>
               </div>
+
+              {deliveryTotal > 0 && (
+                <div className="bg-emerald-50/70 border border-emerald-200 p-3 rounded-xl flex items-center justify-between text-xs text-emerald-950">
+                  <div className="flex items-center gap-2">
+                    <Truck className="w-4 h-4 text-emerald-700 shrink-0" />
+                    <div>
+                      <span className="font-bold">خدمة توصيل مضافة: </span>
+                      <span className="font-mono font-black text-emerald-800">{deliveryTotal.toLocaleString('ar-SA')} {settings.currency}</span>
+                    </div>
+                  </div>
+                  <span className="text-[11px] text-emerald-800 bg-white/80 border border-emerald-300 px-2 py-0.5 rounded-md font-semibold">
+                    خدمة صفرية الربح ولا أثر مخزني لها (مستحقات وسيطة لعامل التوصيل)
+                  </span>
+                </div>
+              )}
 
               {/* Accounting Entry for COGS */}
               <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">

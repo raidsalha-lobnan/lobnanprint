@@ -28,13 +28,17 @@ import {
   Hash,
   Copy,
   Check,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Tag
 } from 'lucide-react';
 import { generateSequentialPartyCode } from '../utils/partyUtils';
+import { CustomerSpecialPricesModal } from './pos/CustomerSpecialPricesModal';
+import { posSound } from '../utils/audio';
 
 export const PartiesView: React.FC = () => {
   const {
     parties,
+    inventory = [],
     addParty,
     updateParty,
     deleteParty,
@@ -54,7 +58,7 @@ export const PartiesView: React.FC = () => {
   const [showPartyModal, setShowPartyModal] = useState(false);
   const [editingPartyId, setEditingPartyId] = useState<string | null>(null);
 
-  // Form Fields
+  // Form Fields - Default numeric fields are zeroed out (دائماً مصفّرة)
   const [partyType, setPartyType] = useState<'customer' | 'supplier' | 'both'>('customer');
   const [name, setName] = useState('');
   const [contactPerson, setContactPerson] = useState('');
@@ -64,11 +68,17 @@ export const PartiesView: React.FC = () => {
   const [address, setAddress] = useState('');
   const [commercialRegister, setCommercialRegister] = useState('');
   const [taxNumber, setTaxNumber] = useState('');
-  const [creditLimit, setCreditLimit] = useState<number>(5000);
-  const [openingBalance, setOpeningBalance] = useState<number>(0);
+  const [creditLimit, setCreditLimit] = useState<number>(0); // مصفّر افتراضياً
+  const [openingBalance, setOpeningBalance] = useState<number>(0); // مصفّر افتراضياً
   const [openingBalanceType, setOpeningBalanceType] = useState<'debit' | 'credit'>('debit');
   const [openingBalanceDate, setOpeningBalanceDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
+
+  // Special Prices for Customer (بند أسعار خاصة للعميل)
+  const [specialPrices, setSpecialPrices] = useState<Record<string, number>>({});
+  const [selectedSpecialItemId, setSelectedSpecialItemId] = useState<string>('');
+  const [specialItemPriceInput, setSpecialItemPriceInput] = useState<string>('');
+  const [specialPricesPartyForModal, setSpecialPricesPartyForModal] = useState<Party | null>(null);
 
   // Voucher Modal State
   const [voucherModalParty, setVoucherModalParty] = useState<Party | null>(null);
@@ -78,7 +88,40 @@ export const PartiesView: React.FC = () => {
   const [voucherTreasuryCode, setVoucherTreasuryCode] = useState<string>('1101');
   const [voucherDesc, setVoucherDesc] = useState('');
 
-  // Open modal for new party
+  // Special price management helpers
+  const handleAddSpecialPriceItem = () => {
+    if (!selectedSpecialItemId) return;
+    const priceNum = parseFloat(specialItemPriceInput);
+    if (isNaN(priceNum) || priceNum < 0) return;
+    setSpecialPrices(prev => ({
+      ...prev,
+      [selectedSpecialItemId]: priceNum
+    }));
+    setSelectedSpecialItemId('');
+    setSpecialItemPriceInput('');
+  };
+
+  const handleUpdateSpecialPriceItem = (itemId: string, newPrice: number) => {
+    setSpecialPrices(prev => {
+      const updated = { ...prev };
+      if (newPrice > 0) {
+        updated[itemId] = newPrice;
+      } else {
+        delete updated[itemId];
+      }
+      return updated;
+    });
+  };
+
+  const handleRemoveSpecialPriceItem = (itemId: string) => {
+    setSpecialPrices(prev => {
+      const updated = { ...prev };
+      delete updated[itemId];
+      return updated;
+    });
+  };
+
+  // Open modal for new party - Always zeroed fields (مصفّرة)
   const handleOpenAddModal = (defaultType?: 'customer' | 'supplier') => {
     setEditingPartyId(null);
     setPartyType(defaultType || (filterCategory === 'supplier' ? 'supplier' : 'customer'));
@@ -90,11 +133,14 @@ export const PartiesView: React.FC = () => {
     setAddress('');
     setCommercialRegister('');
     setTaxNumber('');
-    setCreditLimit(5000);
-    setOpeningBalance(0);
+    setCreditLimit(0); // مصفّر دائماً
+    setOpeningBalance(0); // مصفّر دائماً
     setOpeningBalanceType(defaultType === 'supplier' ? 'credit' : 'debit');
     setOpeningBalanceDate(new Date().toISOString().split('T')[0]);
     setNotes('');
+    setSpecialPrices({});
+    setSelectedSpecialItemId('');
+    setSpecialItemPriceInput('');
     setShowPartyModal(true);
   };
 
@@ -110,57 +156,89 @@ export const PartiesView: React.FC = () => {
     setAddress(party.address || '');
     setCommercialRegister(party.commercialRegister || '');
     setTaxNumber(party.taxNumber || '');
-    setCreditLimit(party.creditLimit !== undefined ? party.creditLimit : 5000);
-    setOpeningBalance(party.openingBalance || Math.abs(party.balance || 0));
-    setOpeningBalanceType(party.openingBalanceType || (party.balance < 0 ? 'credit' : 'debit'));
+    setCreditLimit(party.creditLimit !== undefined ? party.creditLimit : 0);
+    const manualOpeningBal = party.openingBalance !== undefined ? party.openingBalance : (party.initialBalance !== undefined ? party.initialBalance : 0);
+    setOpeningBalance(manualOpeningBal);
+    setOpeningBalanceType(party.openingBalanceType || (party.type === 'supplier' ? 'credit' : 'debit'));
     setOpeningBalanceDate(party.openingBalanceDate || new Date().toISOString().split('T')[0]);
     setNotes(party.notes || '');
+    setSpecialPrices(party.specialPrices || {});
+    setSelectedSpecialItemId('');
+    setSpecialItemPriceInput('');
     setShowPartyModal(true);
   };
 
+  const [toastMsg, setToastMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
   const handleSaveParty = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
-
-    if (editingPartyId) {
-      updateParty(editingPartyId, {
-        type: partyType,
-        name: name.trim(),
-        contactPerson: contactPerson.trim() || undefined,
-        city: city.trim() || undefined,
-        phone: phone.trim(),
-        email: email.trim() || undefined,
-        address: address.trim() || undefined,
-        commercialRegister: commercialRegister.trim() || undefined,
-        taxNumber: taxNumber.trim() || undefined,
-        creditLimit: Number(creditLimit) || 0,
-        openingBalance: Number(openingBalance) || 0,
-        openingBalanceType,
-        openingBalanceDate,
-        notes: notes.trim() || undefined
-      });
-    } else {
-      addParty({
-        type: partyType,
-        name: name.trim(),
-        contactPerson: contactPerson.trim() || undefined,
-        city: city.trim() || undefined,
-        phone: phone.trim(),
-        email: email.trim() || undefined,
-        address: address.trim() || undefined,
-        commercialRegister: commercialRegister.trim() || undefined,
-        taxNumber: taxNumber.trim() || undefined,
-        creditLimit: Number(creditLimit) || 0,
-        openingBalance: Number(openingBalance) || 0,
-        openingBalanceType,
-        openingBalanceDate,
-        initialBalance: Number(openingBalance) || 0,
-        notes: notes.trim() || undefined,
-        isSubCustomer: false
-      });
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setToastMsg({ text: 'يرجى كتابة الاسم التجاري أو اسم العميل أولاً', type: 'error' });
+      return;
     }
 
-    setShowPartyModal(false);
+    try {
+      if (editingPartyId) {
+        updateParty(editingPartyId, {
+          type: partyType,
+          name: trimmedName,
+          contactPerson: (contactPerson || '').trim(),
+          city: (city || '').trim(),
+          phone: (phone || '').trim(),
+          email: (email || '').trim(),
+          address: (address || '').trim(),
+          commercialRegister: (commercialRegister || '').trim(),
+          taxNumber: (taxNumber || '').trim(),
+          creditLimit: Number(creditLimit) || 0,
+          openingBalance: Number(openingBalance) || 0,
+          openingBalanceType,
+          openingBalanceDate,
+          notes: (notes || '').trim(),
+          specialPrices
+        });
+        posSound.playSuccessBeep();
+        setToastMsg({
+          text: `تم حفظ تعديلات العميل "${trimmedName}" بنجاح وتحديث السجلات وقاعدة البيانات!`,
+          type: 'success'
+        });
+      } else {
+        addParty({
+          type: partyType,
+          name: trimmedName,
+          contactPerson: (contactPerson || '').trim(),
+          city: (city || '').trim(),
+          phone: (phone || '').trim(),
+          email: (email || '').trim(),
+          address: (address || '').trim(),
+          commercialRegister: (commercialRegister || '').trim(),
+          taxNumber: (taxNumber || '').trim(),
+          creditLimit: Number(creditLimit) || 0,
+          openingBalance: Number(openingBalance) || 0,
+          openingBalanceType,
+          openingBalanceDate,
+          initialBalance: Number(openingBalance) || 0,
+          notes: (notes || '').trim(),
+          isSubCustomer: false,
+          specialPrices
+        });
+        posSound.playSuccessBeep();
+        setToastMsg({
+          text: `تم تسجيل العميل الجديد "${trimmedName}" بنجاح في الدليل!`,
+          type: 'success'
+        });
+      }
+
+      setShowPartyModal(false);
+      setTimeout(() => {
+        setToastMsg(null);
+      }, 4500);
+    } catch (err: any) {
+      setToastMsg({
+        text: `حدث خطأ أثناء حفظ التعديلات: ${err?.message || 'يرجى المحاولة مجدداً'}`,
+        type: 'error'
+      });
+    }
   };
 
   const handleDeleteParty = (id: string, partyName: string) => {
@@ -191,6 +269,9 @@ export const PartiesView: React.FC = () => {
     setVoucherAmount(0);
     setVoucherDesc('');
   };
+
+  // Currently selected item for special price picker
+  const selectedSpecialItem = inventory.find(i => i.id === selectedSpecialItemId);
 
   // Filtered Parties Logic
   const filteredParties = parties.filter(p => {
@@ -235,6 +316,32 @@ export const PartiesView: React.FC = () => {
 
   return (
     <div className="space-y-3">
+      {/* Toast Alert Banner */}
+      {toastMsg && (
+        <div
+          className={`p-3 rounded-lg border text-xs font-bold flex items-center justify-between shadow-sm animate-fade-in ${
+            toastMsg.type === 'success'
+              ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+              : 'bg-rose-50 text-rose-900 border-rose-300'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {toastMsg.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            )}
+            <span>{toastMsg.text}</span>
+          </div>
+          <button
+            onClick={() => setToastMsg(null)}
+            className="p-1 hover:bg-black/5 rounded cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Top Header & Fast Action */}
       <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
         <div className="flex items-center gap-2.5">
@@ -593,6 +700,24 @@ export const PartiesView: React.FC = () => {
                       {/* Edit / Actions */}
                       <div className="flex items-center justify-end gap-1">
                         <button
+                          onClick={() => setSpecialPricesPartyForModal(party)}
+                          className={`p-1.5 rounded-md transition-colors cursor-pointer flex items-center gap-1 ${
+                            party.specialPrices && Object.keys(party.specialPrices).length > 0
+                              ? 'text-amber-800 bg-amber-50 hover:bg-amber-100 font-bold border border-amber-200'
+                              : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
+                          }`}
+                          title={
+                            party.specialPrices && Object.keys(party.specialPrices).length > 0
+                              ? `أسعار خاصة (${Object.keys(party.specialPrices).length} أصناف)`
+                              : 'تحديد أسعار خاصة للعميل'
+                          }
+                        >
+                          <Tag className="w-3.5 h-3.5" />
+                          {party.specialPrices && Object.keys(party.specialPrices).length > 0 && (
+                            <span className="text-[10px] font-mono">{Object.keys(party.specialPrices).length}</span>
+                          )}
+                        </button>
+                        <button
                           onClick={() => handleOpenEditModal(party)}
                           className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer"
                           title="تعديل البيانات والحد الائتماني"
@@ -712,6 +837,21 @@ export const PartiesView: React.FC = () => {
                           <span>سند</span>
                         </button>
                         <button
+                          onClick={() => setSpecialPricesPartyForModal(party)}
+                          className={`p-1 rounded cursor-pointer transition-colors ${
+                            party.specialPrices && Object.keys(party.specialPrices).length > 0
+                              ? 'text-amber-800 bg-amber-50 hover:bg-amber-100 font-bold'
+                              : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
+                          }`}
+                          title={
+                            party.specialPrices && Object.keys(party.specialPrices).length > 0
+                              ? `أسعار خاصة (${Object.keys(party.specialPrices).length} أصناف)`
+                              : 'تحديد أسعار خاصة للعميل'
+                          }
+                        >
+                          <Tag className="w-3.5 h-3.5" />
+                        </button>
+                        <button
                           onClick={() => handleOpenEditModal(party)}
                           className="p-1 text-slate-400 hover:text-blue-600 rounded cursor-pointer"
                           title="تعديل"
@@ -738,73 +878,75 @@ export const PartiesView: React.FC = () => {
       {/* Modal: Add / Edit Party */}
       {showPartyModal && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 overflow-y-auto">
-          <div className="bg-white rounded-xl max-w-lg w-full p-4 shadow-xl border border-slate-200 my-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200 mb-3">
+          <div className="bg-white rounded-xl max-w-4xl w-full p-4 shadow-2xl border border-slate-200 my-auto max-h-[92vh] flex flex-col text-slate-800 text-xs" dir="rtl">
+            <div className="flex items-center justify-between pb-2.5 border-b border-slate-200 mb-2">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
                 <Users className="w-4 h-4 text-blue-600" />
-                <span>{editingPartyId ? 'تعديل بيانات الحساب والحد الائتماني' : 'تسجيل حساب جديد في الدليل'}</span>
+                <span>{editingPartyId ? 'تعديل بيانات الحساب والأسعار الخاصة' : 'تسجيل حساب جديد في الدليل'}</span>
               </h3>
               <button
                 onClick={() => setShowPartyModal(false)}
-                className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                className="text-slate-400 hover:text-slate-700 cursor-pointer p-1 rounded-md hover:bg-slate-100"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleSaveParty} className="space-y-3 text-xs">
-              {/* Type Selector */}
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1 text-[11px]">نوع وطبيعة الحساب:</label>
-                <div className="grid grid-cols-3 gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setPartyType('customer')}
-                    className={`py-1.5 rounded-md font-bold text-xs cursor-pointer border transition-colors ${
-                      partyType === 'customer'
-                        ? 'bg-blue-50 border-blue-500 text-blue-800'
-                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    عميل (مشتري مطبوعات)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPartyType('supplier')}
-                    className={`py-1.5 rounded-md font-bold text-xs cursor-pointer border transition-colors ${
-                      partyType === 'supplier'
-                        ? 'bg-purple-50 border-purple-500 text-purple-800'
-                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    مورد (خامات وأوراق)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPartyType('both')}
-                    className={`py-1.5 rounded-md font-bold text-xs cursor-pointer border transition-colors ${
-                      partyType === 'both'
-                        ? 'bg-emerald-50 border-emerald-500 text-emerald-800'
-                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                    }`}
-                  >
-                    عميل ومورد معاً
-                  </button>
+            <form onSubmit={handleSaveParty} noValidate className="space-y-2 overflow-y-auto pr-1 flex-1">
+              {/* Type Selector (Compact inline) */}
+              <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-700 font-bold text-xs whitespace-nowrap">نوع وطبيعة الحساب:</span>
+                  <div className="inline-flex rounded-md p-0.5 bg-slate-100 border border-slate-200 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setPartyType('customer')}
+                      className={`px-3 py-1 rounded text-xs font-bold cursor-pointer transition-colors ${
+                        partyType === 'customer'
+                          ? 'bg-blue-600 text-white shadow-2xs'
+                          : 'text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      عميل (مشتري مطبوعات)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPartyType('supplier')}
+                      className={`px-3 py-1 rounded text-xs font-bold cursor-pointer transition-colors ${
+                        partyType === 'supplier'
+                          ? 'bg-purple-600 text-white shadow-2xs'
+                          : 'text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      مورد (خامات وأوراق)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPartyType('both')}
+                      className={`px-3 py-1 rounded text-xs font-bold cursor-pointer transition-colors ${
+                        partyType === 'both'
+                          ? 'bg-emerald-600 text-white shadow-2xs'
+                          : 'text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      عميل ومورد معاً
+                    </button>
+                  </div>
                 </div>
+
+                <span className="text-[11px] font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-bold hidden sm:inline-flex items-center gap-1">
+                  <span>محمي من التكرار 🔒</span>
+                </span>
               </div>
 
-              {/* Automatic System Serial Number (Locked & Non-editable) */}
-              <div className="bg-blue-50/50 border border-blue-200 rounded-lg p-2.5">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-slate-800 font-bold text-[11px] flex items-center gap-1.5">
-                    <Lock className="w-3.5 h-3.5 text-amber-600" />
-                    <span>الرقم التسلسلي للعميل / الحساب:</span>
+              {/* الثلاثة عناوين وخاناتهم في سطر واحد كلهم (الرقم التسلسلي + الاسم التجاري أو العميل + الشخص المسؤول) */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
+                {/* 1. الرقم التسلسلي للعميل / الحساب */}
+                <div className="md:col-span-3 flex items-center gap-1.5 bg-blue-50/70 border border-blue-200 rounded-md px-2 py-1">
+                  <label className="text-slate-800 font-bold text-xs whitespace-nowrap flex items-center gap-1">
+                    <Lock className="w-3 h-3 text-amber-600" />
+                    <span>الرقم التسلسلي:</span>
                   </label>
-                  <span className="text-[10px] font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
-                    <span>يصدر آلياً من البرنامج • محمي من التعديل والتكرار 🔒</span>
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
                   <input
                     type="text"
                     readOnly
@@ -814,181 +956,389 @@ export const PartiesView: React.FC = () => {
                         ? (parties.find(p => p.id === editingPartyId)?.code || '')
                         : generateSequentialPartyCode(partyType, parties)
                     }
-                    className="w-full bg-white border border-blue-300 rounded-md p-2 font-mono text-sm font-black text-blue-900 cursor-not-allowed select-all shadow-inner"
-                    title="رقم تسلسلي موحد يصدره البرنامج تلقائياً ولا يمكن تغييره أو تكراره"
+                    className="w-full bg-white border border-blue-300 rounded px-1.5 py-0.5 font-mono text-xs font-black text-blue-900 cursor-not-allowed text-center shadow-inner h-7"
+                    title="رقم تسلسلي آلي محمي من التعديل والتكرار"
                   />
                 </div>
-                <p className="text-[9px] text-slate-400 font-light mt-1">
-                  💡 يصدر هذا الرقم التسلسلي آلياً بنظام تسلسلي مستمر وفريد، ولا يمكن تغييره أو تكراره لضمان دقة قيود المحاسبة ومطابقة الكاشير.
-                </p>
-              </div>
 
-              {/* Name & Contact Person */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1 text-[11px]">
-                    الاسم التجاري / اسم المنشأة أو العميل <span className="text-rose-500">*</span>
+                {/* 2. الاسم التجاري / اسم المنشأة أو العميل */}
+                <div className="md:col-span-5 flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-md px-2 py-1">
+                  <label className="text-slate-800 font-bold text-xs whitespace-nowrap flex items-center gap-1">
+                    <span>الاسم التجاري / العميل</span>
+                    <span className="text-rose-500 font-black">*</span>:
                   </label>
                   <input
                     type="text"
                     required
                     value={name}
                     onChange={e => setName(e.target.value)}
-                    placeholder="مثال: مطبعة القدس، شركة الأندلس، مكتبة النور..."
-                    className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
+                    placeholder="مثال: مطبعة القدس، مكتبة النور..."
+                    className="flex-1 bg-white border border-slate-300 rounded px-2 py-0.5 text-xs text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-hidden h-7"
                   />
                 </div>
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1 text-[11px]">الشخص المسؤول / ضابط الاتصال:</label>
+
+                {/* 3. الشخص المسؤول / ضابط الاتصال */}
+                <div className="md:col-span-4 flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-md px-2 py-1">
+                  <label className="text-slate-700 font-bold text-xs whitespace-nowrap">
+                    المسؤول / الاتصال:
+                  </label>
                   <input
                     type="text"
                     value={contactPerson}
                     onChange={e => setContactPerson(e.target.value)}
-                    placeholder="مثال: أ. أحمد رضوان (مدير المشتريات)"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
+                    placeholder="مثال: أ. أحمد رضوان"
+                    className="flex-1 bg-white border border-slate-300 rounded px-2 py-0.5 text-xs text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-hidden h-7"
                   />
                 </div>
               </div>
 
-              {/* Phone, City, Email */}
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1 text-[11px]">
-                    رقم الجوال / الهاتف
+              {/* سطر بيانات الاتصال المدمج: رقم الجوال + المدينة / المنطقة + البريد الإلكتروني */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
+                {/* رقم الجوال / الهاتف */}
+                <div className="md:col-span-4 flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-md px-2 py-1">
+                  <label className="text-slate-700 font-bold text-xs whitespace-nowrap flex items-center gap-1">
+                    <Phone className="w-3 h-3 text-slate-500" />
+                    <span>الجوال / الهاتف:</span>
                   </label>
                   <input
                     type="text"
                     value={phone}
                     onChange={e => setPhone(e.target.value)}
                     placeholder="059xxxxxxx"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 font-mono text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
+                    className="flex-1 bg-white border border-slate-300 rounded px-2 py-0.5 font-mono text-xs focus:ring-1 focus:ring-blue-500 focus:outline-hidden h-7"
                   />
                 </div>
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1 text-[11px]">المدينة / المنطقة:</label>
+
+                {/* المدينة / المنطقة */}
+                <div className="md:col-span-4 flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-md px-2 py-1">
+                  <label className="text-slate-700 font-bold text-xs whitespace-nowrap flex items-center gap-1">
+                    <MapPin className="w-3 h-3 text-slate-500" />
+                    <span>المدينة / المنطقة:</span>
+                  </label>
                   <input
                     type="text"
                     value={city}
                     onChange={e => setCity(e.target.value)}
                     placeholder="القدس، رام الله، الخليل..."
-                    className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
+                    className="flex-1 bg-white border border-slate-300 rounded px-2 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-hidden h-7"
                   />
                 </div>
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1 text-[11px]">البريد الإلكتروني:</label>
+
+                {/* البريد الإلكتروني */}
+                <div className="md:col-span-4 flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-md px-2 py-1">
+                  <label className="text-slate-700 font-bold text-xs whitespace-nowrap flex items-center gap-1">
+                    <Mail className="w-3 h-3 text-slate-500" />
+                    <span>البريد الإلكتروني:</span>
+                  </label>
                   <input
-                    type="email"
+                    type="text"
+                    inputMode="email"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
                     placeholder="info@domain.com"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
+                    className="flex-1 bg-white border border-slate-300 rounded px-2 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-hidden h-7 font-mono"
                   />
                 </div>
               </div>
 
-              {/* Commercial Register & Tax Number */}
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1 text-[11px]">رقم السجل التجاري (CR):</label>
+              {/* سطر البيانات القانونية والعنوان المدمج: السجل التجاري + الرقم الضريبي + العنوان التفصيلي */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
+                {/* رقم السجل التجاري */}
+                <div className="md:col-span-4 flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-md px-2 py-1">
+                  <label className="text-slate-700 font-bold text-xs whitespace-nowrap">
+                    السجل التجاري (CR):
+                  </label>
                   <input
                     type="text"
                     value={commercialRegister}
                     onChange={e => setCommercialRegister(e.target.value)}
-                    placeholder="رقم السجل التجاري الرسمي"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 font-mono text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
+                    placeholder="رقم السجل"
+                    className="flex-1 bg-white border border-slate-300 rounded px-2 py-0.5 font-mono text-xs focus:ring-1 focus:ring-blue-500 focus:outline-hidden h-7"
                   />
                 </div>
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1 text-[11px]">الرقم الضريبي (VAT No):</label>
+
+                {/* الرقم الضريبي */}
+                <div className="md:col-span-4 flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-md px-2 py-1">
+                  <label className="text-slate-700 font-bold text-xs whitespace-nowrap">
+                    الرقم الضريبي (VAT):
+                  </label>
                   <input
                     type="text"
                     value={taxNumber}
                     onChange={e => setTaxNumber(e.target.value)}
-                    placeholder="الرقم الضريبي المعتمد للفوترة"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 font-mono text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
+                    placeholder="الرقم الضريبي"
+                    className="flex-1 bg-white border border-slate-300 rounded px-2 py-0.5 font-mono text-xs focus:ring-1 focus:ring-blue-500 focus:outline-hidden h-7"
                   />
                 </div>
-              </div>
 
-              {/* Credit Limit & Debt Controls */}
-              <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 space-y-2">
-                <div className="flex items-center gap-1.5 text-slate-800 font-bold text-xs">
-                  <ShieldAlert className="w-3.5 h-3.5 text-blue-600" />
-                  <span>إدارة السقف الائتماني والديون السابقة:</span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-0.5 text-[10px]">
-                      الحد الائتماني المسموح ({settings.currency}):
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="100"
-                      value={creditLimit}
-                      onChange={e => setCreditLimit(Number(e.target.value))}
-                      className="w-full bg-white border border-slate-300 rounded-md p-1.5 font-mono font-bold text-xs focus:ring-1 focus:ring-blue-500"
-                    />
-                    <span className="text-[9px] text-slate-400 block mt-0.5">سقف المديونية المسموح بها</span>
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-0.5 text-[10px]">
-                      الرصيد الافتتاحي / الدين السابق:
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={openingBalance}
-                      onChange={e => setOpeningBalance(Number(e.target.value))}
-                      className="w-full bg-white border border-slate-300 rounded-md p-1.5 font-mono font-bold text-xs focus:ring-1 focus:ring-blue-500"
-                    />
-                    <span className="text-[9px] text-slate-400 block mt-0.5">رصيد ما قبل افتتاح السيستم</span>
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-0.5 text-[10px]">طبيعة الرصيد السابق:</label>
-                    <select
-                      value={openingBalanceType}
-                      onChange={e => setOpeningBalanceType(e.target.value as any)}
-                      className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-xs focus:ring-1 focus:ring-blue-500 font-semibold"
-                    >
-                      <option value="debit">مدين (مطلوب منه لنا)</option>
-                      <option value="credit">دائن (مستحق له علينا)</option>
-                    </select>
-                    <span className="text-[9px] text-slate-400 block mt-0.5">تحديد اتجاه الرصيد</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Detailed Address & Notes */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1 text-[11px]">العنوان التفصيلي:</label>
+                {/* العنوان التفصيلي */}
+                <div className="md:col-span-4 flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-md px-2 py-1">
+                  <label className="text-slate-700 font-bold text-xs whitespace-nowrap">
+                    العنوان التفصيلي:
+                  </label>
                   <input
                     type="text"
                     value={address}
                     onChange={e => setAddress(e.target.value)}
-                    placeholder="الشارع، البناية، الطابق، بجوار..."
-                    className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1 text-[11px]">ملاحظات وشروط خاصة:</label>
-                  <input
-                    type="text"
-                    value={notes}
-                    onChange={e => setNotes(e.target.value)}
-                    placeholder="شروط سداد خاصة، خصومات متفق عليها..."
-                    className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
+                    placeholder="الشارع، البناية، الطابق..."
+                    className="flex-1 bg-white border border-slate-300 rounded px-2 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-hidden h-7"
                   />
                 </div>
               </div>
 
+              {/* سطر السقف الائتماني والديون المدمج (خانات دائماً مصفرة وصغيرة في سطر واحد) */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center bg-amber-50/40 border border-amber-200/80 rounded-md p-1.5">
+                {/* الحد الائتماني المسموح - مصفّر دائماً */}
+                <div className="md:col-span-4 flex items-center gap-1.5">
+                  <label className="text-slate-800 font-bold text-xs whitespace-nowrap flex items-center gap-1">
+                    <ShieldAlert className="w-3.5 h-3.5 text-blue-600" />
+                    <span>الحد الائتماني ({settings.currency}):</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="100"
+                    value={creditLimit}
+                    onChange={e => setCreditLimit(Number(e.target.value) || 0)}
+                    className="flex-1 bg-white border border-slate-300 rounded px-2 py-0.5 font-mono font-bold text-xs text-blue-900 focus:ring-1 focus:ring-blue-500 focus:outline-hidden h-7"
+                  />
+                </div>
+
+                {/* الرصيد الافتتاحي / الدين السابق - مصفّر دائماً */}
+                <div className="md:col-span-4 flex items-center gap-1.5">
+                  <label className="text-slate-800 font-bold text-xs whitespace-nowrap">
+                    الرصيد الافتتاحي / السابق:
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={openingBalance}
+                    onChange={e => setOpeningBalance(Number(e.target.value) || 0)}
+                    className="flex-1 bg-white border border-slate-300 rounded px-2 py-0.5 font-mono font-bold text-xs text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-hidden h-7"
+                  />
+                </div>
+
+                {/* طبيعة الرصيد السابق */}
+                <div className="md:col-span-4 flex items-center gap-1.5">
+                  <label className="text-slate-800 font-bold text-xs whitespace-nowrap">
+                    طبيعة الرصيد:
+                  </label>
+                  <select
+                    value={openingBalanceType}
+                    onChange={e => setOpeningBalanceType(e.target.value as any)}
+                    className="flex-1 bg-white border border-slate-300 rounded px-2 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-hidden font-semibold h-7"
+                  >
+                    <option value="debit">مدين (مطلوب منه لنا)</option>
+                    <option value="credit">دائن (مستحق له علينا)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* سطر الملاحظات والشروط الخاصة المدمج */}
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-md px-2 py-1">
+                <label className="text-slate-700 font-bold text-xs whitespace-nowrap">
+                  ملاحظات وشروط خاصة:
+                </label>
+                <input
+                  type="text"
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  placeholder="شروط سداد خاصة، ملاحظات تسليم أو خصومات..."
+                  className="flex-1 bg-white border border-slate-300 rounded px-2 py-0.5 text-xs text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-hidden h-7"
+                />
+              </div>
+
+              {/* بند أسعار خاصة للعميل يتم فيها إضافة الأصناف التي ستسعر للعميل بسعر خاص مختلف عن سعر البيع */}
+              <div className="bg-gradient-to-r from-amber-50/70 to-orange-50/50 border border-amber-300 rounded-lg p-2.5 space-y-2">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1 bg-amber-400 text-slate-900 rounded font-bold shadow-2xs">
+                      <Tag className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="font-bold text-xs text-slate-900">
+                      بند أسعار خاصة للعميل (أصناف مسعرة بسعر خاص مختلف عن سعر البيع)
+                    </span>
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-200">
+                      {Object.keys(specialPrices).length > 0
+                        ? `${Object.keys(specialPrices).length} صنف مخصص`
+                        : 'لا توجد أصناف خاصة بعد'}
+                    </span>
+                  </div>
+
+                  {editingPartyId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const currentParty = parties.find(p => p.id === editingPartyId);
+                        if (currentParty) {
+                          setSpecialPricesPartyForModal(currentParty);
+                        }
+                      }}
+                      className="text-[11px] font-bold text-blue-700 hover:text-blue-900 bg-white hover:bg-blue-50 px-2 py-1 rounded border border-blue-200 cursor-pointer flex items-center gap-1 shadow-2xs"
+                      title="فتح جدول كل أصناف المخزون لتحديد أسعار خاصة سريعة"
+                    >
+                      <SlidersHorizontal className="w-3 h-3 text-blue-600" />
+                      <span>جدول التسعير الشامل</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* إضافة صنف بسعر خاص */}
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center bg-white p-2 rounded-md border border-amber-200 shadow-2xs">
+                  {/* اختيار الصنف */}
+                  <div className={`${selectedSpecialItem ? 'md:col-span-5' : 'md:col-span-8'} flex items-center gap-1.5`}>
+                    <label className="text-slate-700 font-bold text-xs whitespace-nowrap">
+                      اختر الصنف:
+                    </label>
+                    <select
+                      value={selectedSpecialItemId}
+                      onChange={e => {
+                        const id = e.target.value;
+                        setSelectedSpecialItemId(id);
+                        const found = inventory.find(i => i.id === id);
+                        if (found) {
+                          setSpecialItemPriceInput(
+                            specialPrices[id] !== undefined ? String(specialPrices[id]) : String(found.sellingPrice)
+                          );
+                        } else {
+                          setSpecialItemPriceInput('');
+                        }
+                      }}
+                      className="flex-1 bg-slate-50 border border-slate-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-hidden font-medium"
+                    >
+                      <option value="">-- اضغط لاختيار الصنف من المخزون --</option>
+                      {inventory.map(item => {
+                        const isAdded = specialPrices[item.id] !== undefined;
+                        return (
+                          <option key={item.id} value={item.id}>
+                            {item.name} ({item.code}) - بيع قياسي: {item.sellingPrice.toFixed(2)} {settings.currency} {isAdded ? '★ (محدد)' : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  {/* السعر القياسي والسعر الخاص */}
+                  {selectedSpecialItem && (
+                    <div className="md:col-span-5 flex items-center gap-2">
+                      <span className="text-[11px] text-slate-500 whitespace-nowrap">
+                        القياسي: <strong className="text-slate-800 font-mono">{selectedSpecialItem.sellingPrice.toFixed(2)}</strong>
+                      </span>
+                      <div className="flex items-center gap-1 flex-1">
+                        <label className="text-amber-900 font-bold text-xs whitespace-nowrap">
+                          السعر الخاص:
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={specialItemPriceInput}
+                          onChange={e => setSpecialItemPriceInput(e.target.value)}
+                          placeholder="السعر الخاص"
+                          className="w-full bg-amber-50/70 border border-amber-400 rounded px-2 py-1 text-xs font-mono font-black text-amber-950 focus:ring-1 focus:ring-amber-500 focus:outline-hidden text-center"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* زر الاعتماد */}
+                  <div className={`${selectedSpecialItem ? 'md:col-span-2' : 'md:col-span-4'} flex justify-end`}>
+                    <button
+                      type="button"
+                      disabled={!selectedSpecialItemId || !specialItemPriceInput}
+                      onClick={handleAddSpecialPriceItem}
+                      className={`w-full py-1 px-3 rounded text-xs font-bold cursor-pointer transition-colors flex items-center justify-center gap-1 ${
+                        selectedSpecialItemId && specialItemPriceInput
+                          ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-2xs'
+                          : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                      }`}
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>اعتماد السعر الخاص</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* جدول الأصناف ذات الأسعار الخاصة المحددة لهذا العميل */}
+                {Object.keys(specialPrices).length > 0 ? (
+                  <div className="max-h-36 overflow-y-auto border border-amber-200 rounded-md bg-white">
+                    <table className="w-full text-right text-xs">
+                      <thead className="bg-amber-50/80 text-amber-950 font-bold border-b border-amber-200 sticky top-0">
+                        <tr>
+                          <th className="py-1 px-2.5">الصنف</th>
+                          <th className="py-1 px-2 text-center w-24">السعر القياسي</th>
+                          <th className="py-1 px-2 text-center w-32">السعر الخاص للعميل</th>
+                          <th className="py-1 px-2 text-center w-28">الفارق / الخصم</th>
+                          <th className="py-1 px-2 text-center w-14">حذف</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-amber-100">
+                        {Object.entries(specialPrices).map(([itemId, specialVal]) => {
+                          const item = inventory.find(i => i.id === itemId);
+                          if (!item) return null;
+                          const specialNum = Number(specialVal) || 0;
+                          const diff = item.sellingPrice - specialNum;
+                          const percent = item.sellingPrice > 0 ? Math.round((diff / item.sellingPrice) * 100) : 0;
+                          return (
+                            <tr key={itemId} className="hover:bg-amber-50/40">
+                              <td className="py-1 px-2.5 font-semibold text-slate-800">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono text-[10px] text-slate-400">{item.code}</span>
+                                  <span>{item.name}</span>
+                                </div>
+                              </td>
+                              <td className="py-1 px-2 text-center font-mono text-slate-500 line-through text-[11px]">
+                                {item.sellingPrice.toFixed(2)} {settings.currency}
+                              </td>
+                              <td className="py-1 px-2 text-center">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={specialVal}
+                                  onChange={e => handleUpdateSpecialPriceItem(itemId, parseFloat(e.target.value) || 0)}
+                                  className="w-24 px-1.5 py-0.5 bg-amber-50 border border-amber-300 rounded font-mono font-bold text-amber-900 text-xs text-center focus:ring-1 focus:ring-amber-500"
+                                />
+                              </td>
+                              <td className="py-1 px-2 text-center">
+                                {diff > 0 ? (
+                                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                    توفير {percent}% ({diff.toFixed(1)} ₪)
+                                  </span>
+                                ) : diff < 0 ? (
+                                  <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                                    زيادة {Math.abs(percent)}%
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400">نفس السعر</span>
+                                )}
+                              </td>
+                              <td className="py-1 px-2 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveSpecialPriceItem(itemId)}
+                                  className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded cursor-pointer transition-colors"
+                                  title="إلغاء السعر الخاص وإعادة السعر القياسي"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="bg-white/80 border border-dashed border-amber-300 rounded-md p-2 text-center text-slate-500 text-[11px]">
+                    💡 يمكنك تخصيص أسعار خاصة ومخفضة لأي صنف لهذا العميل، وسيقوم الكاشير ونظام الفواتير باعتمادها تلقائياً عند اختياره.
+                  </div>
+                )}
+              </div>
+
               {/* Form Buttons */}
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+              <div className="pt-2 border-t border-slate-200 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowPartyModal(false)}
@@ -998,14 +1348,32 @@ export const PartiesView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md shadow-xs cursor-pointer text-xs"
+                  className="px-5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md shadow-xs cursor-pointer text-xs flex items-center gap-1.5"
                 >
-                  {editingPartyId ? 'حفظ التعديلات' : 'تسجيل الحساب بالدليل'}
+                  <Check className="w-4 h-4" />
+                  <span>{editingPartyId ? 'حفظ التعديلات والأسعار الخاصة' : 'تسجيل الحساب بالدليل'}</span>
                 </button>
               </div>
             </form>
           </div>
         </div>
+      )}
+
+      {/* Customer Special Prices Full Matrix Modal */}
+      {specialPricesPartyForModal && (
+        <CustomerSpecialPricesModal
+          party={specialPricesPartyForModal}
+          isOpen={Boolean(specialPricesPartyForModal)}
+          onClose={() => setSpecialPricesPartyForModal(null)}
+          onSavePrices={prices => {
+            if (specialPricesPartyForModal) {
+              updateParty(specialPricesPartyForModal.id, { specialPrices: prices });
+              if (editingPartyId === specialPricesPartyForModal.id) {
+                setSpecialPrices(prices);
+              }
+            }
+          }}
+        />
       )}
 
       {/* Modal: Voucher (سند قبض / سند صرف) */}

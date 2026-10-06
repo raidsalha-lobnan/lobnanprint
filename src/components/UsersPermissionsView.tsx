@@ -47,7 +47,30 @@ export const UsersPermissionsView: React.FC = () => {
     canAccessBranch
   } = useAccounting();
 
-  const [activeTab, setActiveTab] = useState<'users' | 'roles_matrix' | 'audit'>('users');
+  const isAdmin = Boolean(
+    currentUser?.roleId === 'role-admin' ||
+    currentUser?.id === 'usr-1' ||
+    currentUser?.email === 'raid.salha@gmail.com' ||
+    currentUser?.email === 'lobnanprint@gmail.com' ||
+    currentUser?.roleName === 'مدير النظام'
+  );
+
+  const [activeTab, setActiveTabState] = useState<'users' | 'roles_matrix' | 'audit'>(() => {
+    try {
+      const saved = localStorage.getItem('users_permissions_subtab');
+      if (saved && ['users', 'roles_matrix', 'audit'].includes(saved)) {
+        return saved as any;
+      }
+    } catch {}
+    return 'users';
+  });
+
+  const setActiveTab = React.useCallback((tab: 'users' | 'roles_matrix' | 'audit') => {
+    setActiveTabState(tab);
+    try {
+      localStorage.setItem('users_permissions_subtab', tab);
+    } catch {}
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>('all');
 
@@ -122,6 +145,9 @@ export const UsersPermissionsView: React.FC = () => {
   }, [users, searchQuery, selectedRoleFilter]);
 
   // Open User Modal
+  const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null);
+
+  // Open User Modal
   const handleOpenUserModal = (user?: SystemUser) => {
     if (user) {
       setEditingUser(user);
@@ -145,7 +171,7 @@ export const UsersPermissionsView: React.FC = () => {
         avatarColor: user.avatarColor || 'bg-indigo-600',
         allowedPriceTier: user.allowedPriceTier || 'all',
         canEditPrices: userCanEdit,
-        shareDriveAttachments: false
+        shareDriveAttachments: !!user.shareDriveAttachments
       });
     } else {
       setEditingUser(null);
@@ -163,7 +189,8 @@ export const UsersPermissionsView: React.FC = () => {
         status: 'active',
         avatarColor: 'bg-indigo-600',
         allowedPriceTier: 'all',
-        canEditPrices: !!defaultRole.permissions?.edit_prices
+        canEditPrices: !!defaultRole.permissions?.edit_prices,
+        shareDriveAttachments: false
       });
     }
     setIsUserModalOpen(true);
@@ -174,29 +201,39 @@ export const UsersPermissionsView: React.FC = () => {
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (userForm.shareDriveAttachments && userForm.email) {
-      setIsSharingDrive(true);
-      try {
-        await shareDriveFolderWithEmail(userForm.email);
-      } catch (err) {
-        console.error(err);
-      }
-      setIsSharingDrive(false);
-    }
     if (!userForm.username.trim() || !userForm.fullName.trim()) {
       alert('يرجى إدخال اسم المستخدم والاسم الكامل');
       return;
     }
 
+    let driveNotice = '';
+    if (userForm.shareDriveAttachments && userForm.email) {
+      setIsSharingDrive(true);
+      try {
+        const driveRes = await shareDriveFolderWithEmail(userForm.email, 'writer');
+        if (driveRes?.message) {
+          driveNotice = driveRes.message;
+        }
+      } catch (err) {
+        console.error('Drive share error:', err);
+      } finally {
+        setIsSharingDrive(false);
+      }
+    }
+
     const assignedRole = roles.find(r => r.id === userForm.roleId);
     const finalAllowedBranches = userForm.allBranchesAllowed ? ['*'] : userForm.allowedBranchIds;
 
+    const finalPassword = userForm.password?.trim()
+      ? userForm.password.trim()
+      : (editingUser?.password || '123456');
+
     const payload = {
       companyId: 'comp-1',
-      username: userForm.username.trim().toLowerCase(),
+      username: userForm.username.trim(),
       fullName: userForm.fullName.trim(),
       email: userForm.email.trim() || undefined,
-      password: userForm.password || undefined,
+      password: finalPassword,
       phone: userForm.phone.trim() || undefined,
       roleId: userForm.roleId,
       roleName: assignedRole?.name || 'مستخدم',
@@ -205,6 +242,10 @@ export const UsersPermissionsView: React.FC = () => {
       status: userForm.status,
       avatarColor: userForm.avatarColor,
       allowedPriceTier: userForm.allowedPriceTier,
+      shareDriveAttachments: userForm.shareDriveAttachments,
+      driveSharedAt: userForm.shareDriveAttachments
+        ? (editingUser?.driveSharedAt || new Date().toISOString())
+        : undefined,
       customPermissions: {
         ...(editingUser?.customPermissions || {}),
         edit_prices: userForm.canEditPrices
@@ -213,10 +254,14 @@ export const UsersPermissionsView: React.FC = () => {
 
     if (editingUser) {
       updateUser(editingUser.id, payload);
+      setSaveSuccessNotice(driveNotice || `تم تحديث بيانات المستخدم (${payload.fullName}) وتفعيل مشاركة وصلاحيات رفع وتحميل ملفات الدرايف بنجاح!`);
     } else {
       addUser(payload);
+      setSaveSuccessNotice(driveNotice || `تم إنشاء المستخدم (${payload.fullName}) وتفعيل حسابه ومشاركته بنجاح!`);
     }
+    
     setIsUserModalOpen(false);
+    setTimeout(() => setSaveSuccessNotice(null), 6000);
   };
 
   // Open Role Modal
@@ -417,6 +462,16 @@ export const UsersPermissionsView: React.FC = () => {
       {/* ========================================================= */}
       {activeTab === 'users' && (
         <div className="space-y-4">
+          {saveSuccessNotice && (
+            <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold flex items-center justify-between shadow-xs animate-in fade-in duration-200">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                <span>{saveSuccessNotice}</span>
+              </div>
+              <button onClick={() => setSaveSuccessNotice(null)} className="text-emerald-600 hover:text-emerald-900 font-bold p-1">✕</button>
+            </div>
+          )}
+
           {/* Filter Toolbar */}
           <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200">
             <div className="relative min-w-[260px] flex-1 sm:flex-initial">
@@ -487,13 +542,20 @@ export const UsersPermissionsView: React.FC = () => {
                         </div>
                       </div>
 
-                      <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-                        user.status === 'active'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-rose-50 text-rose-700 border border-rose-200'
-                      }`}>
-                        {user.status === 'active' ? 'نشط' : 'معطل'}
-                      </span>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                          user.status === 'active'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-rose-50 text-rose-700 border border-rose-200'
+                        }`}>
+                          {user.status === 'active' ? 'نشط' : 'معطل'}
+                        </span>
+                        {user.shareDriveAttachments && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200" title="مشاركة مجلد Google Drive بكامل صلاحيات رفع وتحميل وتعديل المرفقات">
+                            📁 درايف (رفع وتحميل) ✓
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Details */}
@@ -566,18 +628,20 @@ export const UsersPermissionsView: React.FC = () => {
 
                   {/* Actions */}
                   <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                    <button
-                      onClick={() => setCurrentUserId(user.id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
-                        isCurrent
-                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                          : 'bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-700'
-                      }`}
-                      title="التبديل إلى هذا المستخدم لتجربة صلاحياته وشاشته"
-                    >
-                      <UserCheck className="w-3.5 h-3.5" />
-                      <span>{isCurrent ? 'أنت تستخدم هذا الحساب' : 'الدخول بهذا المستخدم'}</span>
-                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={() => setCurrentUserId(user.id)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                          isCurrent
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : 'bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-700'
+                        }`}
+                        title="التبديل إلى هذا المستخدم لتجربة صلاحياته وشاشته (خاص بمدير النظام)"
+                      >
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span>{isCurrent ? 'أنت تستخدم هذا الحساب' : 'الدخول بهذا المستخدم'}</span>
+                      </button>
+                    )}
 
                     <div className="flex items-center gap-1">
                       <button
@@ -781,21 +845,23 @@ export const UsersPermissionsView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Quick Switch User Persona */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-600">تبديل المستخدم الحالي للتجربة:</span>
-                <select
-                  value={currentUserId}
-                  onChange={(e) => setCurrentUserId(e.target.value)}
-                  className="px-3 py-1.5 text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg"
-                >
-                  {users.map(u => (
-                    <option key={u.id} value={u.id}>
-                      {u.fullName} ({u.roleName})
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {/* Quick Switch User Persona - Only for System Admin */}
+              {isAdmin && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-600">تبديل المستخدم الحالي للتجربة:</span>
+                  <select
+                    value={currentUserId}
+                    onChange={(e) => setCurrentUserId(e.target.value)}
+                    className="px-3 py-1.5 text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg"
+                  >
+                    {users.map(u => (
+                      <option key={u.id} value={u.id}>
+                        {u.fullName} ({u.roleName})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* Allowed Branches for current user */}
@@ -1064,20 +1130,20 @@ export const UsersPermissionsView: React.FC = () => {
                   </div>
 
                   {/* Google Drive Sharing */}
-                  <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-100 flex items-start gap-2.5">
+                  <div className="bg-indigo-50/80 p-3.5 rounded-xl border border-indigo-200 flex items-start gap-2.5">
                     <input
                       type="checkbox"
                       id="shareDrive"
                       checked={userForm.shareDriveAttachments}
                       onChange={(e) => setUserForm({ ...userForm, shareDriveAttachments: e.target.checked })}
-                      className="mt-1"
+                      className="mt-1 w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer"
                     />
                     <div className="flex-1">
-                      <label htmlFor="shareDrive" className="text-xs font-bold text-indigo-900 block cursor-pointer">
-                        مشاركة مجلد مرفقات Google Drive مع هذا المستخدم
+                      <label htmlFor="shareDrive" className="text-xs font-black text-indigo-950 block cursor-pointer">
+                        مشاركة مجلد مرفقات Google Drive مع هذا المستخدم (صلاحية رفع وتحميل الملفات)
                       </label>
-                      <p className="text-[10px] text-indigo-700 mt-1 leading-relaxed">
-                        عند تفعيل هذا الخيار، سيتم منح الإيميل المدخل (<strong>{userForm.email || 'يرجى إدخال الإيميل'}</strong>) صلاحية قراءة ومشاهدة جميع المرفقات التي تم رفعها عبر النظام على الدرايف.
+                      <p className="text-[10.5px] text-indigo-800 mt-1 leading-relaxed">
+                        عند تفعيل هذا الخيار، سيتم منح الإيميل المدخل (<strong>{userForm.email || 'يرجى إدخال البريد الإلكتروني أعلاه'}</strong>) صلاحية كاملة (محرر ومشارك Writer) لرفع وتحميل وإدارة جميع المرفقات والتصاميم داخل مجلد Google Drive المشترك.
                       </p>
                     </div>
                   </div>

@@ -20,8 +20,36 @@ import {
 export const AccountingView: React.FC = () => {
   const { accounts, journalEntries, addJournalEntry, addAccount, settings } = useAccounting();
 
-  const [activeTab, setActiveTab] = useState<'chart' | 'journal' | 'ledger' | 'trial'>('journal');
-  const [selectedLedgerAccount, setSelectedLedgerAccount] = useState<string>('1101');
+  const [activeTab, setActiveTabState] = useState<'chart' | 'journal' | 'ledger' | 'trial'>(() => {
+    try {
+      const saved = localStorage.getItem('accounting_active_subtab');
+      if (saved && ['chart', 'journal', 'ledger', 'trial'].includes(saved)) {
+        return saved as any;
+      }
+    } catch {}
+    return 'journal';
+  });
+
+  const setActiveTab = React.useCallback((tab: 'chart' | 'journal' | 'ledger' | 'trial') => {
+    setActiveTabState(tab);
+    try {
+      localStorage.setItem('accounting_active_subtab', tab);
+    } catch {}
+  }, []);
+
+  const [selectedLedgerAccount, setSelectedLedgerAccountState] = useState<string>(() => {
+    try {
+      return localStorage.getItem('accounting_selected_ledger') || '1101';
+    } catch {}
+    return '1101';
+  });
+
+  const setSelectedLedgerAccount = React.useCallback((acc: string) => {
+    setSelectedLedgerAccountState(acc);
+    try {
+      localStorage.setItem('accounting_selected_ledger', acc);
+    } catch {}
+  }, []);
   const [showNewEntryModal, setShowNewEntryModal] = useState(false);
   const [showNewAccountModal, setShowNewAccountModal] = useState(false);
 

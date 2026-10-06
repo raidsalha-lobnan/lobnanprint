@@ -7,6 +7,7 @@ import {
   ShoppingCart,
   Printer,
   FileText,
+  FileSpreadsheet,
   Boxes,
   Truck,
   Users,
@@ -40,8 +41,17 @@ import {
   Menu,
   ArrowRight,
   ArrowLeft,
-  X
+  ArrowDownLeft,
+  ArrowUpRight,
+  X,
+  Minus,
+  Square,
+  Calculator,
+  HelpCircle,
+  Info
 } from 'lucide-react';
+import { CalculatorModal } from './pos/CalculatorModal';
+import { AboutAppModal } from './AboutAppModal';
 
 interface SubMenuItem {
   id: string;
@@ -96,6 +106,24 @@ export const Navbar: React.FC = () => {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<{ message: string; success: boolean } | null>(null);
 
+  const isSessionAdmin = Boolean(
+    localStorage.getItem('alnoor_press_accounting_v1_session_admin') === 'true' ||
+    localStorage.getItem('alnoor_press_accounting_v1_logged_in_user_id') === 'usr-1' ||
+    localStorage.getItem('auth_type') === 'firebase'
+  );
+
+  const isAdmin = Boolean(
+    currentUser?.roleId === 'role-admin' ||
+    currentUser?.id === 'usr-1' ||
+    currentUser?.id === 'user-1789170883526' ||
+    currentUser?.email === 'raid.salha@gmail.com' ||
+    currentUser?.email === 'lobnanprint@gmail.com' ||
+    currentUser?.username?.toLowerCase().includes('lobnan') ||
+    currentUser?.username?.toLowerCase().includes('raid') ||
+    currentUser?.roleName === 'مدير النظام' ||
+    isSessionAdmin
+  );
+
   const handleManualSync = async () => {
     const res = await forceSyncNow();
     setSyncFeedback(res);
@@ -103,6 +131,35 @@ export const Navbar: React.FC = () => {
   };
 
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+  const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
+    }
+  };
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  const handleExitApp = () => {
+    if (window.confirm('هل تريد إغلاق جلسة العمل وتسجيل الخروج من البرنامج؟')) {
+      import('../firebase').then(({ auth }) => auth.signOut());
+      localStorage.removeItem('alnoor_press_accounting_v1_current_user_id');
+      localStorage.removeItem('active_session_id');
+      window.location.reload();
+    }
+  };
+
   const navRef = useRef<HTMLDivElement>(null);
   const closeTimeoutRef = useRef<any>(null);
 
@@ -200,8 +257,16 @@ export const Navbar: React.FC = () => {
           icon: FileText
         },
         {
+          id: 'excel_drafts',
+          label: '5. مسودات فواتير Excel و OneDrive',
+          sublabel: 'استيراد الجداول وإضافة وتعديل البنود للزبون واعتماد الفواتير بالتتابع',
+          icon: FileSpreadsheet,
+          badge: 'شاشة مخصصة',
+          badgeColor: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+        },
+        {
           id: 'sales_returns',
-          label: '5. مرتجع فواتير المبيعات',
+          label: '6. مرتجع فواتير المبيعات',
           sublabel: 'إصدار إشعارات دائنة واسترداد المبالغ وإرجاع البضائع للمخزن',
           icon: RotateCcw,
           badge: (stats?.salesReturnsCount ?? 0) > 0 ? `${stats.salesReturnsCount}` : null,
@@ -462,6 +527,32 @@ export const Navbar: React.FC = () => {
           icon: Download
         }
       ]
+    },
+    // 8. المساعدة والدعم : قائمة منسدلة كلاسيكية
+    {
+      id: 'help_menu',
+      title: 'مساعدة (H)',
+      icon: HelpCircle,
+      items: [
+        {
+          id: 'action_about',
+          label: '1. حول البرنامج والترخيص',
+          sublabel: 'معلومات إصدار سطح المكتب v2.5 ومواصفات النظام وقاعدة البيانات',
+          icon: Info
+        },
+        {
+          id: 'action_calculator',
+          label: '2. الآلة الحاسبة القياسية',
+          sublabel: 'فتح الآلة الحاسبة المدمجة لإجراء العمليات الحسابية السريعة',
+          icon: Calculator
+        },
+        {
+          id: 'settings_backup',
+          label: '3. النسخ الاحتياطي للنظام',
+          sublabel: 'تصدير نسخة احتياطية آمنة من كافة البيانات والفواتير',
+          icon: Download
+        }
+      ]
     }
   ];
 
@@ -469,6 +560,16 @@ export const Navbar: React.FC = () => {
     if (closeTimeoutRef.current) {
       clearTimeout(closeTimeoutRef.current);
       closeTimeoutRef.current = null;
+    }
+    if (itemId === 'action_about') {
+      setIsAboutOpen(true);
+      setOpenDropdownId(null);
+      return;
+    }
+    if (itemId === 'action_calculator') {
+      setIsCalculatorOpen(true);
+      setOpenDropdownId(null);
+      return;
     }
     setActiveTab(itemId);
     setOpenDropdownId(null);
@@ -588,163 +689,103 @@ export const Navbar: React.FC = () => {
   };
 
   return (
-    <header className="sticky top-0 z-50 bg-[#0f172a] text-slate-200 shadow-md border-b border-slate-700/80 shrink-0 select-none overflow-visible">
-      {/* Top Utility & Brand Bar */}
-      <div className="h-13 px-3 sm:px-6 flex items-center justify-between border-b border-slate-800/80 text-xs">
-        {/* Brand Header & Compact Global Controls */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
-          {/* Back Button (عودة للشاشة السابقة أو شاشة الاختصارات السريعة) */}
+    <header className="sticky top-0 z-50 bg-[#f0f2f5] text-slate-800 shadow-sm border-b border-slate-400 shrink-0 select-none overflow-visible font-sans">
+      {/* ========================================================
+          Tier 1: Classic Windows Desktop Title Bar (شريط عنوان النافذة)
+          ======================================================== */}
+      <div className="h-7 bg-gradient-to-r from-[#0a246a] via-[#123985] to-[#2563eb] text-white px-2 flex items-center justify-between border-b border-[#0055ea] text-xs">
+        {/* Right (in RTL): Application Form Icon & Window Title */}
+        <div className="flex items-center gap-2 min-w-0">
+          <div 
+            onClick={() => {
+              if (window.innerWidth < 768) setIsMobileNavOpen(true);
+              else setActiveTab('home');
+            }}
+            className="w-5 h-5 bg-white/20 hover:bg-white/30 border border-white/40 rounded-xs flex items-center justify-center text-white font-black text-[11px] shrink-0 cursor-pointer shadow-xs transition"
+            title="القائمة الرئيسية"
+          >
+            P
+          </div>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="font-extrabold text-white text-[11.5px] tracking-tight truncate">
+              {settings.appTitle || (settings.businessName ? `برنامج الأيهم المحاسبي - ${settings.businessName} - م.رائد صالحة` : 'برنامج الأيهم المحاسبي - مطبعة ومكتبة لبنان - م.رائد صالحة')}
+            </span>
+            <span className="hidden xl:inline text-blue-200 text-[10.5px] border-r border-blue-400/40 pr-2 mr-1">
+              [الفرع: {activeBranch?.name}] | [المستخدم: {currentUser?.fullName} ({currentUser?.roleName})]
+            </span>
+          </div>
+        </div>
+
+        {/* Center: Real-time Cloud System Indicator */}
+        <div className="hidden lg:flex items-center gap-2 text-[10.5px] text-blue-100 bg-black/20 px-2 py-0.5 rounded-xs border border-white/15">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>خادم سحابي نشط</span>
+          <span className="text-blue-300 font-mono">({todayArabic})</span>
+        </div>
+
+        {/* Left (in RTL): Classic Windows Window Controls (─, ▢, ✕) */}
+        <div className="flex items-center gap-0.5 shrink-0">
+          {/* Back Button */}
           <button
             type="button"
             onClick={goBack}
-            className={`h-7 px-1.5 rounded-md flex items-center gap-1 text-[11px] font-bold transition-all shrink-0 cursor-pointer border ${
-              canGoBack
-                ? 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700 hover:text-white shadow-xs active:scale-95'
-                : 'bg-slate-900/60 text-slate-500 border-slate-800/80 cursor-not-allowed opacity-60'
-            }`}
-            title="رجوع للشاشة السابقة أو الرئيسية"
             disabled={!canGoBack}
+            className={`h-5 px-1.5 rounded-xs flex items-center gap-0.5 text-[10px] font-bold transition shrink-0 ${
+              canGoBack
+                ? 'bg-white/15 hover:bg-white/30 text-white cursor-pointer'
+                : 'bg-white/5 text-white/40 cursor-not-allowed'
+            }`}
+            title="رجوع للشاشة السابقة"
           >
-            <ArrowRight className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <ArrowRight className="w-3 h-3 text-blue-200" />
             <span className="hidden sm:inline">رجوع</span>
           </button>
 
-          {/* Close / Exit Button (رمز إغلاق لإغلاق البرنامج أو تسجيل الخروج) */}
+          {/* Minimize Button */}
           <button
             type="button"
-            onClick={() => {
-              if (window.confirm('هل تريد إغلاق جلسة العمل وتسجيل الخروج من البرنامج؟')) {
-                import('../firebase').then(({ auth }) => auth.signOut());
-                localStorage.removeItem('alnoor_press_accounting_v1_current_user_id');
-                localStorage.removeItem('active_session_id');
-                window.location.reload();
-              }
-            }}
-            className="h-7 w-7 rounded-md bg-rose-950/40 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-800/50 hover:border-rose-500 flex items-center justify-center active:scale-95 transition-all shrink-0 cursor-pointer shadow-xs"
-            title="إغلاق البرنامج / تسجيل الخروج"
+            onClick={() => setActiveTab('home')}
+            className="w-6 h-5 bg-white/10 hover:bg-white/25 active:bg-blue-900 text-white rounded-xs flex items-center justify-center transition cursor-pointer"
+            title="الشاشة الرئيسية للبرنامج"
           >
-            <X className="w-3.5 h-3.5 shrink-0" />
+            <Minus className="w-3.5 h-3.5" />
           </button>
 
-          {/* Unified Brand Header (All Screens) */}
-          <div
-            className="flex items-center gap-1.5 sm:gap-2 cursor-pointer hover:opacity-90 transition min-w-0"
-            onClick={() => {
-              if (window.innerWidth < 768) {
-                setIsMobileNavOpen(true);
-              } else {
-                setActiveTab('home');
-              }
-            }}
-            title={window.innerWidth < 768 ? "فتح القوائم" : "الانتقال إلى الشاشة الرئيسية"}
+          {/* Maximize / Restore Button */}
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="w-6 h-5 bg-white/10 hover:bg-white/25 active:bg-blue-900 text-white rounded-xs flex items-center justify-center transition cursor-pointer"
+            title={isFullscreen ? "استعادة الحجم الطبيعي" : "تكبير ملء الشاشة"}
           >
-            <div className="w-7 h-7 sm:w-8 sm:h-8 bg-gradient-to-br from-blue-500 to-blue-700 rounded-md sm:rounded-lg flex items-center justify-center text-white font-black text-xs sm:text-sm shrink-0 shadow-sm">
-              P
-            </div>
-            <div className="flex flex-col justify-center min-w-0 max-w-[200px] sm:max-w-md">
-              <span className="font-extrabold text-white tracking-tight text-[11px] sm:text-sm leading-tight whitespace-nowrap">برنامج الأيهم المحاسبي</span>
-              <p className="text-[8px] sm:text-[9px] text-emerald-400 truncate leading-tight mt-0.5" dir="rtl">
-                {settings.businessName || settings.companyName} - {currentUser?.fullName} - {currentUser?.roleName}
-              </p>
-            </div>
-          </div>
+            <Square className="w-2.5 h-2.5" />
+          </button>
 
-          <div className="hidden 2xl:flex items-center gap-1.5 text-[10px] text-slate-400 border-r border-slate-700/80 pr-2 mr-0.5">
-            <span>{todayArabic}</span>
-          </div>
+          {/* Close Window / Logout Button */}
+          <button
+            type="button"
+            onClick={handleExitApp}
+            className="w-8 h-5 bg-rose-600/80 hover:bg-rose-600 active:bg-rose-700 text-white rounded-xs flex items-center justify-center transition cursor-pointer"
+            title="إغلاق البرنامج / تسجيل الخروج"
+          >
+            <X className="w-3.5 h-3.5 font-bold" />
+          </button>
         </div>
-
-        {/* Center / Liquidity Compact Indicators */}
-        <div className="hidden lg:flex items-center gap-2.5 text-xs">
-          <div
-            onClick={() => setActiveTab('treasuries')}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800/90 border border-slate-700 text-slate-200 shadow-2xs cursor-pointer hover:bg-slate-700/80 transition"
-            title="الصندوق النقدي - اضغط للتفاصيل"
-          >
-            <Wallet className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-slate-400 text-[11px]">الصندوق:</span>
-            <strong className="font-mono font-bold text-emerald-400">{(stats?.cashBalance ?? 0).toLocaleString('ar-SA')}</strong>
-            <span className="text-[8px] text-slate-400">{settings.currency}</span>
-          </div>
-
-          <div
-            onClick={() => setActiveTab('treasuries')}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800/90 border border-slate-700 text-slate-200 shadow-2xs cursor-pointer hover:bg-slate-700/80 transition"
-            title="الحساب البنكي - اضغط للتفاصيل"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-            <span className="text-slate-400 text-[11px]">البنك:</span>
-            <strong className="font-mono font-bold text-blue-300">{(stats?.bankBalance ?? 0).toLocaleString('ar-SA')}</strong>
-            <span className="text-[8px] text-slate-400">{settings.currency}</span>
-          </div>
-
-          {stats.pendingPrintJobs > 0 && (
-            <button
-              onClick={() => setActiveTab('print_orders')}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500/25 transition cursor-pointer"
-              title="أوامر تشغيل معلقة بالورشة - اضغط للعرض"
-            >
-              <Clock className="w-3 h-3 text-amber-400 animate-pulse" />
-              <span className="text-[11px] font-bold">ورشة: {stats.pendingPrintJobs}</span>
-            </button>
-          )}
-
-          {stats.lowStockCount > 0 && (
-            <button
-              onClick={() => setActiveTab('inventory')}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-rose-500/15 border border-rose-500/30 text-rose-300 hover:bg-rose-500/25 transition cursor-pointer"
-              title="أصناف وصلت لحد الأمان بالمخزون - اضغط للعرض"
-            >
-              <AlertTriangle className="w-3 h-3 text-rose-400" />
-              <span className="text-[11px] font-bold">نواقص: {stats.lowStockCount}</span>
-            </button>
-          )}
-        </div>
-
-        {/* Right / Fast Action Toolbar & User */}
-        <div className="flex items-center gap-2">
-          <PWAInstallButton />
-          
-
-          
-
-          {/* Active Branch Switcher (Desktop Only) */}
-          <div className="hidden md:flex items-center gap-1.5 bg-slate-800/90 border border-slate-700 rounded-lg px-2 py-1 text-xs ml-[200px]">
-            <Store className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-            <span className="text-[11px] text-slate-400 hidden xl:inline">الفرع:</span>
-            <select
-              value={activeBranchId}
-              onChange={(e) => setActiveBranchId(e.target.value)}
-              className="bg-transparent text-slate-200 text-xs font-bold focus:outline-hidden cursor-pointer max-w-[130px] truncate"
-              title="الفرع النشط الحالي - اضغط للتبديل"
-            >
-              {allowedBranches.map(b => (
-                <option key={b.id} value={b.id} className="bg-slate-900 text-white">
-                  {b.name} ({b.branchCode})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          
-
-          
-
       </div>
-      </div>
-      {/* Dropdown Menu Bar (سطر القوائم العرضي المنسدلة في أعلى البرنامج - مخفي على الهواتف ويفتح بالضغط على اللوقو) */}
+
+      {/* ========================================================
+          Tier 2: Classic Desktop MenuStrip (شريط القوائم الكلاسيكي)
+          ======================================================== */}
       <nav
         ref={navRef}
-        className="hidden md:flex bg-[#1e293b] px-2 sm:px-4 items-center border-t border-slate-700/60 relative overflow-visible z-50"
+        className="hidden md:flex bg-[#f0f2f5] px-1.5 items-center border-b border-slate-300 relative overflow-visible z-50 text-xs text-slate-800"
       >
-        <div className="flex items-center gap-1 py-1 flex-wrap sm:flex-nowrap">
+        <div className="flex items-center gap-0.5 py-0.5 flex-wrap">
           {visibleMenuSections.map((section) => {
             const SectionIcon = section.icon;
             const isMenuOpen = openDropdownId === section.id;
-            
-            // Check if active tab belongs to this menu section
             const isParentActive = isSectionActive(section);
-            const isLeftAligned = section.id === 'settings_menu' || section.id === 'reports_menu';
+            const isLeftAligned = section.id === 'settings_menu' || section.id === 'reports_menu' || section.id === 'help_menu';
 
             return (
               <div
@@ -753,30 +794,30 @@ export const Navbar: React.FC = () => {
                 onMouseEnter={() => handleMouseEnter(section.id)}
                 onMouseLeave={handleMouseLeave}
               >
-                {/* Top-Level Menu Button */}
+                {/* Menu Item Button */}
                 <button
                   onClick={() => toggleDropdown(section.id)}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-bold transition-all cursor-pointer select-none ${
-                    isParentActive
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : isMenuOpen
-                      ? 'bg-slate-800 text-white ring-1 ring-slate-600'
-                      : 'text-slate-200 hover:text-white hover:bg-slate-800/90'
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-xs text-[11.5px] font-bold transition select-none cursor-pointer border ${
+                    isMenuOpen
+                      ? 'bg-blue-600 text-white border-blue-700 shadow-2xs'
+                      : isParentActive
+                      ? 'bg-blue-100 text-blue-900 border-blue-300 shadow-2xs'
+                      : 'border-transparent text-slate-800 hover:bg-slate-200 hover:border-slate-300'
                   }`}
                   aria-expanded={isMenuOpen}
                 >
                   {SectionIcon && (
-                    <SectionIcon className={`w-3.5 h-3.5 ${isParentActive ? 'text-white' : 'text-slate-400'}`} />
+                    <SectionIcon className={`w-3 h-3 ${isMenuOpen ? 'text-white' : isParentActive ? 'text-blue-700' : 'text-slate-600'}`} />
                   )}
                   <span>{section.title}</span>
                   <ChevronDown
-                    className={`w-3 h-3 transition-transform duration-200 ${
-                      isMenuOpen ? 'rotate-180 text-blue-300' : isParentActive ? 'text-blue-200' : 'text-slate-400'
+                    className={`w-2.5 h-2.5 transition-transform duration-150 ${
+                      isMenuOpen ? 'rotate-180 text-white' : 'text-slate-500'
                     }`}
                   />
                 </button>
 
-                {/* Dropdown Menu Content */}
+                {/* Classic Windows Context Menu Dropdown */}
                 {isMenuOpen && (
                   <div
                     onMouseEnter={() => {
@@ -786,16 +827,16 @@ export const Navbar: React.FC = () => {
                       }
                     }}
                     onMouseLeave={handleMouseLeave}
-                    className={`absolute top-full mt-1.5 w-[360px] sm:w-[420px] max-w-[95vw] bg-[#0f172a] text-slate-100 rounded-xl shadow-2xl border border-slate-700/90 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 divide-y divide-slate-800/80 ${
+                    className={`absolute top-full mt-0.5 w-[330px] sm:w-[380px] max-w-[95vw] bg-white text-slate-800 rounded-xs shadow-xl border border-[#7f9db9] py-1 z-50 animate-in fade-in duration-75 divide-y divide-slate-100 font-sans ${
                       isLeftAligned ? 'left-0 right-auto' : 'right-0 left-auto'
                     }`}
                   >
-                    <div className="px-3 py-1.5 text-[11px] font-bold text-slate-400 flex items-center justify-between">
-                      <span>قائمة {section.title}</span>
-                      <span className="text-[9px] text-blue-400">اختر العملية</span>
+                    <div className="px-3 py-1 bg-slate-100 text-[10px] font-bold text-slate-600 flex items-center justify-between border-b border-slate-200">
+                      <span>{section.title}</span>
+                      <span className="text-blue-700 font-mono">Visual Basic Menu</span>
                     </div>
 
-                    <div className="p-1 space-y-0.5">
+                    <div className="p-0.5 space-y-0.5">
                       {section.items.map((subItem) => {
                         const SubIcon = subItem.icon;
                         const isSubActive = activeTab === subItem.id;
@@ -804,37 +845,39 @@ export const Navbar: React.FC = () => {
                           <button
                             key={subItem.id}
                             onClick={() => handleSelectSubItem(subItem.id)}
-                            className={`w-full text-right flex items-start gap-2.5 p-2 rounded-lg text-xs transition-all cursor-pointer ${
+                            className={`w-full text-right flex items-center gap-2 px-2.5 py-1.5 rounded-xs text-[11.5px] transition cursor-pointer select-none ${
                               isSubActive
-                                ? 'bg-blue-600 text-white font-bold shadow-xs'
-                                : 'hover:bg-slate-800/90 text-slate-200 hover:text-white'
+                                ? 'bg-[#0055ea] text-white font-bold'
+                                : 'hover:bg-blue-600 hover:text-white text-slate-800 group'
                             }`}
                           >
-                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-                              isSubActive ? 'bg-white/20 text-white' : 'bg-slate-800 text-blue-400 border border-slate-700'
+                            <div className={`w-6 h-6 rounded-xs flex items-center justify-center shrink-0 border ${
+                              isSubActive 
+                                ? 'bg-white/20 text-white border-white/30' 
+                                : 'bg-slate-100 text-blue-700 border-slate-300 group-hover:bg-white group-hover:text-blue-700'
                             }`}>
                               <SubIcon className="w-3.5 h-3.5" />
                             </div>
 
                             <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-1.5">
-                                <span className="font-bold text-xs whitespace-nowrap">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="font-bold whitespace-nowrap">
                                   {subItem.label}
                                 </span>
                                 {subItem.badge && (
-                                  <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold shrink-0 ${
-                                    isSubActive ? 'bg-white/25 text-white' : subItem.badgeColor || 'bg-slate-700 text-slate-300'
+                                  <span className={`text-[9px] px-1 py-0.2 rounded-xs font-mono font-bold shrink-0 ${
+                                    isSubActive ? 'bg-white/25 text-white' : subItem.badgeColor || 'bg-slate-200 text-slate-700 border border-slate-300'
                                   }`}>
                                     {subItem.badge}
                                   </span>
                                 )}
                                 {isSubActive && (
-                                  <Check className="w-3.5 h-3.5 text-white shrink-0 mr-1" />
+                                  <Check className="w-3 h-3 text-white shrink-0 mr-1" />
                                 )}
                               </div>
                               {subItem.sublabel && (
-                                <p className={`text-[9.5px] sm:text-[10px] leading-tight mt-0.5 whitespace-nowrap overflow-hidden ${
-                                  isSubActive ? 'text-blue-100' : 'text-slate-400'
+                                <p className={`text-[9.5px] leading-tight truncate ${
+                                  isSubActive ? 'text-blue-100' : 'text-slate-500 group-hover:text-blue-100'
                                 }`}>
                                   {subItem.sublabel}
                                 </p>
@@ -850,77 +893,325 @@ export const Navbar: React.FC = () => {
             );
           })}
 
-          {/* 8. سجل العمليات (Audit Log) */}
+          {/* Audit Log Menu Action */}
           <button
             onClick={() => {
               setActiveTab('audit_log');
               setOpenDropdownId(null);
             }}
-            onMouseEnter={() => {
-              if (closeTimeoutRef.current) {
-                clearTimeout(closeTimeoutRef.current);
-                closeTimeoutRef.current = null;
-              }
-              setOpenDropdownId(null);
-            }}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-xs text-[11.5px] font-bold transition select-none cursor-pointer border ${
               activeTab === 'audit_log'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-200 hover:text-white hover:bg-slate-800/90'
+                ? 'bg-blue-600 text-white border-blue-700 shadow-2xs'
+                : 'border-transparent text-slate-800 hover:bg-slate-200 hover:border-slate-300'
             }`}
-            title="سجل العمليات والأحداث الشامل للمنظومة"
+            title="سجل العمليات والأحداث الشامل"
           >
-            <History className={`w-3.5 h-3.5 ${activeTab === 'audit_log' ? 'text-white' : 'text-slate-400'}`} />
+            <History className={`w-3 h-3 ${activeTab === 'audit_log' ? 'text-white' : 'text-slate-600'}`} />
             <span>سجل العمليات</span>
           </button>
         </div>
       </nav>
 
+      {/* ========================================================
+          Tier 3: Classic Desktop ToolStrip (شريط الأدوات السريع)
+          ======================================================== */}
+      <div className="bg-[#f8fafc] border-b border-slate-300 px-2 py-1 flex items-center justify-between text-xs gap-2 overflow-x-auto no-scrollbar">
+        {/* Right: Quick Command Buttons */}
+        <div className="flex items-center gap-1 shrink-0">
+          {/* POS Button */}
+          {hasPermission('view_pos') && (
+            <button
+              onClick={() => setActiveTab('pos')}
+              className={`px-2 py-0.5 flex items-center gap-1 rounded-xs border font-bold text-[11px] shadow-2xs active:translate-y-px transition cursor-pointer ${
+                activeTab === 'pos'
+                  ? 'bg-gradient-to-b from-blue-600 to-blue-700 text-white border-blue-800'
+                  : 'bg-gradient-to-b from-white to-slate-100 hover:from-blue-50 hover:to-blue-100 text-slate-800 border-slate-400 hover:border-blue-600'
+              }`}
+              title="فتح شاشة الكاشير والمبيعات السريعة"
+            >
+              <ShoppingCart className="w-3 h-3 text-emerald-600" />
+              <span>+ فاتورة كاشير</span>
+            </button>
+          )}
+
+          {/* Print Orders Button */}
+          {hasPermission('view_print_orders') && (
+            <button
+              onClick={() => setActiveTab('print_orders')}
+              className={`px-2 py-0.5 flex items-center gap-1 rounded-xs border font-bold text-[11px] shadow-2xs active:translate-y-px transition cursor-pointer ${
+                activeTab === 'print_orders'
+                  ? 'bg-gradient-to-b from-blue-600 to-blue-700 text-white border-blue-800'
+                  : 'bg-gradient-to-b from-white to-slate-100 hover:from-blue-50 hover:to-blue-100 text-slate-800 border-slate-400 hover:border-blue-600'
+              }`}
+              title="أوامر التشغيل بالمطبعة"
+            >
+              <Printer className="w-3 h-3 text-blue-600" />
+              <span>+ أمر تشغيل</span>
+            </button>
+          )}
+
+          {/* Receipt Voucher Button - STRICTLY requires accounting and create_receipt permission */}
+          {hasPermission('view_accounting') && hasPermission('create_receipt') && (
+            <button
+              onClick={() => setActiveTab('receipt_vouchers')}
+              className={`px-2 py-0.5 flex items-center gap-1 rounded-xs border font-bold text-[11px] shadow-2xs active:translate-y-px transition cursor-pointer ${
+                activeTab === 'receipt_vouchers'
+                  ? 'bg-gradient-to-b from-blue-600 to-blue-700 text-white border-blue-800'
+                  : 'bg-gradient-to-b from-white to-slate-100 hover:from-emerald-50 hover:to-emerald-100 text-slate-800 border-slate-400 hover:border-emerald-600'
+              }`}
+              title="سند قبض مالي"
+            >
+              <ArrowDownLeft className="w-3 h-3 text-emerald-600" />
+              <span>سند قبض</span>
+            </button>
+          )}
+
+          {/* Payment Voucher Button - STRICTLY requires accounting and create_payment permission */}
+          {hasPermission('view_accounting') && hasPermission('create_payment') && (
+            <button
+              onClick={() => setActiveTab('payment_vouchers')}
+              className={`px-2 py-0.5 flex items-center gap-1 rounded-xs border font-bold text-[11px] shadow-2xs active:translate-y-px transition cursor-pointer ${
+                activeTab === 'payment_vouchers'
+                  ? 'bg-gradient-to-b from-blue-600 to-blue-700 text-white border-blue-800'
+                  : 'bg-gradient-to-b from-white to-slate-100 hover:from-rose-50 hover:to-rose-100 text-slate-800 border-slate-400 hover:border-rose-600'
+              }`}
+              title="سند صرف مالي"
+            >
+              <ArrowUpRight className="w-3 h-3 text-rose-600" />
+              <span>سند صرف</span>
+            </button>
+          )}
+
+          {/* Customers Directory */}
+          {(hasPermission('view_settings') || hasPermission('view') || hasPermission('view_invoices')) && (
+            <button
+              onClick={() => setActiveTab('parties')}
+              className={`px-2 py-0.5 flex items-center gap-1 rounded-xs border font-bold text-[11px] shadow-2xs active:translate-y-px transition cursor-pointer ${
+                activeTab === 'parties'
+                  ? 'bg-gradient-to-b from-blue-600 to-blue-700 text-white border-blue-800'
+                  : 'bg-gradient-to-b from-white to-slate-100 hover:from-blue-50 hover:to-blue-100 text-slate-800 border-slate-400 hover:border-blue-600'
+              }`}
+              title="دليل الزبائن والموردين"
+            >
+              <Users className="w-3 h-3 text-indigo-600" />
+              <span>الزبائن</span>
+            </button>
+          )}
+
+          {/* Inventory */}
+          {hasPermission('view_inventory') && (
+            <button
+              onClick={() => setActiveTab('inventory')}
+              className={`px-2 py-0.5 flex items-center gap-1 rounded-xs border font-bold text-[11px] shadow-2xs active:translate-y-px transition cursor-pointer ${
+                activeTab === 'inventory'
+                  ? 'bg-gradient-to-b from-blue-600 to-blue-700 text-white border-blue-800'
+                  : 'bg-gradient-to-b from-white to-slate-100 hover:from-blue-50 hover:to-blue-100 text-slate-800 border-slate-400 hover:border-blue-600'
+              }`}
+              title="جرد المخزون والأصناف"
+            >
+              <Boxes className="w-3 h-3 text-amber-600" />
+              <span>المخزون</span>
+            </button>
+          )}
+
+          {/* Calculator Tool */}
+          <button
+            onClick={() => setIsCalculatorOpen(true)}
+            className="px-2 py-0.5 flex items-center gap-1 bg-gradient-to-b from-white to-slate-100 hover:from-blue-50 hover:to-blue-100 text-slate-800 border border-slate-400 hover:border-blue-600 font-bold text-[11px] rounded-xs shadow-2xs active:translate-y-px transition cursor-pointer"
+            title="الآلة الحاسبة السريعة"
+          >
+            <Calculator className="w-3 h-3 text-blue-700" />
+            <span>حاسبة</span>
+          </button>
+
+          {/* Cloud Sync Tool */}
+          {(isAdmin || hasPermission('view_settings')) && (
+            <button
+              onClick={handleManualSync}
+              className="px-2 py-0.5 flex items-center gap-1 bg-gradient-to-b from-white to-slate-100 hover:from-emerald-50 hover:to-emerald-100 text-slate-800 border border-slate-400 hover:border-emerald-600 font-bold text-[11px] rounded-xs shadow-2xs active:translate-y-px transition cursor-pointer"
+              title="إجراء مزامنة فورية مع قاعدة البيانات السحابية"
+            >
+              <RefreshCw className={`w-3 h-3 text-emerald-600 ${isFirebaseSyncing ? 'animate-spin' : ''}`} />
+              <span>مزامنة</span>
+            </button>
+          )}
+
+          {/* Mobile Menu Icon for Small Screens */}
+          <button
+            onClick={() => setIsMobileNavOpen(true)}
+            className="md:hidden px-2 py-0.5 flex items-center gap-1 bg-blue-600 text-white font-bold text-[11px] rounded-xs shadow-2xs"
+          >
+            <Menu className="w-3.5 h-3.5" />
+            <span>القوائم</span>
+          </button>
+        </div>
+
+        {/* Left: Branch selector & Liquidity Indicators (تنقل المستخدمين والفروع حصري لمدير النظام) */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Active Branch Selector - متاح للتنقل بين الفروع */}
+          <div className="flex items-center gap-1 bg-white border border-[#7f9db9] rounded-xs px-1.5 py-0.5 text-xs shadow-inner">
+            <Store className="w-3 h-3 text-blue-700 shrink-0" />
+            <span className="text-[10px] text-slate-500 hidden xl:inline">الفرع:</span>
+            <select
+              value={activeBranchId}
+              onChange={(e) => setActiveBranchId(e.target.value)}
+              className="bg-transparent text-slate-900 text-[11px] font-bold focus:outline-hidden cursor-pointer max-w-[125px] truncate"
+              title="الفرع النشط الحالي"
+            >
+              {branches.map(b => (
+                <option key={b.id} value={b.id} className="bg-white text-slate-900 font-sans">
+                  {b.name} ({b.branchCode})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Active User Switcher - ONLY visible & switchable for System Admin */}
+          {isAdmin ? (
+            <div className="flex items-center gap-1 bg-white border border-[#7f9db9] rounded-xs px-1.5 py-0.5 text-xs shadow-inner">
+              <UserCheck className="w-3 h-3 text-emerald-600 shrink-0" />
+              <span className="text-[10px] text-slate-500 hidden xl:inline">المستخدم:</span>
+              <select
+                value={currentUserId}
+                onChange={(e) => {
+                  const targetUid = e.target.value;
+                  setCurrentUserId(targetUid);
+                  try {
+                    localStorage.setItem('alnoor_press_accounting_v1_current_user_id', targetUid);
+                  } catch {}
+                }}
+                className="bg-transparent text-slate-900 text-[11px] font-bold focus:outline-hidden cursor-pointer max-w-[140px] truncate"
+                title="المستخدم الحالي والصلاحيات (صلاحية مدير النظام للتنقل بين المستخدمين)"
+              >
+                {users.map(u => (
+                  <option key={u.id} value={u.id} className="bg-white text-slate-900 font-sans">
+                    {u.fullName || u.username} ({u.roleName || 'مستخدم'})
+                  </option>
+                ))}
+              </select>
+              {currentUserId !== 'usr-1' && isSessionAdmin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCurrentUserId('usr-1');
+                    try {
+                      localStorage.setItem('alnoor_press_accounting_v1_current_user_id', 'usr-1');
+                    } catch {}
+                  }}
+                  className="px-1.5 py-0.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xs text-[10px] font-bold shadow-2xs cursor-pointer ml-1"
+                  title="العودة لشاشة وصلاحيات مدير النظام"
+                >
+                  عودة للمدير ↺
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 bg-slate-100/90 border border-slate-300 rounded-xs px-2 py-0.5 text-xs shadow-inner select-none" title={`المستخدم المسجل: ${currentUser?.fullName || currentUser?.username} (${currentUser?.roleName || 'مستخدم'})`}>
+              <UserCheck className="w-3 h-3 text-emerald-600 shrink-0" />
+              <span className="text-[10px] text-slate-500">المستخدم:</span>
+              <span className="text-slate-900 text-[11px] font-bold max-w-[140px] truncate">
+                {currentUser?.fullName || currentUser?.username}
+              </span>
+            </div>
+          )}
+
+          {/* Cash Liquidity Pill - ONLY for users with accounting permission */}
+          {hasPermission('view_accounting') && (
+            <div
+              onClick={() => setActiveTab('treasuries')}
+              className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-xs bg-white border border-slate-300 text-slate-700 shadow-inner cursor-pointer hover:bg-emerald-50 transition"
+              title="الصندوق النقدي - اضغط للتفاصيل"
+            >
+              <Wallet className="w-3 h-3 text-emerald-600" />
+              <span className="text-slate-500 text-[10px]">الصندوق:</span>
+              <strong className="font-mono font-bold text-emerald-700 text-[11px]">
+                {(stats?.cashBalance ?? 0).toLocaleString('ar-SA')}
+              </strong>
+            </div>
+          )}
+
+          {/* Workshop Alert - ONLY for users with print orders permission */}
+          {hasPermission('view_print_orders') && stats.pendingPrintJobs > 0 && (
+            <button
+              onClick={() => setActiveTab('print_orders')}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded-xs bg-amber-100 border border-amber-400 text-amber-900 font-bold text-[10.5px] hover:bg-amber-200 transition cursor-pointer"
+              title="أوامر تشغيل معلقة بالورشة"
+            >
+              <Clock className="w-3 h-3 text-amber-700 animate-pulse" />
+              <span>ورشة: {stats.pendingPrintJobs}</span>
+            </button>
+          )}
+
+          {/* Low Stock Alert - ONLY for users with inventory permission */}
+          {hasPermission('view_inventory') && stats.lowStockCount > 0 && (
+            <button
+              onClick={() => setActiveTab('inventory')}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded-xs bg-rose-100 border border-rose-400 text-rose-900 font-bold text-[10.5px] hover:bg-rose-200 transition cursor-pointer"
+              title="أصناف وصلت لحد الأمان بالمخزون"
+            >
+              <AlertTriangle className="w-3 h-3 text-rose-700" />
+              <span>نواقص: {stats.lowStockCount}</span>
+            </button>
+          )}
+
+          <PWAInstallButton />
+        </div>
+      </div>
+
       {/* Offline Awareness Strip */}
       {!isOnline && (
-        <div className="bg-amber-950/90 text-amber-200 border-t border-amber-600/50 px-3 sm:px-4 py-1.5 text-xs flex flex-wrap items-center justify-between gap-2 shadow-xs">
-          <div className="flex items-center gap-2">
-            <WifiOff className="w-4 h-4 text-amber-400 animate-pulse shrink-0" />
-            <span className="leading-tight">
-              <strong>وضع عدم الاتصال بالإنترنت (Offline):</strong> النظام يعمل بكامل طاقته ومميزاته بلا توقف! تُحفظ كافة الفواتير والعمليات فورياً في الذاكرة المحلية (LocalStorage).
+        <div className="bg-amber-100 text-amber-950 border-t border-amber-300 px-3 py-1 text-xs flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <WifiOff className="w-3.5 h-3.5 text-amber-700 animate-pulse shrink-0" />
+            <span className="leading-tight text-[11px]">
+              <strong>وضع عدم الاتصال بالإنترنت (Offline):</strong> النظام يعمل بكامل طاقته ومميزاته بلا توقف! تُحفظ كافة الفواتير والعمليات فورياً في الذاكرة المحلية.
             </span>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {pendingSyncCount > 0 && (
-              <span className="bg-amber-900/80 px-2 py-0.5 rounded text-[11px] font-mono font-bold text-amber-100 border border-amber-600/40">
-                {pendingSyncCount} حركة بانتظار المزامنة التلقائية
-              </span>
-            )}
-            <span className="text-[11px] text-amber-300/80 hidden sm:inline">ستتم المزامنة تلقائياً فور توفر الإنترنت</span>
-          </div>
+          {pendingSyncCount > 0 && (
+            <span className="bg-amber-200 px-1.5 py-0.5 rounded-xs text-[10px] font-mono font-bold text-amber-900 border border-amber-400">
+              {pendingSyncCount} حركة بانتظار المزامنة
+            </span>
+          )}
         </div>
       )}
 
       {/* Sync Feedback Toast */}
       {syncFeedback && (
-        <div className={`px-4 py-2 text-xs flex items-center justify-between border-t transition-all ${
+        <div className={`px-3 py-1.5 text-xs flex items-center justify-between border-t transition-all ${
           syncFeedback.success
-            ? 'bg-emerald-950/90 text-emerald-100 border-emerald-600/60'
-            : 'bg-rose-950/90 text-rose-100 border-rose-600/60'
+            ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+            : 'bg-rose-100 text-rose-900 border-rose-300'
         }`}>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             {syncFeedback.success ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
             ) : (
-              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-700 shrink-0" />
             )}
-            <span className="font-medium">{syncFeedback.message}</span>
+            <span className="font-bold text-[11px]">{syncFeedback.message}</span>
           </div>
           <button
             onClick={() => setSyncFeedback(null)}
-            className="text-xs hover:underline cursor-pointer px-1.5 py-0.5 rounded hover:bg-white/10"
+            className="text-[11px] font-bold underline hover:text-black cursor-pointer"
           >
             إغلاق
           </button>
         </div>
       )}
 
-      {/* Mobile Navigation Hub / Modal Triggered by Logo */}
+      {/* Calculator Modal */}
+      <CalculatorModal
+        isOpen={isCalculatorOpen}
+        onClose={() => setIsCalculatorOpen(false)}
+      />
+
+      {/* About Application Modal */}
+      <AboutAppModal
+        isOpen={isAboutOpen}
+        onClose={() => setIsAboutOpen(false)}
+      />
+
+      {/* Mobile Navigation Hub / Modal */}
       <MobileNavigationModal
         isOpen={isMobileNavOpen}
         onClose={() => setIsMobileNavOpen(false)}

@@ -47,7 +47,22 @@ export const BranchesManagementView: React.FC = () => {
     settings
   } = useAccounting();
 
-  const [activeTab, setActiveTab] = useState<'branches' | 'companies' | 'warehouses'>('branches');
+  const [activeTab, setActiveTabState] = useState<'branches' | 'companies' | 'warehouses'>(() => {
+    try {
+      const saved = localStorage.getItem('branches_subtab');
+      if (saved && ['branches', 'companies', 'warehouses'].includes(saved)) {
+        return saved as any;
+      }
+    } catch {}
+    return 'branches';
+  });
+
+  const setActiveTab = React.useCallback((tab: 'branches' | 'companies' | 'warehouses') => {
+    setActiveTabState(tab);
+    try {
+      localStorage.setItem('branches_subtab', tab);
+    } catch {}
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Modals state

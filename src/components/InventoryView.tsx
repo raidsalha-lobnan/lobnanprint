@@ -124,8 +124,8 @@ export const InventoryView: React.FC = () => {
   const [formBarcode, setFormBarcode] = useState('');
   const [formCategory, setFormCategory] = useState<ItemCategory>('stationery');
   const [formUnit, setFormUnit] = useState('حبة');
-  const [formPurchasePrice, setFormPurchasePrice] = useState<number>(10);
-  const [formSellingPrice, setFormSellingPrice] = useState<number>(15);
+  const [formPurchasePrice, setFormPurchasePrice] = useState<number | string>('');
+  const [formSellingPrice, setFormSellingPrice] = useState<number | string>('');
   const [formSellingPrice2, setFormSellingPrice2] = useState<number | string>('');
   const [formSellingPrice3, setFormSellingPrice3] = useState<number | string>('');
   const [formCustomerSpecialPrices, setFormCustomerSpecialPrices] = useState<CustomerSpecialPrice[]>([]);
@@ -137,8 +137,8 @@ export const InventoryView: React.FC = () => {
 
   // Quick viewer modal for item customer special prices from table/cards
   const [viewingSpecialPricesItem, setViewingSpecialPricesItem] = useState<InventoryItem | null>(null);
-  const [formStock, setFormStock] = useState<number>(100);
-  const [formMinAlert, setFormMinAlert] = useState<number>(15);
+  const [formStock, setFormStock] = useState<number | string>('');
+  const [formMinAlert, setFormMinAlert] = useState<number | string>('');
   const [formDesc, setFormDesc] = useState('');
 
   // Multi-barcode management state for Add/Edit modal
@@ -365,38 +365,45 @@ export const InventoryView: React.FC = () => {
     .reduce((acc, it) => acc + (it.stockQuantity * it.purchasePrice), 0);
   const lowStockCount = inventory.filter(it => it.category !== 'copy_scan' && it.category !== 'services' && it.id !== 'srv-delivery' && it.id !== 'srv-delivery-mobile' && it.barcode !== 'DELIVERY' && it.name !== 'خدمة توصيل' && !it.name?.trim().startsWith('توصيل') && it.stockQuantity <= it.minAlertQuantity).length;
 
+  const allCategories = useMemo(() => {
+    return settings.categories || [];
+  }, [settings.categories]);
+
+  const getCategoryDetails = (catId: string) => {
+    return allCategories.find(c => c.id === catId) || (CATEGORY_DEFINITIONS as any)[catId] || CATEGORY_DEFINITIONS['stationery'];
+  };
+
   // Real-time SKU uniqueness check to guarantee no duplicate SKU exists in the system
   const skuValidation = useMemo(() => {
     if (!showAddModal || !formCode.trim()) {
       return { isUnique: true };
     }
-    return validateSkuUniqueness(formCode, inventory, editingItem?.id);
-  }, [showAddModal, formCode, inventory, editingItem]);
+    return validateSkuUniqueness(formCode, inventory, editingItem?.id, allCategories);
+  }, [showAddModal, formCode, inventory, editingItem, allCategories]);
 
   const handleOpenAdd = (defaultCat?: ItemCategory) => {
-    const cat = defaultCat || 'stationery';
+    const cat = defaultCat || (allCategories[0]?.id as ItemCategory) || 'stationery';
     setEditingItem(null);
     setFormName('');
-    const nextCode = generateSequentialSku(cat, inventory.map(i => i.code));
+    const nextCode = generateSequentialSku(cat, inventory.map(i => i.code), allCategories);
     setFormCode(nextCode);
-    const nextBarcode = generateValidEan13('628');
-    setFormBarcode(nextBarcode);
+    setFormBarcode(''); // Clear primary barcode completely
     setFormBarcodeEntries([]);
     setNewEntryBarcode('');
     setNewEntryLabel('باركود كرتونة / عبوة');
     setTargetBarcodeScanField('primary');
     setFormCategory(cat);
     setFormUnit('حبة');
-    setFormPurchasePrice(10);
-    setFormSellingPrice(15);
+    setFormPurchasePrice('');
+    setFormSellingPrice('');
     setFormSellingPrice2('');
     setFormSellingPrice3('');
     setFormCustomerSpecialPrices([]);
     setNewSpecialCustomerId('');
     setNewSpecialPrice('');
     setNewSpecialNotes('');
-    setFormStock(50);
-    setFormMinAlert(10);
+    setFormStock('');
+    setFormMinAlert('');
     setFormDesc('');
     setFormImageUrl('');
     setFormIsFavorite(false);
@@ -406,13 +413,13 @@ export const InventoryView: React.FC = () => {
   const handleCategoryChange = (newCat: ItemCategory) => {
     setFormCategory(newCat);
     if (!editingItem) {
-      const nextCode = generateSequentialSku(newCat, inventory.map(i => i.code));
+      const nextCode = generateSequentialSku(newCat, inventory.map(i => i.code), allCategories);
       setFormCode(nextCode);
     }
   };
 
   const handleRegenerateCode = () => {
-    const nextCode = generateSequentialSku(formCategory, inventory.map(i => i.code));
+    const nextCode = generateSequentialSku(formCategory, inventory.map(i => i.code), allCategories);
     setFormCode(nextCode);
     posSound.playSuccessBeep();
   };
@@ -589,14 +596,7 @@ export const InventoryView: React.FC = () => {
 
   
   
-  const allCategories = useMemo(() => {
-    return settings.categories || [];
-  }, [settings.categories]);
 
-
-  const getCategoryDetails = (catId: string) => {
-    return allCategories.find(c => c.id === catId) || CATEGORY_DEFINITIONS['stationery'];
-  };
 
   const getCategoryBadge = (cat: ItemCategory) => {
     const details = getCategoryDetails(cat);
@@ -654,7 +654,6 @@ export const InventoryView: React.FC = () => {
               ≈ {(totalCostValue / dailyExchangeRate).toLocaleString('ar-SA', { maximumFractionDigits: 2 })} {activeCurrency.symbol}
             </div>
           )}
-          <p className="text-[10px] text-slate-400 mt-1">القيمة الدفترية للأصول المخزنية</p>
         </div>
 
         <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs">
@@ -672,9 +671,6 @@ export const InventoryView: React.FC = () => {
               ≈ {(totalSaleValue / dailyExchangeRate).toLocaleString('ar-SA', { maximumFractionDigits: 2 })} {activeCurrency.symbol}
             </div>
           )}
-          <p className="text-[10px] text-emerald-600 mt-1">
-            مجمل ربح متوقع: {(totalSaleValue - totalCostValue).toLocaleString('ar-SA')} {settings.currency}
-          </p>
         </div>
 
         <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs">
@@ -687,7 +683,6 @@ export const InventoryView: React.FC = () => {
           <div className="text-lg font-bold font-mono text-slate-900">
             {rawMaterialsValue.toLocaleString('ar-SA')} <span className="text-[10px] font-normal text-slate-500 font-sans">{settings.currency}</span>
           </div>
-          <p className="text-[10px] text-slate-400 mt-1">رولات كوشيه، بانر، أحبار كونيكا</p>
         </div>
 
         <div
@@ -707,95 +702,90 @@ export const InventoryView: React.FC = () => {
               عرض النواقص ⚠️
             </span>
           </div>
-          <p className="text-[10px] text-rose-600 mt-1">اضغط لاستعراض تقرير النواقص وإعادة الطلب</p>
         </div>
       </div>
 
       {/* Unified Command & Operations Console (شريط العمليات والباركود والماسح والمفضلة) */}
       <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs space-y-3">
         {/* Row 1: Primary Action Operations & Barcode/Scanner Suite */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+        {/* Row 1: Primary Action Operations & Barcode/Scanner Suite */}
+        <div className="flex flex-wrap items-center justify-between gap-1.5 pb-2 border-b border-slate-100 text-xs">
           {/* Action Buttons Group */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             {/* Manage Categories Button */}
             <button
               type="button"
               onClick={() => setShowCategoriesModal(true)}
-              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-xs transition-colors cursor-pointer shrink-0"
+              className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg shadow-xs transition shadow-xs cursor-pointer shrink-0"
             >
-              <Plus className="w-4 h-4" />
-              <span>إدارة التصنيفات</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>التصنيفات</span>
             </button>
             {/* Primary Add Button */}
             <button
               type="button"
               onClick={() => handleOpenAdd()}
-              className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-xs transition-colors cursor-pointer shrink-0"
+              className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg shadow-xs transition shadow-xs cursor-pointer shrink-0"
             >
-              <Plus className="w-4 h-4" />
-              <span>إضافة صنف / خامة</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>إضافة صنف</span>
             </button>
 
             {/* Stock Movement Ledger Button */}
             <button
               type="button"
               onClick={() => handleOpenStockCard(undefined, 'card')}
-              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-3 py-2 rounded-lg shadow-xs transition cursor-pointer shrink-0"
-              title="عرض كارتة حركة المخزون وسجل الوارد والمنصرف والتسويات المخزنية وتنبيهات حد الطلب"
+              className="flex items-center gap-1 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg shadow-xs transition cursor-pointer shrink-0"
+              title="عرض كارتة حركة المخزون"
             >
-              <ClipboardList className="w-4 h-4 text-amber-400" />
-              <span>كارتة حركة المخزون</span>
+              <ClipboardList className="w-3.5 h-3.5 text-amber-400" />
+              <span>كارتة الحركة</span>
             </button>
 
             {/* Warehouse Operations Button */}
             <button
               type="button"
               onClick={() => setActiveTab('warehouses')}
-              className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-bold px-3 py-2 rounded-lg shadow-xs transition cursor-pointer shrink-0"
-              title="الانتقال إلى نظام العمليات المخزنية (استلام، صرف، تحويل، جرد، تسوية، إتلاف، مرتجع، تعديل)"
+              className="flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-bold px-2.5 py-1.5 rounded-lg shadow-xs transition cursor-pointer shrink-0"
+              title="العمليات المخزنية"
             >
-              <PackageCheck className="w-4 h-4 text-indigo-600" />
-              <span>العمليات المخزنية</span>
+              <PackageCheck className="w-3.5 h-3.5 text-indigo-600" />
+              <span>العمليات</span>
             </button>
           </div>
 
-          {/* Barcode & Scanner Tools Suite (مجموعة أدوات الباركود والماسح الضوئي المنفصلة) */}
-          <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-1 rounded-lg border border-slate-200 shrink-0">
+          {/* Barcode & Scanner Tools Suite */}
+          <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 p-1 rounded-lg border border-slate-200 shrink-0">
             {/* Barcode & QR Bank Button */}
             <button
               type="button"
               onClick={() => handleOpenBarcodeBank()}
-              className="flex items-center gap-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 hover:border-indigo-300 text-xs font-bold px-3 py-1.5 rounded-md shadow-2xs transition cursor-pointer shrink-0"
-              title="توليد وقراءة باركود للأصناف (EAN-13, CODE-128, QR Code) وطباعة ملصقات الباركود"
+              className="flex items-center gap-1 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold px-2.5 py-1.5 rounded-md shadow-2xs transition cursor-pointer shrink-0"
             >
-              <BarcodeIcon className="w-3.5 h-3.5 text-indigo-600" />
+              <BarcodeIcon className="w-3 h-3 text-indigo-600" />
               <span>بنك الباركود والـ QR</span>
             </button>
 
-            {/* زر كاميرا الباركود - رمز فقط مطابق لزر الكاشير */}
+            {/* Camera Barcode Scanner */}
             <button
               type="button"
               onClick={() => {
                 setScannerForSearch(true);
                 setShowBarcodeScanner(prev => !prev);
               }}
-              className={`p-2 rounded-lg border flex items-center justify-center cursor-pointer transition-all shrink-0 ${
+              className={`p-1.5 rounded-md border flex items-center justify-center cursor-pointer transition shrink-0 ${
                 showBarcodeScanner
-                  ? 'bg-blue-600 text-white border-blue-700 shadow-inner ring-2 ring-blue-300'
-                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100 hover:border-blue-400 shadow-2xs'
+                  ? 'bg-blue-600 text-white border-blue-700 shadow-inner'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
               }`}
               title="تشغيل كاميرا الباركود"
             >
-              <Camera className={`w-4 h-4 ${showBarcodeScanner ? 'text-emerald-300 animate-pulse' : 'text-blue-600'}`} />
-              {showBarcodeScanner && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-1" />}
+              <Camera className={`w-3.5 h-3.5 ${showBarcodeScanner ? 'text-emerald-300 animate-pulse' : 'text-blue-600'}`} />
             </button>
 
             {/* Hardware Scanner Live Status Indicator */}
-            <div
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-md text-[11px] font-bold shadow-2xs whitespace-nowrap"
-              title="القارئ متصل وجاهز: يمكنك مسح أي باركود بالماسح الضوئي (USB/بلوتوث) في أي لحظة وسيقوم النظام بالبحث الفوري عنه تلقائياً"
-            >
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <div className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-md text-[11px] font-bold shadow-2xs whitespace-nowrap">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
               <Zap className="w-3 h-3 text-emerald-600" />
               <span>الماسح متصل ⚡</span>
             </div>
@@ -803,26 +793,25 @@ export const InventoryView: React.FC = () => {
         </div>
 
         {/* Row 2: Search Box, Category/Warehouse Filters, Quick Filters (المفضلة والنواقص) and View Switcher */}
-        <div className="flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           {/* Search Box & Dropdown Filters */}
-          <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+          <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-[240px]">
             {/* Search Box */}
-            <div className="relative min-w-[220px] flex-1 max-w-sm">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <div className="relative min-w-[160px] flex-1 max-w-xs">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
-                placeholder="ابحث باسم الصنف، الباركود، الكود..."
+                placeholder="ابحث..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pr-8 pl-12 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium transition"
+                className="w-full pr-7.5 pl-10 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-500 font-medium transition"
               />
-              <div className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+              <div className="absolute left-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
                 {searchQuery && (
                   <button
                     type="button"
                     onClick={() => setSearchQuery('')}
-                    className="text-slate-400 hover:text-rose-600 p-0.5 rounded hover:bg-slate-200 transition cursor-pointer text-xs font-bold leading-none"
-                    title="مسح نص البحث"
+                    className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition cursor-pointer font-bold text-xs"
                   >
                     ×
                   </button>
@@ -833,8 +822,8 @@ export const InventoryView: React.FC = () => {
                     setScannerForSearch(true);
                     setShowBarcodeScanner(true);
                   }}
-                  className="text-slate-400 hover:text-blue-600 p-0.5 rounded hover:bg-slate-200 transition cursor-pointer"
-                  title="مسح باركود للبحث المباشر بالكاميرا"
+                  className="text-slate-400 hover:text-blue-600 p-0.5 rounded cursor-pointer"
+                  title="البحث بالكاميرا"
                 >
                   <Camera className="w-3.5 h-3.5" />
                 </button>
@@ -842,31 +831,29 @@ export const InventoryView: React.FC = () => {
             </div>
 
             {/* Category Filter */}
-            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs shrink-0">
+            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs shrink-0">
               <Filter className="w-3 h-3 text-slate-500" />
-              <span className="text-[11px] font-bold text-slate-700">التصنيف:</span>
               <select
                 value={categoryFilter}
                 onChange={e => setCategoryFilter(e.target.value)}
-                className="bg-transparent border-0 text-xs text-slate-800 font-semibold focus:outline-none cursor-pointer"
+                className="bg-transparent border-0 text-xs text-slate-800 font-semibold focus:outline-none cursor-pointer p-0.5"
               >
                 <option value="all">كافة التصنيفات ({inventory.length})</option>
                 {allCategories.map(cat => (
-                  <option key={cat.id} value={cat.id}>{cat.name} ({cat.prefix})</option>
+                  <option key={cat.id} value={cat.id}>{cat.name}</option>
                 ))}
               </select>
             </div>
 
             {/* Warehouse Filter */}
-            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs shrink-0">
+            <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs shrink-0">
               <Boxes className="w-3 h-3 text-indigo-600" />
-              <span className="text-[11px] font-bold text-slate-700">المستودع:</span>
               <select
                 value={selectedWarehouseFilter}
                 onChange={e => setSelectedWarehouseFilter(e.target.value)}
-                className="bg-transparent border-0 text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer"
+                className="bg-transparent border-0 text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer p-0.5"
               >
-                <option value="all">📦 جميع المستودعات ({warehouses.length})</option>
+                <option value="all">جميع المستودعات ({warehouses.length})</option>
                 {warehouses.map(w => (
                   <option key={w.id} value={w.id}>
                     {w.code} - {w.name}
@@ -876,37 +863,31 @@ export const InventoryView: React.FC = () => {
             </div>
           </div>
 
-          {/* Quick Filters (المفضلة بالكاشير، النواقص، العملة، وتبديل العرض) */}
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            {/* Quick Favorite Items Filter Button (المفضلة بالكاشير) */}
+          {/* Quick Filters Group */}
+          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+            {/* Quick Favorite Items Filter */}
             <button
               type="button"
               onClick={() => setFilterOnlyFavorites(prev => !prev)}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition border cursor-pointer shrink-0 ${
+              className={`px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition border cursor-pointer shrink-0 ${
                 filterOnlyFavorites
-                  ? 'bg-amber-500 text-white border-amber-600 shadow-xs ring-2 ring-amber-200'
-                  : inventory.some(i => i.isFavorite)
-                  ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                  ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
                   : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
               }`}
-              title="تصفية وعرض الأصناف المفضلة المعروضة في الكاشير"
             >
               <Star className={`w-3.5 h-3.5 ${filterOnlyFavorites || inventory.some(i => i.isFavorite) ? 'fill-amber-400 text-amber-500' : 'text-slate-400'}`} />
               <span>المفضلة بالكاشير ({inventory.filter(i => i.isFavorite).length})</span>
             </button>
 
-            {/* Quick Low-Stock Filter Button */}
+            {/* Quick Low-Stock Filter */}
             <button
               type="button"
               onClick={() => setFilterOnlyLowStock(prev => !prev)}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition border cursor-pointer shrink-0 ${
+              className={`px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition border cursor-pointer shrink-0 ${
                 filterOnlyLowStock
-                  ? 'bg-rose-600 text-white border-rose-700 shadow-xs ring-2 ring-rose-200'
-                  : lowStockCount > 0
-                  ? 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100'
+                  ? 'bg-rose-600 text-white border-rose-700 shadow-xs'
                   : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
               }`}
-              title="تصفية وعرض الأصناف التي وصلت لحد الطلب أو أقل (نواقص)"
             >
               <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
               <span>نواقص ({lowStockCount})</span>
@@ -918,11 +899,11 @@ export const InventoryView: React.FC = () => {
               <select
                 value={selectedCurrencyCode}
                 onChange={e => setSelectedCurrencyCode(e.target.value)}
-                className="bg-transparent border-0 text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer"
+                className="bg-transparent border-0 text-xs font-bold text-slate-700 focus:outline-none cursor-pointer p-0.5"
               >
                 {currencies.map(c => (
                   <option key={c.code} value={c.code}>
-                    {c.symbol} ({c.code})
+                    ({c.symbol}) {c.code}
                   </option>
                 ))}
               </select>
@@ -942,33 +923,27 @@ export const InventoryView: React.FC = () => {
               )}
             </div>
 
-            {/* View Mode Toggle: List Table vs Stock Cards */}
+            {/* View Mode Toggle */}
             <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0">
               <button
                 type="button"
                 onClick={() => setViewMode('table')}
                 className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold transition cursor-pointer ${
-                  viewMode === 'table'
-                    ? 'bg-white text-blue-600 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                  viewMode === 'table' ? 'bg-white text-indigo-700 shadow-2xs font-extrabold' : 'text-slate-500 hover:text-slate-800'
                 }`}
-                title="عرض جدول تفصيلي"
               >
                 <List className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">جدول</span>
+                <span>جدول</span>
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode('cards')}
                 className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold transition cursor-pointer ${
-                  viewMode === 'cards'
-                    ? 'bg-white text-blue-600 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
+                  viewMode === 'cards' ? 'bg-white text-indigo-700 shadow-2xs font-extrabold' : 'text-slate-500 hover:text-slate-800'
                 }`}
-                title="عرض بطاقات المخزون"
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">بطاقات</span>
+                <span>بطاقات</span>
               </button>
             </div>
           </div>
@@ -1260,26 +1235,27 @@ export const InventoryView: React.FC = () => {
                           )}
                         </td>
                         <td className="p-2.5 font-mono text-slate-900">
-                          <div className="font-bold">{item.sellingPrice.toFixed(2)} ₪</div>
-                          {selectedCurrencyCode !== 'ILS' && (
-                            <div className="text-[10px] text-emerald-600 font-bold">
-                              ≈ {(item.sellingPrice / dailyExchangeRate).toFixed(2)} {activeCurrency.symbol}
-                            </div>
-                          )}
-                          {(item.sellingPrice2 || item.sellingPrice3) && (
-                            <div className="flex flex-wrap gap-1 mt-1 text-[10px]">
-                              {item.sellingPrice2 && (
-                                <span className="bg-purple-50 text-purple-700 px-1 rounded border border-purple-200" title="سعر بيع 2">
-                                  س2: {item.sellingPrice2} ₪
-                                </span>
-                              )}
-                              {item.sellingPrice3 && (
-                                <span className="bg-amber-50 text-amber-700 px-1 rounded border border-amber-200" title="سعر بيع 3">
-                                  س3: {item.sellingPrice3} ₪
-                                </span>
-                              )}
-                            </div>
-                          )}
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                            <span className="font-extrabold text-slate-950">{item.sellingPrice.toFixed(2)} ₪</span>
+                            
+                            {selectedCurrencyCode !== 'ILS' && (
+                              <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1 rounded">
+                                ≈ {(item.sellingPrice / dailyExchangeRate).toFixed(2)} {activeCurrency.symbol}
+                              </span>
+                            )}
+
+                            {item.sellingPrice2 && (
+                              <span className="bg-purple-50 text-purple-700 text-[10px] px-1.5 py-0.5 rounded border border-purple-200 shrink-0 font-bold" title="سعر بيع 2">
+                                س2: {item.sellingPrice2} ₪
+                              </span>
+                            )}
+
+                            {item.sellingPrice3 && (
+                              <span className="bg-amber-50 text-amber-700 text-[10px] px-1.5 py-0.5 rounded border border-amber-200 shrink-0 font-bold" title="سعر بيع 3">
+                                س3: {item.sellingPrice3} ₪
+                              </span>
+                            )}
+                          </div>
                           {item.customerSpecialPrices && item.customerSpecialPrices.length > 0 && (
                             <button
                               type="button"
@@ -1410,7 +1386,6 @@ export const InventoryView: React.FC = () => {
         </div>
       )}
 
-      {/* Modal: Add or Edit Item */}
       {showAddModal && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3">
           <div className="bg-white rounded-lg max-w-xl w-full p-4 shadow-xl border border-slate-200 max-h-[90vh] overflow-y-auto">
@@ -1428,249 +1403,220 @@ export const InventoryView: React.FC = () => {
             </div>
 
             <form onSubmit={handleSaveItem} className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1">اسم الصنف أو الخامة:</label>
-                  <input
-                    type="text"
-                    required
-                    value={formName}
-                    onChange={e => setFormName(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
-                    placeholder="مثال: رول ورق كوشيه 300g..."
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1">المجموعة والتصنيف المخزني:</label>
-                  <select
-                    value={formCategory}
-                    onChange={e => handleCategoryChange(e.target.value as ItemCategory)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500 font-medium"
-                  >
-                    {allCategories.map(cat => (
-                      <option key={cat.id} value={cat.id}>{cat.name} ({cat.prefix})</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2.5">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-slate-700 font-semibold text-[11px] flex items-center gap-1">
-                      <span>كود الصنف (SKU):</span>
-                      <span className="text-[10px] font-mono text-blue-600 bg-blue-50 px-1 py-0.2 rounded border border-blue-200">
-                        {getCategoryDetails(formCategory)?.prefix || 'ITEM'}
-                      </span>
-                    </label>
+              {/* سطر واحد مدمج متكامل: صورة الصنف، كود الصنف، اسم الصنف، وحدة الصنف، الباركود الرئيسي والمجموعة */}
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-wrap sm:flex-nowrap gap-3 items-center">
+                {/* 1. صورة الصنف (Item Image) Square Trigger/Preview */}
+                <div className="relative shrink-0">
+                  <label className="group block cursor-pointer" title="اضغط لرفع صورة من الجهاز">
+                    <div className="relative w-14 h-14 rounded-xl bg-white border-2 border-dashed border-slate-300 group-hover:border-blue-500 overflow-hidden flex flex-col items-center justify-center transition-all shadow-2xs">
+                      {formImageUrl ? (
+                        <>
+                          <img src={formImageUrl} alt="معاينة" className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-[9px] font-bold transition-opacity">تعديل</div>
+                        </>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center text-slate-400 p-1 text-center">
+                          <Camera className="w-4 h-4 text-slate-400 group-hover:text-blue-500 transition-colors" />
+                          <span className="text-[7.5px] font-semibold mt-0.5">رفع صورة</span>
+                        </div>
+                      )}
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  {formImageUrl && (
                     <button
                       type="button"
-                      onClick={handleRegenerateCode}
-                      className="text-[10px] text-blue-600 hover:text-blue-800 font-bold flex items-center gap-0.5 cursor-pointer"
-                      title="توليد كود تسلسلي غير مكرر بناءً على تصنيف الصنف"
+                      onClick={() => setFormImageUrl('')}
+                      className="absolute -top-1.5 -left-1.5 w-4.5 h-4.5 bg-rose-600 hover:bg-rose-700 text-white rounded-full flex items-center justify-center text-[10px] shadow-xs cursor-pointer leading-none"
+                      title="حذف الصورة"
                     >
-                      <Sparkles className="w-2.5 h-2.5" />
-                      <span>توليد تلقائي</span>
+                      &times;
                     </button>
+                  )}
+                </div>
+
+                {/* 2. Inputs Row (اسم الصنف، كود الصنف، الباركود الرئيسي، المجموعة، وحدة الصنف) */}
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-12 gap-2.5 text-xs">
+                  {/* اسم الصنف */}
+                  <div className="sm:col-span-6 flex items-center gap-1.5 min-w-0">
+                    <label className="text-slate-800 font-bold text-[10px] shrink-0 whitespace-nowrap">
+                      اسم الصنف:
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formName}
+                      onChange={e => setFormName(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-xs font-bold text-slate-900 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                      placeholder="اسم الصنف أو الخدمة..."
+                    />
                   </div>
-                  <input
-                    type="text"
-                    required
-                    value={formCode}
-                    onChange={e => setFormCode(e.target.value)}
-                    placeholder="مثال: STAT-0001"
-                    className={`w-full border rounded-md p-1.5 font-mono text-xs font-bold transition-colors ${
-                      !skuValidation.isUnique
-                        ? 'bg-rose-50 border-rose-400 text-rose-800 focus:ring-1 focus:ring-rose-500'
-                        : 'bg-slate-50 border-slate-200 text-blue-700 focus:bg-white focus:ring-1 focus:ring-blue-500'
-                    }`}
-                  />
-                  {!skuValidation.isUnique && skuValidation.conflictingItem ? (
-                    <div className="mt-1 p-1.5 bg-rose-50 border border-rose-300 rounded text-[10px] text-rose-800 space-y-1">
-                      <div className="flex items-center gap-1 font-bold">
-                        <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
-                        <span>مكرر! مستخدم مع "{skuValidation.conflictingItem.name}"</span>
-                      </div>
-                      {skuValidation.suggestedSku && (
+
+                  {/* كود الصنف */}
+                  <div className="sm:col-span-3 flex items-center gap-1.5 min-w-0">
+                    <label className="text-slate-800 font-bold text-[10px] shrink-0 whitespace-nowrap">
+                      كود الصنف:
+                    </label>
+                    <div className="relative flex-1 min-w-0">
+                      <input
+                        type="text"
+                        required
+                        value={formCode}
+                        onChange={e => setFormCode(e.target.value)}
+                        placeholder="الكود..."
+                        className={`w-full border rounded-md p-1.5 pr-2.5 pl-8 font-mono text-xs font-bold text-center outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${
+                          !skuValidation.isUnique ? 'bg-rose-50 border-rose-400 text-rose-800' : 'bg-white border-slate-300 text-blue-700'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleRegenerateCode}
+                        className="absolute left-1 top-1/2 -translate-y-1/2 text-blue-600 hover:text-blue-800 p-1 flex items-center cursor-pointer"
+                        title="توليد تلقائي"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* وحدة الصنف */}
+                  <div className="sm:col-span-3 flex items-center gap-1.5 min-w-0">
+                    <label className="text-slate-800 font-bold text-[10px] shrink-0 whitespace-nowrap">
+                      الوحدة:
+                    </label>
+                    <div className="flex-1 min-w-0">
+                      <ItemUnitSelector
+                        value={formUnit}
+                        onChange={setFormUnit}
+                        showLabel={false}
+                        placeholder="الوحدة..."
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+
+                  {/* الباركود الرئيسي */}
+                  <div className="sm:col-span-6 flex items-center gap-1.5 min-w-0">
+                    <label className="text-slate-800 font-bold text-[10px] shrink-0 whitespace-nowrap">
+                      الباركود الرئيسي:
+                    </label>
+                    <div className="relative flex-1 min-w-0">
+                      <input
+                        ref={barcodeInputRef}
+                        type="text"
+                        value={formBarcode}
+                        onChange={e => setFormBarcode(e.target.value)}
+                        placeholder="امسح أو أدخل الباركود..."
+                        className="w-full bg-white border border-slate-300 rounded-md p-1.5 pr-2.5 pl-18 font-mono text-xs focus:ring-1 focus:ring-blue-500 text-center outline-none"
+                      />
+                      {/* أزرار التوليد السريعة داخل حقل الباركود */}
+                      <div className="absolute left-1 top-1/2 -translate-y-1/2 flex items-center gap-1 text-[8.5px]">
+                        <button
+                          type="button"
+                          onClick={() => handleGenerateBarcodeByType('EAN13')}
+                          className="text-blue-600 hover:underline font-bold"
+                          title="توليد EAN-13"
+                        >
+                          E13
+                        </button>
+                        <span className="text-slate-300">|</span>
+                        <button
+                          type="button"
+                          onClick={() => handleGenerateBarcodeByType('CODE128')}
+                          className="text-blue-600 hover:underline font-bold"
+                          title="توليد Code-128"
+                        >
+                          C128
+                        </button>
+                        <span className="text-slate-300">|</span>
                         <button
                           type="button"
                           onClick={() => {
-                            setFormCode(skuValidation.suggestedSku!);
-                            posSound.playSuccessBeep();
+                            setScannerForSearch(false);
+                            setShowBarcodeScanner(true);
                           }}
-                          className="w-full text-center py-0.5 bg-rose-600 hover:bg-rose-700 text-white rounded font-bold text-[10px] transition cursor-pointer"
+                          className="text-blue-500 p-0.5 hover:text-blue-700 cursor-pointer"
+                          title="تشغيل الكاميرا"
                         >
-                          استخدام الكود الشاغر: {skuValidation.suggestedSku}
+                          <Camera className="w-3.5 h-3.5" />
                         </button>
-                      )}
+                      </div>
                     </div>
-                  ) : (
-                    <div className="flex items-center justify-between text-[9px] text-slate-400 font-light mt-0.5">
-                      <span>تسلسلي: {getCategoryDetails(formCategory)?.prefix || 'ITEM'}-0001</span>
-                      {formCode.trim() && (
-                        <span className="text-emerald-600 font-semibold flex items-center gap-0.5">
-                          <CheckCircle2 className="w-2.5 h-2.5" />
-                          <span>فريد غير مكرر</span>
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-slate-700 font-semibold text-[11px]">الباركود:</label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setScannerForSearch(false);
-                        setShowBarcodeScanner(true);
-                      }}
-                      className="p-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-200 rounded cursor-pointer transition-colors"
-                      title="تشغيل كاميرا الباركود"
-                    >
-                      <Camera className="w-3.5 h-3.5" />
-                    </button>
                   </div>
-                  <div className="relative">
-                    <input
-                      ref={barcodeInputRef}
-                      type="text"
-                      value={formBarcode}
-                      onChange={e => setFormBarcode(e.target.value)}
-                      placeholder="امسح أو أدخل الباركود..."
-                      className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 pl-7 font-mono text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setScannerForSearch(false);
-                        setShowBarcodeScanner(true);
-                      }}
-                      className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-600 p-0.5 cursor-pointer"
-                      title="مسح بالكاميرا"
+
+                  {/* المجموعة */}
+                  <div className="sm:col-span-6 flex items-center gap-1.5 min-w-0">
+                    <label className="text-slate-800 font-bold text-[10px] shrink-0 whitespace-nowrap">
+                      المجموعة:
+                    </label>
+                    <select
+                      value={formCategory}
+                      onChange={e => handleCategoryChange(e.target.value as ItemCategory)}
+                      className="w-full bg-white border border-slate-300 rounded-md p-1.5 text-xs text-slate-700 font-semibold focus:ring-1 focus:ring-blue-500 outline-none cursor-pointer"
                     >
-                      <BarcodeIcon className="w-3.5 h-3.5" />
-                    </button>
+                      {allCategories.map(cat => (
+                        <option key={cat.id} value={cat.id}>{cat.name}</option>
+                      ))}
+                    </select>
                   </div>
-                  <div className="flex items-center gap-1.5 mt-1 text-[10px]">
-                    <span className="text-slate-400">توليد:</span>
-                    <button
-                      type="button"
-                      onClick={() => handleGenerateBarcodeByType('EAN13')}
-                      className="text-blue-600 hover:underline font-bold"
-                    >
-                      EAN-13
-                    </button>
-                    <span className="text-slate-300">|</span>
-                    <button
-                      type="button"
-                      onClick={() => handleGenerateBarcodeByType('CODE128')}
-                      className="text-blue-600 hover:underline font-bold"
-                    >
-                      Code-128
-                    </button>
-                    <span className="text-slate-300">|</span>
-                    <button
-                      type="button"
-                      onClick={() => handleGenerateBarcodeByType('QR')}
-                      className="text-blue-600 hover:underline font-bold"
-                    >
-                      QR
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <ItemUnitSelector
-                    value={formUnit}
-                    onChange={setFormUnit}
-                    label="وحدة القياس:"
-                    placeholder="اختر أو اكتب الوحدة..."
-                    showQuickPills={true}
-                  />
                 </div>
               </div>
 
-              {/* Multi-Barcode Manager Section (إدارة الباركودات المتعددة والبديلة للصنف) */}
-              <div className="bg-slate-50/90 rounded-xl p-3 border border-slate-200 space-y-2.5">
+              {/* إدارة الباركودات البديلة والإضافية */}
+              <div className="bg-slate-50/90 rounded-xl p-3 border border-slate-200 space-y-2">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <div className="p-1 bg-blue-100 text-blue-700 rounded-md">
                       <BarcodeIcon className="w-3.5 h-3.5" />
                     </div>
-                    <div>
-                      <h4 className="font-bold text-slate-800 text-xs">إدارة الباركودات المتعددة والبديلة للصنف</h4>
-                      <p className="text-[9px] text-slate-400 font-light">
-                        يمكنك إضافة باركود كرتونة، باركود حبة، أو باركود مورد إضافي. أي باركود يتم مسحه في نقاط البيع أو المخزن سيستدعي هذا الصنف تلقائياً.
-                      </p>
-                    </div>
+                    <h4 className="font-bold text-slate-800 text-xs">الباركودات البديلة والإضافية</h4>
                   </div>
                   <span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
-                    {formBarcodeEntries.length + (formBarcode ? 1 : 0)} باركود مسجل
+                    {formBarcodeEntries.length} باركود بديل مسجل
                   </span>
                 </div>
 
-                {/* List of Registered Barcodes */}
-                <div className="space-y-1.5">
-                  {/* Primary Barcode Row */}
-                  {formBarcode && (
-                    <div className="flex items-center justify-between bg-white px-3 py-1.5 rounded-lg border border-blue-200 shadow-2xs">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] bg-blue-600 text-white font-bold px-1.5 py-0.5 rounded">
-                          الرئيسي
-                        </span>
-                        <span className="font-mono font-bold text-slate-800 text-xs">{formBarcode}</span>
-                      </div>
-                      <div className="text-[10px] text-slate-400">الباركود الافتراضي للطباعة والملصقات</div>
-                    </div>
-                  )}
-
-                  {/* Additional Barcodes Rows */}
-                  {formBarcodeEntries.map((entry, idx) => (
-                    <div key={idx} className="flex items-center justify-between bg-white px-3 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 transition-colors">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] bg-sky-100 text-sky-800 font-bold px-1.5 py-0.5 rounded">
-                          {entry.label || 'باركود بديل'}
-                        </span>
-                        <span className="font-mono font-bold text-slate-700 text-xs">{entry.barcode}</span>
-                        {entry.type && (
-                          <span className="text-[9px] bg-slate-100 text-slate-500 px-1 py-0.2 rounded font-mono">
-                            {entry.type}
+                {/* قائمة الباركودات البديلة المسجلة */}
+                {formBarcodeEntries.length > 0 && (
+                  <div className="space-y-1.5 max-h-24 overflow-y-auto">
+                    {formBarcodeEntries.map((entry, idx) => (
+                      <div key={idx} className="flex items-center justify-between bg-white px-2 py-1 rounded-lg border border-slate-200">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] bg-sky-100 text-sky-800 font-bold px-1 rounded">
+                            {entry.label || 'باركود بديل'}
                           </span>
-                        )}
+                          <span className="font-mono font-bold text-slate-700 text-xs">{entry.barcode}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleSetAsPrimaryBarcode(idx)}
+                            className="text-[9px] text-amber-700 hover:text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 flex items-center gap-0.5 cursor-pointer"
+                          >
+                            تعيين كرئيسي
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveBarcodeEntry(idx)}
+                            className="text-rose-500 hover:text-rose-700 p-0.5 cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleSetAsPrimaryBarcode(idx)}
-                          className="text-[10px] text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded flex items-center gap-1 cursor-pointer transition-colors"
-                          title="جعله الباركود الرئيسي للصنف"
-                        >
-                          <Star className="w-3 h-3 text-amber-500 fill-amber-400" />
-                          <span>تعيين كرئيسي</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveBarcodeEntry(idx)}
-                          className="text-rose-500 hover:text-rose-700 p-1 hover:bg-rose-50 rounded cursor-pointer transition-colors"
-                          title="حذف هذا الباركود"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                )}
 
-                  {formBarcodeEntries.length === 0 && !formBarcode && (
-                    <div className="text-center py-2 text-slate-400 text-[11px]">
-                      لم يتم تسجيل باركود لهذا الصنف بعد.
-                    </div>
-                  )}
-                </div>
-
-                {/* Add New Barcode Entry Form */}
+                {/* نموذج إضافة باركود بديل جديد */}
                 <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-2">
                   <div className="text-[11px] font-bold text-slate-700 flex items-center justify-between">
-                    <span>+ إضافة باركود إضافي / بديل جديد للصنف:</span>
+                    <span>+ إضافة باركود إضافي / بديل:</span>
                     <div className="flex items-center gap-1 text-[10px]">
                       <span className="text-slate-400">توليد:</span>
                       <button
@@ -1688,19 +1634,10 @@ export const InventoryView: React.FC = () => {
                       >
                         Code-128
                       </button>
-                      <span className="text-slate-300">|</span>
-                      <button
-                        type="button"
-                        onClick={() => handleGenerateNewEntryBarcode('QR')}
-                        className="text-blue-600 hover:underline font-bold"
-                      >
-                        QR
-                      </button>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                    {/* Barcode input */}
                     <div className="sm:col-span-6 relative">
                       <input
                         type="text"
@@ -1708,7 +1645,7 @@ export const InventoryView: React.FC = () => {
                         onChange={e => setNewEntryBarcode(e.target.value)}
                         onFocus={() => setTargetBarcodeScanField('additional')}
                         placeholder="أدخل أو امسح الباركود البديل..."
-                        className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 font-mono text-xs focus:bg-white focus:ring-1 focus:ring-blue-500 pl-7"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 font-mono text-xs focus:bg-white focus:ring-1 focus:ring-blue-500 pl-7 text-center outline-none"
                       />
                       <button
                         type="button"
@@ -1718,35 +1655,29 @@ export const InventoryView: React.FC = () => {
                           setShowBarcodeScanner(true);
                         }}
                         className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-600 p-0.5 cursor-pointer"
-                        title="مسح بالكاميرا"
                       >
                         <Camera className="w-3.5 h-3.5" />
                       </button>
                     </div>
 
-                    {/* Label selector / presets */}
                     <div className="sm:col-span-4">
                       <select
                         value={newEntryLabel}
                         onChange={e => setNewEntryLabel(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500 font-medium text-slate-700"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 text-xs text-slate-700 font-medium"
                       >
                         <option value="باركود كرتونة / عبوة">باركود كرتونة / عبوة</option>
                         <option value="باركود حبة مفردة">باركود حبة مفردة</option>
                         <option value="باركود مورد بديل">باركود مورد بديل</option>
-                        <option value="باركود طرد / شحنة">باركود طرد / شحنة</option>
-                        <option value="باركود دولي قديم">باركود دولي قديم</option>
-                        <option value="ملصق رف وتخزين">ملصق رف وتخزين</option>
                       </select>
                     </div>
 
-                    {/* Add Button */}
                     <div className="sm:col-span-2">
                       <button
                         type="button"
                         onClick={handleAddBarcodeEntry}
                         disabled={!newEntryBarcode.trim()}
-                        className="w-full h-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-md px-2 py-1.5 text-xs flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                        className="w-full h-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-md px-2 py-1.5 text-xs flex items-center justify-center gap-1 cursor-pointer transition-colors"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>إضافة</span>
@@ -1756,135 +1687,144 @@ export const InventoryView: React.FC = () => {
                 </div>
               </div>
 
-              {/* أسعار البيع والتسعير المتعدد للصنف */}
-              <div className="bg-slate-50/90 rounded-xl p-3 border border-slate-200 space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                  <div className="flex items-center gap-1.5">
-                    <DollarSign className="w-4 h-4 text-emerald-600" />
-                    <h4 className="text-xs font-bold text-slate-800">أسعار البيع والتسعير المتعدد:</h4>
-                  </div>
-                  <span className="text-[9px] text-slate-400 font-light bg-white px-2 py-0.5 rounded border border-slate-200">
-                    العملة: {settings.currency} (₪)
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  {/* سعر التكلفة */}
-                  <div>
-                    <label className="block text-slate-700 font-semibold mb-1 text-[11px]">
-                      سعر التكلفة (الشراء):
+              {/* أسعار الشراء والبيع والكميات كلها في سطر واحد أفقي منسق */}
+              <div className="bg-slate-50/90 rounded-xl p-3 border border-slate-200 space-y-2.5">
+                <div className="grid grid-cols-1 md:grid-cols-6 gap-2.5 items-center">
+                  {/* سعر الشراء */}
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <label className="text-slate-700 font-bold text-[10px] shrink-0 whitespace-nowrap">
+                      سعر الشراء:
                     </label>
-                    <div className="relative">
+                    <div className="relative flex-1 min-w-0">
                       <input
                         type="number"
                         step="0.01"
                         min="0"
                         required
                         value={formPurchasePrice}
-                        onChange={e => setFormPurchasePrice(Number(e.target.value))}
-                        className="w-full bg-white border border-slate-300 rounded-md p-1.5 font-mono text-xs text-slate-800 focus:ring-1 focus:ring-blue-500"
+                        onChange={e => setFormPurchasePrice(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full bg-white border border-slate-300 rounded-md p-1 font-mono text-[11px] text-slate-800 focus:ring-1 focus:ring-blue-500 text-center outline-none"
                       />
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">₪</span>
+                      <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-bold">₪</span>
                     </div>
                   </div>
 
-                  {/* سعر بيع 1 (الأساسي / قطاعي) */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-slate-900 font-bold text-[11px]">
-                        سعر بيع (1) *
-                      </label>
-                      <span className="text-[9px] bg-blue-100 text-blue-800 px-1 py-0.2 rounded font-bold">
-                        أساسي / قطاعي
-                      </span>
-                    </div>
-                    <div className="relative">
+                  {/* سعر بيع (1) */}
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <label className="text-slate-900 font-black text-[10px] shrink-0 whitespace-nowrap">
+                      سعر بيع (1):
+                    </label>
+                    <div className="relative flex-1 min-w-0">
                       <input
                         type="number"
                         step="0.01"
                         min="0"
                         required
                         value={formSellingPrice}
-                        onChange={e => setFormSellingPrice(Number(e.target.value))}
-                        className="w-full bg-white border-2 border-blue-400 rounded-md p-1.5 font-mono font-bold text-blue-900 text-xs focus:ring-1 focus:ring-blue-500"
+                        onChange={e => setFormSellingPrice(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-full bg-white border-2 border-blue-400 rounded-md p-1 font-mono font-bold text-blue-900 text-[11px] focus:ring-1 focus:ring-blue-500 text-center outline-none"
                         placeholder="0.00"
                       />
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-blue-600 font-bold">₪</span>
+                      <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[9px] text-blue-600 font-bold">₪</span>
                     </div>
                   </div>
 
-                  {/* سعر بيع 2 (جملة / فئة 2) */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-slate-700 font-semibold text-[11px]">
-                        سعر بيع 2:
-                      </label>
-                      <span className="text-[9px] bg-purple-100 text-purple-800 px-1 py-0.2 rounded font-medium">
-                        جملة / فئة 2
-                      </span>
-                    </div>
-                    <div className="relative">
+                  {/* سعر بيع (2) */}
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <label className="text-slate-700 font-bold text-[10px] shrink-0 whitespace-nowrap">
+                      سعر بيع (2):
+                    </label>
+                    <div className="relative flex-1 min-w-0">
                       <input
                         type="number"
                         step="0.01"
                         min="0"
                         value={formSellingPrice2}
                         onChange={e => setFormSellingPrice2(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="w-full bg-white border border-slate-300 rounded-md p-1.5 font-mono font-medium text-purple-900 text-xs focus:ring-1 focus:ring-purple-500"
+                        className="w-full bg-white border border-slate-300 rounded-md p-1 font-mono font-medium text-purple-900 text-[11px] focus:ring-1 focus:ring-purple-500 text-center outline-none"
                         placeholder="اختياري..."
                       />
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">₪</span>
+                      <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-bold">₪</span>
                     </div>
                   </div>
 
-                  {/* سعر بيع 3 (خاص / كبار العملاء) */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-slate-700 font-semibold text-[11px]">
-                        سعر بيع 3:
-                      </label>
-                      <span className="text-[9px] bg-amber-100 text-amber-800 px-1 py-0.2 rounded font-medium">
-                        خاص / فئة 3
-                      </span>
-                    </div>
-                    <div className="relative">
+                  {/* سعر بيع (3) */}
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <label className="text-slate-700 font-bold text-[10px] shrink-0 whitespace-nowrap">
+                      سعر بيع (3):
+                    </label>
+                    <div className="relative flex-1 min-w-0">
                       <input
                         type="number"
                         step="0.01"
                         min="0"
                         value={formSellingPrice3}
                         onChange={e => setFormSellingPrice3(e.target.value === '' ? '' : Number(e.target.value))}
-                        className="w-full bg-white border border-slate-300 rounded-md p-1.5 font-mono font-medium text-amber-900 text-xs focus:ring-1 focus:ring-amber-500"
+                        className="w-full bg-white border border-slate-300 rounded-md p-1 font-mono font-medium text-amber-900 text-[11px] focus:ring-1 focus:ring-amber-500 text-center outline-none"
                         placeholder="اختياري..."
                       />
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">₪</span>
+                      <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-bold">₪</span>
                     </div>
+                  </div>
+
+                  {/* الكمية الافتتاحية / الرصيد */}
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <label className="text-slate-700 font-bold text-[10px] shrink-0 whitespace-nowrap">
+                      الكمية الافتتاحية:
+                    </label>
+                    <input
+                      ref={stockInputRef}
+                      type="number"
+                      value={formStock}
+                      onChange={e => setFormStock(e.target.value === '' ? '' : Number(e.target.value))}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          barcodeInputRef.current?.focus();
+                          barcodeInputRef.current?.select();
+                        }
+                      }}
+                      className="w-full bg-white border border-slate-300 rounded-md p-1 font-mono text-[11px] focus:ring-1 focus:ring-blue-500 text-slate-800 text-center outline-none"
+                    />
+                  </div>
+
+                  {/* حد التنبيه (الأمان) */}
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <label className="text-slate-700 font-bold text-[10px] shrink-0 whitespace-nowrap">
+                      حد التنبيه (الأمان):
+                    </label>
+                    <input
+                      type="number"
+                      value={formMinAlert}
+                      onChange={e => setFormMinAlert(e.target.value === '' ? '' : Number(e.target.value))}
+                      className="w-full bg-white border border-slate-300 rounded-md p-1 font-mono text-[11px] focus:ring-1 focus:ring-blue-500 text-slate-800 text-center outline-none"
+                    />
                   </div>
                 </div>
 
-                {/* مؤشر الربحية التقريبي */}
+                {/* هامش الربح */}
                 <div className="flex items-center justify-between text-[11px] bg-white p-2 rounded-lg border border-slate-200">
-                  <span className="text-slate-600">هامش الربح (سعر 1):</span>
+                  <span className="text-slate-600 font-medium">هامش الربح (سعر 1):</span>
                   <div className="flex items-center gap-2 font-mono">
                     <span className="font-bold text-emerald-700">
-                      +{(formSellingPrice - formPurchasePrice).toFixed(2)} ₪
+                      +{(Number(formSellingPrice || 0) - Number(formPurchasePrice || 0)).toFixed(2)} ₪
                     </span>
-                    {formPurchasePrice > 0 && (
+                    {Number(formPurchasePrice || 0) > 0 && (
                       <span className="text-[9px] text-slate-400 font-light">
-                        ({(((formSellingPrice - formPurchasePrice) / formPurchasePrice) * 100).toFixed(1)}%)
+                        ({(((Number(formSellingPrice || 0) - Number(formPurchasePrice || 0)) / Number(formPurchasePrice || 0)) * 100).toFixed(1)}%)
                       </span>
                     )}
                   </div>
                 </div>
               </div>
 
-              {/* سعر خاص لعميل معين (Customer Special Pricing) */}
+              {/* سعر خاص لعميل معين */}
               <div className="bg-amber-50/60 rounded-xl p-3 border border-amber-200 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
                     <Star className="w-4 h-4 text-amber-600 fill-amber-500" />
                     <h4 className="text-xs font-bold text-amber-950">
-                      سعر خاص لعميل معين (تخصيص أسعار للعملاء):
+                      سعر خاص لعميل معين:
                     </h4>
                   </div>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
@@ -1892,27 +1832,23 @@ export const InventoryView: React.FC = () => {
                   </span>
                 </div>
 
-                <p className="text-[11px] text-amber-900/80 leading-relaxed">
-                  عند تحديد هذا العميل في شاشة الكاشير، سيتم اعتماد واستخدام سعره الخاص تلقائياً بدلاً من سعر البيع العام.
-                </p>
-
-                {/* Sub-form to add a special customer price */}
+                {/* نموذج إضافة سعر خاص */}
                 <div className="bg-white p-2.5 rounded-lg border border-amber-200 grid grid-cols-1 sm:grid-cols-12 gap-2">
                   <div className="sm:col-span-5">
                     <label className="block text-[10px] font-bold text-slate-700 mb-0.5">
-                      اختر العميل:
+                      العميل:
                     </label>
                     <select
                       value={newSpecialCustomerId}
                       onChange={e => setNewSpecialCustomerId(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-300 rounded-md p-1.5 text-xs text-slate-800 font-medium focus:bg-white focus:ring-1 focus:ring-amber-500"
                     >
-                      <option value="">-- اضغط لاختيار العميل --</option>
+                      <option value="">-- اختر العميل --</option>
                       {customers.map(c => {
                         const hasAlready = formCustomerSpecialPrices.some(p => p.customerId === c.id);
                         return (
                           <option key={c.id} value={c.id}>
-                            {c.name} {c.code ? `(${c.code})` : ''} {hasAlready ? '⭐ مسجل له سعر' : ''}
+                            {c.name} {c.code ? `(${c.code})` : ''} {hasAlready ? '⭐ مسجل' : ''}
                           </option>
                         );
                       })}
@@ -1930,7 +1866,7 @@ export const InventoryView: React.FC = () => {
                         min="0"
                         value={newSpecialPrice}
                         onChange={e => setNewSpecialPrice(e.target.value)}
-                        placeholder="مثال: 12.50"
+                        placeholder="0.00"
                         className="w-full bg-slate-50 border border-slate-300 rounded-md p-1.5 font-mono font-bold text-xs text-slate-900 focus:bg-white focus:ring-1 focus:ring-amber-500"
                       />
                       <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold">₪</span>
@@ -1939,13 +1875,13 @@ export const InventoryView: React.FC = () => {
 
                   <div className="sm:col-span-3">
                     <label className="block text-[10px] font-bold text-slate-700 mb-0.5">
-                      ملاحظة / سبب السعر:
+                      الملاحظة:
                     </label>
                     <input
                       type="text"
                       value={newSpecialNotes}
                       onChange={e => setNewSpecialNotes(e.target.value)}
-                      placeholder="خصم اتفاقية / خاص..."
+                      placeholder="خصم اتفاقية..."
                       className="w-full bg-slate-50 border border-slate-300 rounded-md p-1.5 text-xs text-slate-700 focus:bg-white focus:ring-1 focus:ring-amber-500"
                     />
                   </div>
@@ -1963,8 +1899,8 @@ export const InventoryView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Table of configured Customer Special Prices */}
-                {formCustomerSpecialPrices.length > 0 ? (
+                {/* جدول الأسعار الخاصة */}
+                {formCustomerSpecialPrices.length > 0 && (
                   <div className="overflow-x-auto rounded-lg border border-amber-200 bg-white">
                     <table className="w-full text-right text-xs">
                       <thead className="bg-amber-100/70 text-amber-900 font-bold border-b border-amber-200">
@@ -2013,7 +1949,7 @@ export const InventoryView: React.FC = () => {
                                   type="button"
                                   onClick={() => handleRemoveCustomerSpecialPrice(entry.customerId)}
                                   className="p-1 hover:bg-rose-100 text-rose-600 rounded cursor-pointer transition-colors"
-                                  title="حذف السعر الخاص لهذا العميل"
+                                  title="حذف"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
@@ -2024,42 +1960,10 @@ export const InventoryView: React.FC = () => {
                       </tbody>
                     </table>
                   </div>
-                ) : (
-                  <div className="text-center py-2 text-[11px] text-amber-800/60 italic bg-amber-50/40 rounded-lg border border-dashed border-amber-200">
-                    لم يتم تخصيص أسعار خاصة لعملاء لهذا الصنف بعد. يمكنك اختيار العميل وتحديد السعر أعلاه.
-                  </div>
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1">الكمية الافتتاحية / الرصيد:</label>
-                  <input
-                    ref={stockInputRef}
-                    type="number"
-                    value={formStock}
-                    onChange={e => setFormStock(Number(e.target.value))}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        barcodeInputRef.current?.focus();
-                        barcodeInputRef.current?.select();
-                      }
-                    }}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 font-mono text-xs focus:bg-white focus:ring-2 focus:ring-blue-500"
-                    title="اضغط Enter للعودة إلى حقل الباركود"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1">حد التنبيه (الأمان):</label>
-                  <input
-                    type="number"
-                    value={formMinAlert}
-                    onChange={e => setFormMinAlert(Number(e.target.value))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-md p-1.5 font-mono text-xs focus:bg-white focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
+
 
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">وصف الصنف والمواصفات:</label>

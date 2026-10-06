@@ -506,7 +506,7 @@ export const PayrollSheetModal: React.FC<PayrollSheetModalProps> = ({
                 className="w-full bg-white border-2 border-blue-400 rounded-lg px-3 py-2 text-xs font-bold text-blue-950 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               >
                 <option value="1101">الصندوق النقدي (الكاشير الرئيسي) - كود 1101</option>
-                <option value="1102">الحساب البنكي (مصرف الراجحي) - كود 1102</option>
+                <option value="1102">الحساب البنكي (شيكات وحوالات) - كود 1102</option>
               </select>
             </div>
 

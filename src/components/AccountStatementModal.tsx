@@ -32,6 +32,19 @@ import {
 import { OfficialStamp } from './common/OfficialStamp';
 import { Party, Employee } from '../types';
 import { PrintHeader } from './common/PrintHeader';
+import { formatDateDisplay } from '../utils/dateUtils';
+
+const parseThumbnails = (val?: string): string[] => {
+  if (!val) return [];
+  const trimmed = val.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
+  }
+  return [val];
+};
 
 export const AccountStatementModal: React.FC = () => {
   const {
@@ -75,6 +88,7 @@ export const AccountStatementModal: React.FC = () => {
   const [toDate, setToDate] = useState<string>('');
   const [filterType, setFilterType] = useState<'all' | 'debit' | 'credit'>('all');
   const [showItemDetails, setShowItemDetails] = useState<boolean>(true);
+  const [showImageThumbnailsInStatement, setShowImageThumbnailsInStatement] = useState<boolean>(true);
 
   // Active party or employee
   const currentParty = useMemo(() => {
@@ -415,6 +429,18 @@ export const AccountStatementModal: React.FC = () => {
               )}
 
               {statementMode === 'party' && (
+                <label className="flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer font-bold select-none">
+                  <input
+                    type="checkbox"
+                    checked={showImageThumbnailsInStatement}
+                    onChange={e => setShowImageThumbnailsInStatement(e.target.checked)}
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>كشف تفصيلي بالصور (إظهار مصغرات تحت الفاتورة)</span>
+                </label>
+              )}
+
+              {statementMode === 'party' && (
                 <div className="flex items-center gap-1">
                   <span className="font-semibold text-slate-600 flex items-center gap-1">
                     <Filter className="w-3.5 h-3.5 text-slate-400" />
@@ -546,16 +572,16 @@ export const AccountStatementModal: React.FC = () => {
                 <table className="w-full text-right report-table border-collapse h-full">
                   <thead>
                     <tr className="bg-slate-800 text-white font-bold border-b border-slate-900 print:bg-slate-200 print:text-slate-900">
-                      <th className="w-7 min-w-7 text-center border-l border-slate-600 print:border-slate-400">م</th>
-                      <th className="w-20 min-w-20 text-center border-l border-slate-600 print:border-slate-400">التاريخ</th>
+                      <th className="w-8 min-w-8 text-center border-l border-slate-600 print:border-slate-400">م</th>
+                      <th className="w-24 min-w-24 text-center border-l border-slate-600 print:border-slate-400">التاريخ</th>
                       <th className="border-l border-slate-600 print:border-slate-400">البيان والشرح والتفاصيل الكاملة</th>
-                      <th className="w-24 min-w-24 text-left bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">
+                      <th className="w-28 min-w-28 text-left bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">
                         {isCustomer ? 'مدين (عليه)' : 'مدين (المسدد)'}
                       </th>
-                      <th className="w-24 min-w-24 text-left bg-emerald-950/40 print:bg-emerald-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">
+                      <th className="w-28 min-w-28 text-left bg-emerald-950/40 print:bg-emerald-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">
                         {isCustomer ? 'دائن (له)' : 'دائن (التوريدات)'}
                       </th>
-                      <th className="w-28 min-w-28 text-left bg-slate-700 print:bg-slate-300 whitespace-nowrap">
+                      <th className="w-32 min-w-32 text-left bg-slate-700 print:bg-slate-300 whitespace-nowrap">
                         الرصيد التراكمي
                       </th>
                     </tr>
@@ -646,7 +672,7 @@ export const AccountStatementModal: React.FC = () => {
                             }`}
                           >
                             <td className="text-center text-slate-400 font-sans align-middle border-l border-slate-300">{idx + 1}</td>
-                            <td className="text-slate-700 whitespace-nowrap text-center align-middle font-mono border-l border-slate-300">{row.date}</td>
+                            <td className="text-slate-700 whitespace-nowrap text-center align-middle font-mono border-l border-slate-300">{formatDateDisplay(row.date)}</td>
                             <td className="font-sans text-slate-800 align-middle space-y-1 border-l border-slate-300">
                               {/* سطر مدمج وموحد: نوع العملية - رقم الحركة - الملاحظات */}
                               <div className="font-bold text-slate-900 leading-tight flex flex-wrap items-center gap-1">
@@ -774,7 +800,8 @@ export const AccountStatementModal: React.FC = () => {
                                   <table className="w-full text-right report-sub-table border-collapse">
                                     <thead>
                                       <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
-                                        <th className="border-l border-slate-200">الصنف</th>
+                                        <th className="text-center w-12 min-w-12 border-l border-slate-200">صورة</th>
+                                        <th className="border-l border-slate-200">الصنف والبيان</th>
                                         <th className="text-center w-12 min-w-12 border-l border-slate-200">الطول</th>
                                         <th className="text-center w-12 min-w-12 border-l border-slate-200">العرض</th>
                                         <th className="text-center w-10 min-w-10 border-l border-slate-200">العدد</th>
@@ -786,8 +813,30 @@ export const AccountStatementModal: React.FC = () => {
                                     <tbody className="divide-y divide-slate-200">
                                       {row.items.map((it, iIdx) => (
                                         <tr key={iIdx} className="hover:bg-slate-50">
+                                          <td className="text-center border-l border-slate-200 py-1">
+                                            {it.imageThumbnail ? (
+                                              <div className="flex items-center justify-center gap-1 flex-wrap max-w-[120px] mx-auto">
+                                                {parseThumbnails(it.imageThumbnail).map((imgStr, imgIdx) => (
+                                                  <img
+                                                    key={imgIdx}
+                                                    src={imgStr}
+                                                    alt={it.itemName}
+                                                    className="w-10 h-10 rounded-md object-cover border border-slate-200"
+                                                  />
+                                                ))}
+                                              </div>
+                                            ) : (
+                                              <span className="text-slate-300 font-mono">-</span>
+                                            )}
+                                          </td>
                                           <td className="font-bold text-slate-900 border-l border-slate-200">
-                                            <div>{it.itemName}</div>
+                                            <div>
+                                              <span>{it.itemName}</span>
+                                              {(it.notes || it.description) && (it.notes !== it.itemName) && (it.notes !== row.invoiceNotes) && (it.description !== row.invoiceNotes) && (
+                                                <span className="text-slate-600 font-medium"> / {it.notes || it.description}</span>
+                                              )}
+                                              {it.itemCode && <span className="text-[10px] text-slate-400 mr-1.5 font-mono font-normal">({it.itemCode})</span>}
+                                            </div>
                                           </td>
                                           <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.length != null && it.length !== 0 ? it.length : '-'}</td>
                                           <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.width != null && it.width !== 0 ? it.width : '-'}</td>
@@ -800,39 +849,60 @@ export const AccountStatementModal: React.FC = () => {
                                         </tr>
                                       ))}
                                     </tbody>
-                                    <tfoot className="bg-slate-50 border-t border-slate-300 font-bold">
-                                      <tr>
-                                        <td colSpan={4} className="py-1 px-1.5 text-slate-700">
-                                          {row.subCustomerName && (
-                                            <span className="ml-2 text-blue-700 font-bold bg-blue-50 px-1 py-0.5 rounded border border-blue-200">
-                                              الزبون الفرعي: {row.subCustomerName}
-                                            </span>
-                                          )}
-                                          {row.invoiceNotes && (
-                                            <span className="text-amber-900 bg-amber-50 px-1 py-0.5 rounded border border-amber-200 font-medium">
-                                              📝 ملاحظة الفاتورة: {row.invoiceNotes}
-                                            </span>
-                                          )}
-                                        </td>
-                                        <td colSpan={3} className="py-1 px-1.5 text-left font-mono">
-                                          <div className="flex items-center justify-end gap-1.5 text-slate-800">
-                                            {row.subtotal !== undefined && row.subtotal !== row.totalAmount && (
-                                              <span>المجموع: <span className="font-bold">{row.subtotal.toFixed(2)}</span></span>
-                                            )}
-                                            {row.discountTotal !== undefined && row.discountTotal > 0 && (
-                                              <span className="text-rose-600 font-bold">الخصم: -{row.discountTotal.toFixed(2)}</span>
-                                            )}
-                                            {row.taxAmount !== undefined && row.taxAmount > 0 && (
-                                              <span className="text-slate-600">الضريبة: +{row.taxAmount.toFixed(2)}</span>
-                                            )}
-                                            <span className="text-slate-950 font-black bg-slate-200 px-1.5 py-0.5 rounded">
-                                              صافي الفاتورة: {(row.totalAmount || row.debit).toFixed(2)} {settings.currency}
-                                            </span>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    </tfoot>
+                                    {Boolean((row.discountTotal && row.discountTotal > 0) || (row.taxAmount && row.taxAmount > 0)) && (
+                                      <tfoot className="bg-slate-50 border-t border-slate-300 font-bold">
+                                        <tr>
+                                          <td colSpan={8} className="py-1 px-1.5 text-left font-mono">
+                                            <div className="flex items-center justify-end gap-3 text-slate-800">
+                                              {row.discountTotal !== undefined && row.discountTotal > 0 && (
+                                                <span className="text-rose-600 font-bold">خصم الفاتورة: -{row.discountTotal.toFixed(2)}</span>
+                                              )}
+                                              {row.taxAmount !== undefined && row.taxAmount > 0 && (
+                                                <span className="text-slate-600">الضريبة: +{row.taxAmount.toFixed(2)}</span>
+                                              )}
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      </tfoot>
+                                    )}
                                   </table>
+
+                                  {/* كشف تفصيلي بالصور: شريط المصغرات التفصيلي بالصور تحت جدول الفاتورة مباشرة */}
+                                  {showImageThumbnailsInStatement && row.items && row.items.some(it => it.imageThumbnail) && (
+                                    <div className="bg-slate-50/50 p-2.5 border-t border-slate-200">
+                                      <div className="text-[11px] font-bold text-slate-700 mb-1.5 flex items-center gap-1.5 select-none">
+                                        <FileText className="w-3.5 h-3.5 text-blue-600" />
+                                        <span>الصور المصغرة المرفقة بالبنود تحت هذه الفاتورة:</span>
+                                      </div>
+                                      <div className="flex flex-wrap gap-3">
+                                        {row.items.flatMap(it => 
+                                          parseThumbnails(it.imageThumbnail).map((imgStr, imgIdx) => ({
+                                            imgStr,
+                                            itemName: it.itemName,
+                                            itemCode: it.itemCode
+                                          }))
+                                        ).map((imgObj, idx) => (
+                                          <div key={idx} className="flex flex-col items-center bg-white border border-slate-200 rounded-md p-1.5 shadow-2xs w-[85px] print:w-[80px]">
+                                            <div className="w-[72px] h-[72px] print:w-[68px] print:h-[68px] rounded overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center">
+                                              <img
+                                                src={imgObj.imgStr}
+                                                alt={imgObj.itemName}
+                                                className="w-full h-full object-cover"
+                                              />
+                                            </div>
+                                            <div className="text-[9px] text-slate-700 font-bold text-center truncate w-full mt-1" title={imgObj.itemName}>
+                                              {imgObj.itemName}
+                                            </div>
+                                            {imgObj.itemCode && (
+                                              <div className="text-[8px] text-slate-400 font-mono text-center truncate w-full">
+                                                {imgObj.itemCode}
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               </td>
                             </tr>

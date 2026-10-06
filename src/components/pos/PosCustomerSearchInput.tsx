@@ -25,6 +25,7 @@ export interface PosCustomerSearchInputProps {
   onQuickAddCustomer?: (name: string) => void;
   placeholder?: string;
   className?: string;
+  clearOnFocus?: boolean;
 }
 
 // Helper: Normalize Arabic & English text for flexible keyword search
@@ -51,7 +52,8 @@ export const PosCustomerSearchInput: React.FC<PosCustomerSearchInputProps> = ({
   onChangeCustomerName,
   onQuickAddCustomer,
   placeholder = 'ابحث باسم العميل، رقمه، هاتفه، أو مدينته...',
-  className = ''
+  className = '',
+  clearOnFocus = true
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [inputText, setInputText] = useState(customerName || '');
@@ -248,7 +250,7 @@ export const PosCustomerSearchInput: React.FC<PosCustomerSearchInputProps> = ({
   };
 
   return (
-    <div ref={containerRef} className={`relative flex-1 min-w-[200px] ${className}`}>
+    <div ref={containerRef} className={`relative w-full ${className}`}>
       {/* Search Input Box */}
       <div className="relative flex items-center">
         <input
@@ -263,9 +265,22 @@ export const PosCustomerSearchInput: React.FC<PosCustomerSearchInputProps> = ({
             setHighlightedIndex(-1);
             updatePosition();
           }}
-          onFocus={() => {
+          onFocus={(e) => {
+            if (clearOnFocus) {
+              setInputText('');
+              onChangeCustomerName('');
+              try {
+                e.currentTarget.value = '';
+              } catch {}
+            }
             setIsOpen(true);
             updatePosition();
+          }}
+          onMouseDown={() => {
+            if (clearOnFocus && inputRef.current && document.activeElement !== inputRef.current) {
+              setInputText('');
+              onChangeCustomerName('');
+            }
           }}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}

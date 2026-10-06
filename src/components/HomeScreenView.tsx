@@ -51,7 +51,8 @@ export const HomeScreenView: React.FC = () => {
     settings,
     updateSettings,
     stats,
-    invoices
+    invoices,
+    hasPermission
   } = useAccounting();
 
   const [isCustomizeModalOpen, setIsCustomizeModalOpen] = useState(false);
@@ -103,7 +104,7 @@ export const HomeScreenView: React.FC = () => {
       bgLight: 'bg-sky-50 text-sky-700 border-sky-200',
       textColor: 'text-sky-700',
       badge: stats.pendingPrintJobs > 0 ? `${stats.pendingPrintJobs}` : undefined,
-      onClick: (h) => h.setActiveTab('print_orders')
+      onClick: (h) => h.setActiveTab('new_print_order')
     },
     {
       id: 'customer_statement',
@@ -245,7 +246,43 @@ export const HomeScreenView: React.FC = () => {
     ? settings.homeShortcuts
     : allShortcuts.map(s => s.id);
 
-  const displayedShortcuts = allShortcuts.filter(s => enabledShortcutIds.includes(s.id));
+  const checkShortcutPermission = (shortcutId: string): boolean => {
+    switch (shortcutId) {
+      case 'pos':
+        return hasPermission('view_pos');
+      case 'new_invoice':
+        return hasPermission('view_invoices');
+      case 'new_print_order':
+        return hasPermission('view_print_orders');
+      case 'customer_statement':
+      case 'supplier_statement':
+        return hasPermission('view_accounting') || hasPermission('view_reports');
+      case 'purchases':
+        return hasPermission('view_inventory');
+      case 'receipt_voucher':
+        return hasPermission('view_accounting') && hasPermission('create_receipt');
+      case 'payment_voucher':
+        return hasPermission('view_accounting') && hasPermission('create_payment');
+      case 'inventory':
+        return hasPermission('view_inventory');
+      case 'treasury_transfer':
+        return hasPermission('transfer_funds');
+      case 'dashboard_info':
+        return hasPermission('view_dashboard');
+      case 'reports':
+        return hasPermission('view_reports');
+      case 'accounting':
+        return hasPermission('view_accounting');
+      case 'employees':
+        return hasPermission('view_settings');
+      default:
+        return true;
+    }
+  };
+
+  const displayedShortcuts = allShortcuts
+    .filter(s => enabledShortcutIds.includes(s.id))
+    .filter(s => checkShortcutPermission(s.id));
 
   const handleToggleShortcut = (id: string) => {
     const current = settings.homeShortcuts || allShortcuts.map(s => s.id);

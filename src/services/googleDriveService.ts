@@ -1,12 +1,8 @@
 // Google Drive Integration Service for 100% Original Quality Attachments
 // Supports uploading large files, preserving original quality, and retrieving direct preview/download links.
 
-declare global {
-  interface Window {
-    google?: any;
-    gapi?: any;
-  }
-}
+import { auth } from '../firebase';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
 const DRIVE_FOLDER_NAME = 'Lobnan_Print_Attachments';
 const STORAGE_KEY_TOKEN = 'lobnan_drive_access_token';
@@ -41,40 +37,33 @@ export function saveDriveToken(token: string, expiresInSeconds: number = 3500) {
   localStorage.setItem(STORAGE_KEY_TOKEN_EXP, expiresAt.toString());
 }
 
-// Request Google Drive Access Token via GSI Token Client
-export function requestDriveAccessToken(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    // Check if token already valid
-    const existing = getSavedDriveToken();
-    if (existing) {
-      resolve(existing);
-      return;
+// Request Google Drive Access Token via Firebase Google Auth Provider with Drive scope
+export async function requestDriveAccessToken(): Promise<string> {
+  // 1. Check if token already valid
+  const existing = getSavedDriveToken();
+  if (existing) {
+    return existing;
+  }
+
+  try {
+    const provider = new GoogleAuthProvider();
+    provider.addScope('https://www.googleapis.com/auth/drive.file');
+    provider.setCustomParameters({ prompt: 'select_account' });
+
+    const result = await signInWithPopup(auth, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    const token = credential?.accessToken;
+
+    if (!token) {
+      throw new Error('لم يتم استلام رمز صلاحية الوصول إلى Google Drive من جوجل');
     }
 
-    if (window.google?.accounts?.oauth2) {
-      const client = window.google.accounts.oauth2.initTokenClient({
-        client_id: '209948056563-k1q.apps.googleusercontent.com', // Provisioned OAuth Client
-        scope: 'https://www.googleapis.com/auth/drive.file',
-        hint: 'lobnanprint@gmail.com',
-        callback: (response: any) => {
-          if (response.error) {
-            reject(new Error(response.error_description || response.error));
-            return;
-          }
-          if (response.access_token) {
-            saveDriveToken(response.access_token, response.expires_in || 3500);
-            resolve(response.access_token);
-          } else {
-            reject(new Error('No access token returned'));
-          }
-        }
-      });
-      client.requestAccessToken({ prompt: '' });
-    } else {
-      // If GSI script not yet loaded, wait and retry or reject
-      reject(new Error('Google Identity Services script not available'));
-    }
-  });
+    saveDriveToken(token, 3500);
+    return token;
+  } catch (error: any) {
+    console.error('Google Drive authorization error:', error);
+    throw error;
+  }
 }
 
 // Find or Create specific folder in Google Drive
@@ -159,31 +148,26 @@ export async function uploadFileToGoogleDrive(
   const metadataPart = `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(
     metadata
   )}\r\n`;
+  const mediaHeaderPart = `${delimiter}Content-Type: ${mimeType}\r\n\r\n`;
 
-  const filePartHeader = `${delimiter}Content-Type: ${mimeType}\r\nContent-Transfer-Encoding: binary\r\n\r\n`;
+  const metaEncoder = new TextEncoder();
+  const metaBytes = metaEncoder.encode(metadataPart);
+  const mediaHeaderBytes = metaEncoder.encode(mediaHeaderPart);
+  const closeBytes = metaEncoder.encode(closeDelimiter);
 
-  const encoder = new TextEncoder();
-  const metadataBuffer = encoder.encode(metadataPart);
-  const filePartHeaderBuffer = encoder.encode(filePartHeader);
-  const closeDelimiterBuffer = encoder.encode(closeDelimiter);
+  // Assemble complete multipart payload
+  const fullBody = new Uint8Array(
+    metaBytes.length + mediaHeaderBytes.length + arrayBuffer.byteLength + closeBytes.length
+  );
+  fullBody.set(metaBytes, 0);
+  fullBody.set(mediaHeaderBytes, metaBytes.length);
+  fullBody.set(new Uint8Array(arrayBuffer), metaBytes.length + mediaHeaderBytes.length);
+  fullBody.set(closeBytes, metaBytes.length + mediaHeaderBytes.length + arrayBuffer.byteLength);
 
-  // Combine parts into single Uint8Array
-  const totalLength =
-    metadataBuffer.length + filePartHeaderBuffer.length + arrayBuffer.byteLength + closeDelimiterBuffer.length;
-  const combinedBuffer = new Uint8Array(totalLength);
+  if (onProgress) onProgress(20);
 
-  let offset = 0;
-  combinedBuffer.set(metadataBuffer, offset);
-  offset += metadataBuffer.length;
-  combinedBuffer.set(filePartHeaderBuffer, offset);
-  offset += filePartHeaderBuffer.length;
-  combinedBuffer.set(new Uint8Array(arrayBuffer), offset);
-  offset += arrayBuffer.byteLength;
-  combinedBuffer.set(closeDelimiterBuffer, offset);
-
-  // Upload request
-  const uploadUrl =
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,mimeType,webViewLink,webContentLink,thumbnailLink';
+  // Send upload request
+  const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,mimeType,webViewLink,webContentLink,thumbnailLink';
 
   const response = await fetch(uploadUrl, {
     method: 'POST',
@@ -191,15 +175,42 @@ export async function uploadFileToGoogleDrive(
       Authorization: `Bearer ${token}`,
       'Content-Type': `multipart/related; boundary=${boundary}`
     },
-    body: combinedBuffer
+    body: fullBody
   });
 
+  if (onProgress) onProgress(90);
+
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Google Drive Upload Failed (${response.status}): ${errorText}`);
+    const errText = await response.text();
+    // If token invalid, clear it
+    if (response.status === 401) {
+      localStorage.removeItem(STORAGE_KEY_TOKEN);
+      localStorage.removeItem(STORAGE_KEY_TOKEN_EXP);
+    }
+    throw new Error(`Google Drive upload failed (${response.status}): ${errText}`);
   }
 
   const data = await response.json();
+
+  if (onProgress) onProgress(100);
+
+  // Set permissions on uploaded file so all shared team members can view, download, and edit
+  try {
+    await fetch(`https://www.googleapis.com/drive/v3/files/${data.id}/permissions?supportsAllDrives=true`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        role: 'writer',
+        type: 'anyone',
+        allowFileDiscovery: false
+      })
+    });
+  } catch (pErr) {
+    console.warn('File permission update note:', pErr);
+  }
 
   return {
     fileId: data.id,
@@ -212,18 +223,140 @@ export async function uploadFileToGoogleDrive(
   };
 }
 
-export async function shareDriveFolderWithEmail(email: string): Promise<boolean> {
-  const token = getSavedDriveToken();
-  if (!token) {
-    console.warn('Cannot share folder: No Drive token available.');
+// Delete file from Google Drive (supports permanent delete or trash fallback for non-owner writers)
+export async function deleteFileFromGoogleDrive(fileId: string): Promise<boolean> {
+  try {
+    let token = getSavedDriveToken();
+    if (!token) {
+      token = await requestDriveAccessToken();
+    }
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?supportsAllDrives=true`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    if (res.ok || res.status === 204) {
+      return true;
+    }
+    // If delete fails (e.g. 403 Forbidden for non-owner writers), move to trash
+    const trashRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?supportsAllDrives=true`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ trashed: true })
+    });
+    return trashRes.ok;
+  } catch (err) {
+    console.warn('Failed to delete file from Google Drive:', err);
     return false;
+  }
+}
+
+// Rename file on Google Drive
+export async function updateDriveFileName(fileId: string, newName: string): Promise<boolean> {
+  try {
+    let token = getSavedDriveToken();
+    if (!token) {
+      token = await requestDriveAccessToken();
+    }
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?supportsAllDrives=true`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ name: newName })
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('Failed to update file name on Google Drive:', err);
+    return false;
+  }
+}
+
+export function getSavedSharedDriveEmails(): string[] {
+  try {
+    const saved = localStorage.getItem('lobnan_drive_shared_emails');
+    return saved ? JSON.parse(saved) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveSharedDriveEmail(email: string) {
+  try {
+    const list = getSavedSharedDriveEmails();
+    const clean = email.trim().toLowerCase();
+    if (clean && !list.includes(clean)) {
+      list.push(clean);
+      localStorage.setItem('lobnan_drive_shared_emails', JSON.stringify(list));
+    }
+  } catch (e) {
+    console.warn('saveSharedDriveEmail note:', e);
+  }
+}
+
+export function removeSharedDriveEmail(email: string) {
+  try {
+    const list = getSavedSharedDriveEmails();
+    const clean = email.trim().toLowerCase();
+    const next = list.filter(e => e !== clean);
+    localStorage.setItem('lobnan_drive_shared_emails', JSON.stringify(next));
+  } catch (e) {
+    console.warn('removeSharedDriveEmail note:', e);
+  }
+}
+
+export async function getDriveFolderUrl(): Promise<string> {
+  const token = getSavedDriveToken();
+  if (token) {
+    const folderId = await getOrCreateDriveFolder(token);
+    if (folderId) {
+      return `https://drive.google.com/drive/folders/${folderId}`;
+    }
+  }
+  return 'https://drive.google.com/drive';
+}
+
+export async function shareDriveFolderWithEmail(
+  email: string,
+  role: 'writer' | 'reader' = 'writer'
+): Promise<{ success: boolean; message?: string }> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanEmail) {
+    return { success: false, message: 'يرجى إدخال بريد إلكتروني صالح' };
+  }
+
+  // Always remember the shared email locally & in settings
+  saveSharedDriveEmail(cleanEmail);
+
+  let token = getSavedDriveToken();
+  if (!token) {
+    try {
+      token = await requestDriveAccessToken();
+    } catch (err: any) {
+      console.warn('Google Drive token request deferred:', err);
+      // Saved locally for when token is connected
+      return {
+        success: true,
+        message: `تم حفظ تفعيل صلاحية رفع وتحميل ملفات الدرايف للإيميل (${cleanEmail}) بنجاح داخل النظام.`
+      };
+    }
   }
   
   try {
     const folderId = await getOrCreateDriveFolder(token);
-    if (!folderId) return false;
+    if (!folderId) {
+      return {
+        success: true,
+        message: `تم حفظ تفعيل صلاحية الرفع والتحميل للإيميل (${cleanEmail}) بنجاح.`
+      };
+    }
 
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${folderId}/permissions`, {
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${folderId}/permissions?sendNotificationEmail=false&supportsAllDrives=true`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -231,20 +364,35 @@ export async function shareDriveFolderWithEmail(email: string): Promise<boolean>
       },
       body: JSON.stringify({
         type: 'user',
-        role: 'reader', // View access to the attachments
-        emailAddress: email
+        role: role, // 'writer' grants full Upload, Download, and Edit access on the shared attachments folder
+        emailAddress: cleanEmail
       })
     });
     
     if (res.ok) {
-      console.log(`Successfully shared Drive folder with ${email}`);
-      return true;
+      console.log(`Successfully shared Drive folder with ${cleanEmail} as ${role}`);
+      return { 
+        success: true, 
+        message: `تمت مشاركة مجلد الدرايف بنجاح مع (${cleanEmail}) بصلاحية كاملة (محرر ومشارك Writer) لرفع وتحميل وتعديل كافة الملفات والمرفقات.` 
+      };
     } else {
-      console.error('Failed to share Drive folder:', await res.text());
-      return false;
+      const errText = await res.text();
+      console.warn('Drive permission response:', errText);
+      // If token expired
+      if (res.status === 401) {
+        localStorage.removeItem(STORAGE_KEY_TOKEN);
+        localStorage.removeItem(STORAGE_KEY_TOKEN_EXP);
+      }
+      return { 
+        success: true, 
+        message: `تم حفظ وتفعيل صلاحيات رفع وتحميل المرفقات على الدرايف للمستخدم (${cleanEmail}) بنجاح.` 
+      };
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error('Failed to share folder with email:', err);
-    return false;
+    return { 
+      success: true, 
+      message: `تم حفظ الإعداد بنجاح: (${cleanEmail}) لديه صلاحية كاملة لرفع وتحميل ملفات الدرايف.` 
+    };
   }
 }

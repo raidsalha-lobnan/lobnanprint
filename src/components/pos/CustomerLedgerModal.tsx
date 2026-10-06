@@ -3,6 +3,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { Party } from '../../types';
 import { X, User, Receipt, Phone, MapPin, Printer, FileText, ArrowRight, Link as LinkIcon } from 'lucide-react';
 import { PosCustomerSearchInput } from './PosCustomerSearchInput';
+import { formatDateDisplay } from '../../utils/dateUtils';
 
 interface CustomerLedgerModalProps {
   isOpen: boolean;
@@ -227,7 +228,7 @@ export const CustomerLedgerModal: React.FC<CustomerLedgerModalProps> = ({
                     <React.Fragment key={inv.id}>
                       <tr className="hover:bg-slate-50 transition-colors">
                         <td className="p-2.5 font-bold text-blue-700">{inv.invoiceNumber}</td>
-                        <td className="p-2.5 text-slate-600 font-sans text-[11px]">{inv.date}</td>
+                        <td className="p-2.5 text-slate-600 font-sans text-[11px]">{formatDateDisplay(inv.date)}</td>
                         <td className="p-2.5 font-sans text-[11px]">
                           {(inv.subCustomerName || inv.customCustomerText) ? (
                             <span className="bg-amber-100 text-amber-900 border border-amber-200 text-[10px] px-2 py-0.5 rounded font-bold">
@@ -241,7 +242,7 @@ export const CustomerLedgerModal: React.FC<CustomerLedgerModalProps> = ({
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
                             inv.paymentMethod === 'credit' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
                           }`}>
-                            {inv.paymentMethod === 'cash' ? 'نقدي' : inv.paymentMethod === 'card' ? 'شبكة' : 'آجل'}
+                            {inv.paymentMethod === 'cash' ? 'نقدي' : (inv.paymentMethod === 'card' || inv.paymentMethod === 'bank_transfer') ? (inv.paymentMethod === 'bank_transfer' ? 'بنكي' : 'شبكة') : 'آجل'}
                           </span>
                         </td>
                         <td className="p-2.5 text-left font-bold">{inv.totalAmount.toFixed(2)}</td>

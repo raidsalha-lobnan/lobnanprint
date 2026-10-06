@@ -45,9 +45,11 @@ export interface PosBottomPaymentConsoleProps {
   // Treasuries List
   treasuries: TreasuryAccount[];
 
-  // 4. Notes Line (سطر ملاحظات)
-  invoiceNotes: string;
-  onChangeInvoiceNotes: (notes: string) => void;
+  // 4. Notes Line (سطر ملاحظة إيصال السداد / القبض)
+  paymentNotes?: string;
+  onChangePaymentNotes?: (notes: string) => void;
+  invoiceNotes?: string;
+  onChangeInvoiceNotes?: (notes: string) => void;
 
   // 5. Overall Discount
   overallDiscount?: number;
@@ -118,8 +120,10 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
   // Treasuries List
   treasuries,
 
-  // 4. Notes
-  invoiceNotes,
+  // 4. Payment Notes (ملاحظة إيصال السداد / سند القبض)
+  paymentNotes,
+  onChangePaymentNotes,
+  invoiceNotes = '',
   onChangeInvoiceNotes,
 
   // 5. Discount
@@ -176,8 +180,12 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
     }
   };
 
-  const handleNotesChange = (val: string) => {
-    if (onChangeInvoiceNotes) {
+  const currentPaymentNotes = paymentNotes !== undefined ? paymentNotes : (invoiceNotes || '');
+
+  const handlePaymentNotesChange = (val: string) => {
+    if (onChangePaymentNotes) {
+      onChangePaymentNotes(val);
+    } else if (onChangeInvoiceNotes) {
       onChangeInvoiceNotes(val);
     } else if (onChangeNotes) {
       onChangeNotes(val);
@@ -347,18 +355,19 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
           )}
         </div>
 
-        {/* سطر الملاحظات المرفق بالدفع مرتفع بجانب سعر الصرف */}
+        {/* سطر ملاحظة إيصال السداد / سند القبض المرفقة مع الدفع */}
         <div className="flex-1 min-w-[200px] flex items-center gap-1.5 bg-[#0f2845]/80 px-2 py-0.5 rounded-md ">
-          <div className="flex items-center gap-1 text-blue-200 font-bold shrink-0">
-            <FileText className="w-3.5 h-3.5 text-blue-300" />
-            <span className="text-[11px]">ملاحظات:</span>
+          <div className="flex items-center gap-1 text-emerald-300 font-bold shrink-0" title="ملاحظة إيصال السداد / سند القبض المرفقة مع عملية الدفع">
+            <FileText className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="text-[11px]">ملاحظة السداد:</span>
           </div>
           <input
             type="text"
-            value={invoiceNotes}
-            onChange={e => handleNotesChange(e.target.value)}
-            placeholder="أدخل أي ملاحظات على الفاتورة، تفاصيل السداد، رقم الحوالة أو إيصال الشبكة أو المرجع..."
-            className="flex-1 bg-white text-slate-900 placeholder-slate-400 font-medium border border-slate-300 px-2.5 py-0.5 rounded text-xs focus:ring-1 focus:ring-amber-400 focus:outline-hidden"
+            value={currentPaymentNotes}
+            onChange={e => handlePaymentNotesChange(e.target.value)}
+            placeholder="ملاحظة إيصال السداد أو سند القبض (مثل: محمد أحمد، تحويل بنكي، إيصال الشبكة)..."
+            className="flex-1 bg-white text-slate-900 placeholder-slate-400 font-medium border border-slate-300 px-2.5 py-0.5 rounded text-xs focus:ring-1 focus:ring-emerald-400 focus:outline-hidden"
+            title="ملاحظة إيصال السداد أو سند القبض - تظهر بجانب السداد في كشف الحساب وسند القبض"
           />
         </div>
       </div>

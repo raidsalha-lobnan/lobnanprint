@@ -2,13 +2,17 @@ import { ManualInvoiceView } from './components/ManualInvoiceView';
 import React, { useEffect } from 'react';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { TelegramBotIntegration } from './components/TelegramBotIntegration';
+import { GoogleDriveAutoBackupWorker } from './components/GoogleDriveAutoBackupWorker';
 import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { Navbar } from './components/Navbar';
+import { DesktopStatusBar } from './components/DesktopStatusBar';
 import { HomeScreenView } from './components/HomeScreenView';
 import { DashboardView } from './components/DashboardView';
 import { PosView } from './components/PosView';
 import { PrintOrdersView } from './components/PrintOrdersView';
+import { NewPrintOrderView } from './components/NewPrintOrderView';
 import { InvoicesView } from './components/InvoicesView';
+import { ExcelOneDriveDraftsView } from './components/ExcelOneDriveDraftsView';
 import { SpecialInvoiceView } from './components/SpecialInvoiceView';
 import { InventoryView } from './components/InventoryView';
 import { PurchasesView } from './components/PurchasesView';
@@ -47,6 +51,7 @@ const MainLayout: React.FC = () => {
     settings,
     setActiveTab,
     hasPermission,
+    currentUser,
     selectedInvoiceForPrint,
     selectedInvoiceForLifecycle,
     selectedJobForPrint,
@@ -72,6 +77,12 @@ const MainLayout: React.FC = () => {
     selectedSalesReturnForPrint
   );
 
+  // Sync document title with configured appTitle
+  React.useEffect(() => {
+    const title = settings?.appTitle || 'برنامج الأيهم المحاسبي - مطبعة ومكتبة لبنان - م.رائد صالحة';
+    document.title = title;
+  }, [settings?.appTitle]);
+
   // Enforce screen permissions
   React.useEffect(() => {
     const isAllowed = () => {
@@ -82,13 +93,14 @@ const MainLayout: React.FC = () => {
         case 'pos':
           return hasPermission('view_pos');
         case 'print_orders':
+        case 'new_print_order':
           return hasPermission('view_print_orders');
-              case 'manual_invoices':
-        return <ManualInvoiceView />;
-      case 'invoices':
-      case 'special_invoice':
-      case 'sales_returns':
-        return hasPermission('view_invoices');
+        case 'manual_invoices':
+        case 'invoices':
+        case 'excel_drafts':
+        case 'special_invoice':
+        case 'sales_returns':
+          return hasPermission('view_invoices');
         case 'inventory':
         case 'warehouses':
         case 'purchases':
@@ -97,12 +109,14 @@ const MainLayout: React.FC = () => {
         case 'purchases_returns':
           return hasPermission('view_inventory');
         case 'accounting':
-        case 'receipt_vouchers':
-        case 'payment_vouchers':
         case 'expenses':
         case 'debt_clearing':
         case 'treasuries':
           return hasPermission('view_accounting');
+        case 'receipt_vouchers':
+          return hasPermission('view_accounting') && hasPermission('create_receipt');
+        case 'payment_vouchers':
+          return hasPermission('view_accounting') && hasPermission('create_payment');
         case 'reports':
         case 'report_customer_statement':
         case 'report_supplier_statement':
@@ -118,13 +132,15 @@ const MainLayout: React.FC = () => {
         case 'settings_general':
         case 'settings_sql':
         case 'settings_backup':
-        case 'users_permissions':
-        case 'branches':
-        case 'parties':
         case 'employees':
         case 'employees_adjustments':
         case 'employees_payroll':
           return hasPermission('view_settings');
+        case 'users_permissions':
+        case 'branches':
+          return currentUser?.roleId === 'role-admin' || currentUser?.id === 'usr-1' || currentUser?.roleName === 'مدير النظام';
+        case 'parties':
+          return hasPermission('view_settings') || hasPermission('view') || hasPermission('view_invoices') || hasPermission('view_pos');
         default:
           return true;
       }
@@ -139,10 +155,59 @@ const MainLayout: React.FC = () => {
   }, [activeTab, hasPermission, setActiveTab]);
 
 
-  // Global auto-select & full field highlight behavior
-  // عند وضع المؤشر في أي خانة يتم تحديد وتعليم محتواها وخانتها بالكامل
+  // Global auto-select, full field highlight & active cell/field memory across page reloads (F5 / Refresh)
+  // عند وضع المؤشر في أي خانة يتم تحديد وتعليم محتواها وخانتها بالكامل، وحفظها لتبقى في نفس الخانة عند التحديث
   useEffect(() => {
     let activeMouseDownTarget: HTMLElement | null = null;
+
+    const saveActiveField = (target: HTMLElement | null) => {
+      if (!target) return;
+      if (
+        (target instanceof HTMLInputElement && !['checkbox', 'radio', 'button', 'submit', 'file', 'image', 'reset'].includes(target.type)) ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement
+      ) {
+        try {
+          const id = target.id || '';
+          const name = target.getAttribute('name') || '';
+          const placeholder = target.getAttribute('placeholder') || '';
+          const dataPosField = target.getAttribute('data-pos-field') || '';
+          const dataRowId = target.getAttribute('data-row-id') || '';
+          const ariaLabel = target.getAttribute('aria-label') || '';
+          const title = target.getAttribute('title') || '';
+          
+          let inputIndex = -1;
+          try {
+            const allInputs = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), textarea, select'));
+            inputIndex = allInputs.indexOf(target);
+          } catch {}
+
+          let selectionStart: number | null = null;
+          let selectionEnd: number | null = null;
+          try {
+            if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+              selectionStart = target.selectionStart;
+              selectionEnd = target.selectionEnd;
+            }
+          } catch {}
+          
+          localStorage.setItem('alnoor_last_focused_element', JSON.stringify({
+            id,
+            name,
+            placeholder,
+            dataPosField,
+            dataRowId,
+            ariaLabel,
+            title,
+            inputIndex,
+            selectionStart,
+            selectionEnd,
+            activeTab,
+            timestamp: Date.now()
+          }));
+        } catch {}
+      }
+    };
 
     const handleMouseDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -158,6 +223,8 @@ const MainLayout: React.FC = () => {
 
     const handleFocusIn = (e: FocusEvent) => {
       const target = e.target as HTMLElement;
+      saveActiveField(target);
+
       if (
         (target instanceof HTMLInputElement && !['checkbox', 'radio', 'button', 'submit', 'file', 'image', 'reset'].includes(target.type)) ||
         target instanceof HTMLTextAreaElement
@@ -185,16 +252,102 @@ const MainLayout: React.FC = () => {
       }
     };
 
+    const handleBeforeUnload = () => {
+      saveActiveField(document.activeElement as HTMLElement | null);
+    };
+
     document.addEventListener('mousedown', handleMouseDown, true);
     document.addEventListener('focusin', handleFocusIn, true);
     document.addEventListener('mouseup', handleMouseUp, true);
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
     return () => {
       document.removeEventListener('mousedown', handleMouseDown, true);
       document.removeEventListener('focusin', handleFocusIn, true);
       document.removeEventListener('mouseup', handleMouseUp, true);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, []);
+  }, [activeTab]);
+
+  // استرجاع التركيز التلقائي إلى نفس الخانة / الحقل بالضبط عند عمل رفرش أو ريلود (F5) مع محاولات متتابعة تضمن التموضع
+  useEffect(() => {
+    let attempts = 0;
+    const maxAttempts = 15;
+    let timer: any = null;
+
+    const tryRestoreFocus = (): boolean => {
+      attempts++;
+      try {
+        const raw = localStorage.getItem('alnoor_last_focused_element');
+        if (!raw) return true;
+        const info = JSON.parse(raw);
+        if (!info || Date.now() - (info.timestamp || 0) > 300000) return true; // ignore if older than 5 minutes
+
+        let target: HTMLElement | null = null;
+        if (info.id) {
+          target = document.getElementById(info.id);
+        }
+        if (!target && info.dataRowId && info.dataPosField) {
+          target = document.querySelector(`[data-row-id="${info.dataRowId}"][data-pos-field="${info.dataPosField}"]`);
+        }
+        if (!target && info.dataPosField) {
+          target = document.querySelector(`[data-pos-field="${info.dataPosField}"]`);
+        }
+        if (!target && info.name) {
+          target = document.querySelector(`input[name="${info.name}"], textarea[name="${info.name}"]`);
+        }
+        if (!target && info.placeholder) {
+          target = document.querySelector(`input[placeholder="${info.placeholder}"], textarea[placeholder="${info.placeholder}"]`);
+        }
+        if (!target && info.title) {
+          target = document.querySelector(`input[title="${info.title}"], textarea[title="${info.title}"]`);
+        }
+        if (!target && info.ariaLabel) {
+          target = document.querySelector(`[aria-label="${info.ariaLabel}"]`);
+        }
+        if (!target && typeof info.inputIndex === 'number' && info.inputIndex >= 0) {
+          const allInputs = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), textarea, select'));
+          if (allInputs[info.inputIndex]) {
+            target = allInputs[info.inputIndex] as HTMLElement;
+          }
+        }
+
+        if (target && typeof target.focus === 'function' && document.contains(target)) {
+          target.focus();
+          if (
+            info.selectionStart !== null &&
+            info.selectionEnd !== null &&
+            typeof (target as any).setSelectionRange === 'function' &&
+            info.selectionStart !== info.selectionEnd
+          ) {
+            try {
+              (target as any).setSelectionRange(info.selectionStart, info.selectionEnd);
+            } catch {}
+          } else if (typeof (target as any).select === 'function') {
+            try {
+              (target as any).select();
+            } catch {}
+          }
+          return true; // Successfully restored focus
+        }
+      } catch {}
+
+      return false;
+    };
+
+    const runRestore = () => {
+      const done = tryRestoreFocus();
+      if (!done && attempts < maxAttempts) {
+        timer = setTimeout(runRestore, attempts < 4 ? 80 : 200);
+      }
+    };
+
+    timer = setTimeout(runRestore, 60);
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [activeTab]);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -206,8 +359,12 @@ const MainLayout: React.FC = () => {
         return <PosView />;
       case 'print_orders':
         return <PrintOrdersView />;
+      case 'new_print_order':
+        return <NewPrintOrderView onBack={() => setActiveTab('print_orders')} />;
       case 'invoices':
         return <InvoicesView />;
+      case 'excel_drafts':
+        return <ExcelOneDriveDraftsView />;
       case 'special_invoice':
         return <SpecialInvoiceView />;
       case 'sales_returns':
@@ -282,31 +439,21 @@ const MainLayout: React.FC = () => {
   };
 
   return (
-    <div className={`flex flex-col ${(activeTab === 'pos') ? 'h-screen overflow-hidden' : 'min-h-screen'} bg-[#f8fafc] text-[#0f172a] font-sans selection:bg-blue-500 selection:text-white print:h-auto print:bg-white print:overflow-visible ${isPrintModalActive ? 'print-modal-is-active' : ''}`} dir="rtl">
+    <div className={`flex flex-col ${(activeTab === 'pos' || activeTab === 'new_print_order') ? 'h-screen overflow-hidden' : 'min-h-screen'} bg-[#eef2f6] text-[#0f172a] font-sans selection:bg-blue-600 selection:text-white print:h-auto print:bg-white print:overflow-visible ${isPrintModalActive ? 'print-modal-is-active' : ''}`} dir="rtl">
       {/* Top Header & Horizontal Menu Bar - ALWAYS hidden during print */}
-      <div className={`print:hidden ${activeTab !== 'pos' ? 'sticky top-0 z-[100]' : ''}`}>
+      <div className={`print:hidden ${activeTab !== 'pos' && activeTab !== 'new_print_order' ? 'sticky top-0 z-[100]' : ''}`}>
         <Navbar />
       </div>
 
       {/* Main Content Area - Hidden during print if any print modal is open */}
-      <main className={`${(activeTab === 'pos' || activeTab === 'manual_invoices' || activeTab === 'special_invoice') ? "flex-1 min-h-0 w-full p-0 flex flex-col overflow-hidden" : "flex-1 p-4 lg:p-6 pb-12 w-full flex flex-col overflow-y-auto"} ${isPrintModalActive ? "print:hidden" : "print:p-0 print:m-0 print:overflow-visible print:h-auto print:max-h-none"}`}>
+      <main className={`${(activeTab === 'pos' || activeTab === 'new_print_order' || activeTab === 'manual_invoices' || activeTab === 'special_invoice') ? "flex-1 min-h-0 w-full p-0 flex flex-col overflow-hidden" : "flex-1 p-2.5 sm:p-3.5 pb-8 w-full flex flex-col overflow-y-auto"} ${isPrintModalActive ? "print:hidden" : "print:p-0 print:m-0 print:overflow-visible print:h-auto print:max-h-none"}`}>
         <ErrorBoundary fallbackTitle="حدث تنبيه في عرض هذه الشاشة">
           {renderContent()}
         </ErrorBoundary>
       </main>
 
-      {/* High Density Status Footer - ALWAYS hidden during print */}
-      {activeTab !== 'pos' && (
-        <footer className="print:hidden h-7 bg-slate-800 text-slate-400 text-[10px] flex items-center justify-between px-3 sm:px-5 shrink-0 border-t border-slate-700 select-none overflow-hidden fixed bottom-0 w-full z-[100]">
-          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
-            <span className="truncate">متصل: خادم سحابي آمن</span>
-          </div>
-          <div className="flex items-center shrink-0">
-            <span className="truncate">آخر مزامنة: الآن</span>
-          </div>
-        </footer>
-      )}
+      {/* Classic Visual Basic / Windows Desktop Status Bar - ALWAYS displayed at bottom */}
+      <DesktopStatusBar />
 
       {/* Print Overlays & Modals */}
       <InvoicePrintModal />
@@ -317,7 +464,8 @@ const MainLayout: React.FC = () => {
       <VoucherPrintModal />
       <TransactionLifecycleModal />
       <OfflineIndicator />
-        <TelegramBotIntegration />
+      <TelegramBotIntegration />
+      <GoogleDriveAutoBackupWorker />
     </div>
   );
 };
@@ -334,8 +482,9 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setFirebaseUser(u);
       setLoading(false);
-      
-      if (u && u.email) {
+
+      const authType = localStorage.getItem('auth_type');
+      if (u && u.email && authType === 'firebase') {
         unsubs = onSnapshot(doc(db, 'userSessions', u.email.toLowerCase()), (docSnap) => {
           if (docSnap.exists()) {
             const data = docSnap.data();

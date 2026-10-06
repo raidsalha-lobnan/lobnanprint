@@ -59,6 +59,15 @@ export const CATEGORY_DEFINITIONS: Record<ItemCategory, CategoryDefinition> = {
     description: 'دروع كريستال، هدايا تذكارية، أوشحة، وميداليات',
     defaultUnit: 'قطعة',
     color: 'rose'
+  },
+  textiles: {
+    id: 'textiles',
+    name: 'مطبوعات قماش',
+    nameEn: 'Fabric & Textile Prints',
+    prefix: 'TEX',
+    description: 'جاليهات، قمصان، هوديز، أوشحة قماش، مريول، كابات وأعلام',
+    defaultUnit: 'حبة',
+    color: 'teal'
   }
 };
 
@@ -96,9 +105,18 @@ export function generateValidEan13(customPrefix: string = '628'): string {
  * - يأخذ الصنف رقماً تسلسلياً رباعياً يبدأ من 0001 فصاعداً (مثل STAT-0001)
  * - فحص صارم ومضمون لعدم تكرار الكود مع أي صنف آخر في النظام نهائياً
  */
-export function generateSequentialSku(category: ItemCategory, existingCodes: string[]): string {
-  const def = CATEGORY_DEFINITIONS[category] || { prefix: 'ITEM' };
-  const prefix = def.prefix;
+export function generateSequentialSku(
+  category: ItemCategory | string,
+  existingCodes: string[],
+  customCategories?: CategoryDefinition[]
+): string {
+  // 1. Look up prefix in customCategories first (settings.categories)
+  const customDef = customCategories?.find(c => c.id === category || c.name === category);
+  let def = customDef || (CATEGORY_DEFINITIONS as any)[category];
+  if (!def && (category === 'مطبوعات قماش' || category === 'قماش' || category === 'ملابس' || category === 'textiles')) {
+    def = CATEGORY_DEFINITIONS.textiles;
+  }
+  const prefix = (customDef?.prefix || def?.prefix || (typeof category === 'string' && category.length <= 8 ? category : 'ITEM')).trim().toUpperCase();
 
   // Normalized set of all existing codes (lowercase trimmed)
   const existingSet = new Set(
@@ -107,7 +125,7 @@ export function generateSequentialSku(category: ItemCategory, existingCodes: str
       .map(c => c.trim().toLowerCase())
   );
 
-  // Extract all numbers for items that start with this prefix (e.g. STAT-0001, STAT0001, STAT-001)
+  // Extract all numbers for items that start with this prefix (e.g. PRI-0001, PRI0001, PRI-001)
   let maxNumber = 0;
   const regex = new RegExp(`^${prefix}[-_]?(\\d+)$`, 'i');
 
@@ -141,7 +159,8 @@ export function generateSequentialSku(category: ItemCategory, existingCodes: str
 export function validateSkuUniqueness(
   skuToCheck: string,
   existingItems: { id: string; code: string; name: string; category: ItemCategory }[],
-  currentItemId?: string
+  currentItemId?: string,
+  customCategories?: CategoryDefinition[]
 ): {
   isUnique: boolean;
   conflictingItem?: { id: string; code: string; name: string };
@@ -160,7 +179,7 @@ export function validateSkuUniqueness(
     // Generate next available SKU for this category or generic
     const allCodes = existingItems.map(i => i.code);
     const category = (conflictingItem as any).category || 'stationery';
-    const suggestedSku = generateSequentialSku(category, allCodes);
+    const suggestedSku = generateSequentialSku(category, allCodes, customCategories);
 
     return {
       isUnique: false,

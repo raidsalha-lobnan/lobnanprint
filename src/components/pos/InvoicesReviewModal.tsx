@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Invoice } from '../../types';
 import { X, Search, Printer, Calendar, ArrowRight, Eye, Trash2, History } from 'lucide-react';
 import { InvoiceStatusHistoryModal } from './InvoiceStatusHistoryModal';
 import { getInvoiceWorkflowStatusMeta } from '../../utils/invoiceStatusUtils';
+import { getAllStoredDraftsAsInvoices } from '../../utils/draftsHelper';
+import { formatDateDisplay } from '../../utils/dateUtils';
 
 interface InvoicesReviewModalProps {
   isOpen: boolean;
@@ -22,18 +24,48 @@ export const InvoicesReviewModal: React.FC<InvoicesReviewModalProps> = ({
   const [viewInvoiceDetails, setViewInvoiceDetails] = useState<Invoice | null>(null);
   const [statusModalInvoice, setStatusModalInvoice] = useState<Invoice | null>(null);
 
+  const [draftsVersion, setDraftsVersion] = useState(0);
+
+  React.useEffect(() => {
+    const handleUpdate = () => setDraftsVersion(v => v + 1);
+    window.addEventListener('accounting_drafts_updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    return () => {
+      window.removeEventListener('accounting_drafts_updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
+  }, []);
+
+  const allInvoicesAndDrafts = useMemo(() => {
+    const drafts = getAllStoredDraftsAsInvoices();
+    return [...drafts, ...invoices];
+  }, [invoices, isOpen, draftsVersion]);
+
   if (!isOpen) return null;
 
-  const filtered = invoices.filter(inv => {
-    const matchesSearch =
-      inv.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      inv.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (inv.notes && inv.notes.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filtered = allInvoicesAndDrafts
+    .filter(inv => {
+      const matchesSearch =
+        (inv.invoiceNumber && inv.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (inv.customerName && inv.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (inv.subCustomerName && inv.subCustomerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (inv.notes && inv.notes.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    const matchesPayment = filterPayment === 'all' || inv.paymentMethod === filterPayment;
+      const isDraft = (inv as any).isDraft || inv.workflowStatus === ('draft' as any) || inv.status === ('draft' as any);
+      const matchesPayment =
+        filterPayment === 'all'
+          ? !isDraft
+          : (filterPayment === 'draft' ? isDraft : (!isDraft && inv.paymentMethod === filterPayment));
 
-    return matchesSearch && matchesPayment;
-  });
+      return matchesSearch && matchesPayment;
+    })
+    .sort((a, b) => {
+      const dateCmp = (b.date || '').localeCompare(a.date || '');
+      if (dateCmp !== 0) return dateCmp;
+      const createdCmp = (b.createdAt || '').localeCompare(a.createdAt || '');
+      if (createdCmp !== 0) return createdCmp;
+      return (b.invoiceNumber || b.id || '').localeCompare(a.invoiceNumber || a.id || '', undefined, { numeric: true });
+    });
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -78,6 +110,7 @@ export const InvoicesReviewModal: React.FC<InvoicesReviewModalProps> = ({
               className="border border-slate-300 rounded-xl px-3 py-2 text-xs bg-white font-semibold"
             >
               <option value="all">الكل</option>
+              <option value="draft">المسودات 📝</option>
               <option value="cash">نقدي</option>
               <option value="card">شبكة / فيزا</option>
               <option value="credit">آجل</option>
@@ -118,9 +151,18 @@ export const InvoicesReviewModal: React.FC<InvoicesReviewModalProps> = ({
                     return (
                       <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
                         <td className="p-2.5 font-bold text-blue-700">{inv.invoiceNumber}</td>
-                        <td className="p-2.5 text-slate-600 font-sans text-[11px]">{inv.date}</td>
+                        <td className="p-2.5 text-slate-600 font-sans text-[11px]">{formatDateDisplay(inv.date)}</td>
                         <td className="p-2.5 font-sans font-semibold text-slate-800">{inv.customerName}</td>
-                        <td className="p-2.5 text-slate-600">{inv.items.length}</td>
+                        <td className="p-2.5 text-slate-600">
+                          <div className="flex items-center gap-1">
+                            <span>{inv.items.length}</span>
+                            {inv.items && inv.items.some(it => it.imageThumbnail) && (
+                              <span className="text-[10px] bg-blue-50 text-blue-700 px-1 py-0.5 rounded border border-blue-200 font-bold" title="تحتوي صور مرفقة">
+                                📷
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="p-2.5 text-left font-bold">{inv.totalAmount.toFixed(2)}</td>
                         <td className="p-2.5 text-left text-emerald-600">{inv.paidAmount.toFixed(2)}</td>
                         <td className="p-2.5 text-left text-rose-600 font-bold">{inv.remainingAmount.toFixed(2)}</td>
@@ -128,7 +170,7 @@ export const InvoicesReviewModal: React.FC<InvoicesReviewModalProps> = ({
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
                             inv.paymentMethod === 'credit' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
                           }`}>
-                            {inv.paymentMethod === 'cash' ? 'نقدي' : inv.paymentMethod === 'card' ? 'شبكة' : 'آجل'}
+                            {inv.paymentMethod === 'cash' ? 'نقدي' : (inv.paymentMethod === 'card' || inv.paymentMethod === 'bank_transfer') ? (inv.paymentMethod === 'bank_transfer' ? 'بنكي' : 'شبكة') : 'آجل'}
                           </span>
                         </td>
                         <td className="p-2.5 text-center font-sans">

@@ -277,6 +277,7 @@ export interface InvoiceTechnicalNote {
 
 export interface InvoiceItem {
   itemId: string;
+  itemCode?: string; // رقم الصنف / كود الصنف
   itemName: string;
   category?: string;
   quantity: number;
@@ -296,6 +297,7 @@ export interface InvoiceItem {
   barcode?: string;
   unit?: string;
   unitCalculationType?: UnitCalculationType;
+  imageThumbnail?: string; // الصورة المصغرة للبند
 }
 
 export interface InvoiceStatusLog {
@@ -328,11 +330,13 @@ export interface Invoice {
   paidAmount: number;
   remainingAmount: number;
   paymentMethod: PaymentMethod;
-  notes?: string;
+  notes?: string; // ملاحظات الفاتورة العامة ككل
+  paymentNotes?: string; // ملاحظة إيصال السداد أو سند القبض المرفقة مع الدفع
   status: 'paid' | 'partial' | 'unpaid' | 'delivered';
   paymentStatus?: InvoicePaymentStatus; // حالة الدفع المنفصلة
   workflowStatus?: PosInvoiceWorkflowStatus; // حالة الفاتورة التشغيلية
   statusHistory?: InvoiceStatusLog[]; // سجل تتبع وتغييرات حالات الفاتورة
+  createdAt?: string;
   printJobId?: string;
   additionalCharges?: number;
   representative?: string;
@@ -532,6 +536,7 @@ export interface SqlServerConfig {
 }
 
 export interface BusinessSettings {
+  appTitle?: string; // مسمى وترويسة شريط العنوان في أعلى البرنامج
   businessName: string;
   businessNameEn: string;
   activityType: string;
@@ -561,15 +566,24 @@ export interface BusinessSettings {
   unitsOfMeasure?: UnitOfMeasure[]; // وحدات القياس المعتمدة وخصائصها
   sqlServerConfig?: SqlServerConfig;
   defaultPosLayout?: any; // تخطيط وتنسيق شاشة الكاشير الافتراضي للنظام
+  defaultPosButtons?: any[]; // أزرار شاشة الكاشير الافتراضية للنظام
+  defaultPosColumnWidths?: Record<string, number>; // عروض أعمدة الكاشير الافتراضية للنظام
+  userScreenConfigs?: Record<string, {
+    posLayout?: any;
+    posButtons?: any[];
+    posColumnWidths?: Record<string, number>;
+    homeShortcuts?: string[];
+  }>; // إعدادات وتخصيصات الشاشات المحفوظة لكل مستخدم سحابياً
   telegramConfig?: { botToken: string; defaultChatId: string; enabled: boolean };
-  homeShortcuts?: string[];  categories?: CategoryDefinition[]; // قائمة معرفات الاختصارات المفعلة في الشاشة الرئيسية
+  homeShortcuts?: string[];
+  categories?: CategoryDefinition[]; // قائمة معرفات الاختصارات المفعلة في الشاشة الرئيسية
 }
 
 export type TreasuryType = 
   | 'cash_box'       // الصندوق النقدي (الكاشير / الخزينة الرئيسية)
-  | 'bank_app'       // تطبيق بنكي (الراجحي، الأهلي، الإنماء، بنك الرياض، إلخ)
-  | 'digital_wallet' // محفظة إلكترونية (STC Pay, Urpay, Tiqmo, إلخ)
-  | 'pos_terminal'   // جهاز نقاط بيع (مدى / شبكة POS)
+  | 'bank_app'       // تطبيق بنكي / حوالات مصرفية
+  | 'digital_wallet' // محفظة إلكترونية
+  | 'pos_terminal'   // جهاز نقاط بيع (فيزا / POS)
   | 'bank_account';  // حساب بنكي جاري
 
 export interface TreasuryTransaction {

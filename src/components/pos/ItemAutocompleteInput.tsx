@@ -1,9 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { InventoryItem, ItemCategory } from '../../types';
-import { Search, Plus, CheckCircle2, AlertCircle, Package, Layers, Tag, ExternalLink, Star, Image as ImageIcon } from 'lucide-react';
-import { matchItemByBarcode, getAllItemBarcodes } from '../../utils/barcodeGenerator';
-import { useAccounting } from '../../context/AccountingContext';
+import { InventoryItem } from '../../types';
+import { Search, Plus, CheckCircle2, AlertCircle, Package } from 'lucide-react';
+import { matchItemByBarcode } from '../../utils/barcodeGenerator';
 
 interface ItemAutocompleteInputProps {
   value: string;
@@ -11,8 +10,8 @@ interface ItemAutocompleteInputProps {
   inventoryItemId?: string;
   barcode?: string;
   inventory: InventoryItem[];
-  pricingTier: 'retail' | 'wholesale' | 'special';
-  currency: string;
+  pricingTier?: 'retail' | 'wholesale' | 'special';
+  currency?: string;
   onChangeText: (text: string) => void;
   onSelectItem: (item: InventoryItem) => void;
   onQuickAdd?: (nameQuery: string) => void;
@@ -32,29 +31,35 @@ function normalizeArabic(text: string): string {
     .replace(/ة/g, 'ه')
     .replace(/[يى]/g, 'ي')
     .replace(/ؤ/g, 'و')
-    .replace(/ئ/g, 'ي');
+    .replace(/ئ/g, 'ي')
+    .replace(/[-_.,()/\\]/g, ' ');
 }
 
-// Category translation labels
-function getCategoryLabel(cat?: string): string {
-  switch (cat) {
-    case 'books':
-      return 'كتب';
-    case 'stationery':
-      return 'قرطاسية';
-    case 'office_supplies':
-      return 'مكتبية';
-    case 'print_raw':
-      return 'خامات مطبعة';
-    case 'copy_scan':
-      return 'تصوير وخدمات';
-    case 'shields_gifts':
-      return 'دروع وهدايا';
-    case 'uniforms':
-      return 'أزياء ومرايل';
-    default:
-      return 'أصناف';
+// Helper to highlight matching letters
+function HighlightMatch({ text, query }: { text: string; query: string }) {
+  if (!query?.trim() || !text) return <span>{text}</span>;
+
+  const normalizedText = normalizeArabic(text);
+  const normalizedQuery = normalizeArabic(query);
+  const index = normalizedText.indexOf(normalizedQuery);
+
+  if (index === -1) {
+    return <span>{text}</span>;
   }
+
+  const before = text.substring(0, index);
+  const match = text.substring(index, index + query.length);
+  const after = text.substring(index + query.length);
+
+  return (
+    <span>
+      {before}
+      <span className="bg-amber-200/90 text-amber-950 font-black px-0.5 rounded-xs underline decoration-amber-500">
+        {match}
+      </span>
+      {after}
+    </span>
+  );
 }
 
 export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
@@ -63,16 +68,12 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
   inventoryItemId,
   barcode,
   inventory,
-  pricingTier,
-  currency,
   onChangeText,
   onSelectItem,
   onQuickAdd,
   onOpenSearchModal,
   placeholder = 'اسم الصنف أو الخدمة...',
-  isActiveRow = false
 }) => {
-  const { updateInventoryItem } = useAccounting();
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
   const [coords, setCoords] = useState<{ top: number; left: number; width: number; showAbove: boolean } | null>(null);
@@ -95,8 +96,8 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
     const rawQuery = (value || '').trim().toLowerCase();
 
     if (!normQuery) {
-      // If query is empty, show the first 12 registered items as recommendations
-      return inventory.slice(0, 12);
+      // If query is empty, show the first 15 registered items
+      return inventory.slice(0, 15);
     }
 
     const filtered = inventory.filter(it => {
@@ -104,23 +105,19 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
       const normName = normalizeArabic(it.name || '');
       const code = (it.code || '').toLowerCase();
       const bcode = (it.barcode || '').toLowerCase();
-      const cat = (it.category || '').toLowerCase();
-      const catLabel = normalizeArabic(getCategoryLabel(it.category));
       const hasMultiBarcodeMatch =
-        (it.additionalBarcodes && it.additionalBarcodes.some(b => b.toLowerCase().includes(rawQuery))) ||
-        (it.barcodeEntries && it.barcodeEntries.some(b => b.barcode.toLowerCase().includes(rawQuery) || (b.label && b.label.toLowerCase().includes(rawQuery))));
+        (it.additionalBarcodes && it.additionalBarcodes.some(b => b && b.toLowerCase().includes(rawQuery))) ||
+        (it.barcodeEntries && it.barcodeEntries.some(b => (b.barcode && b.barcode.toLowerCase().includes(rawQuery)) || (b.label && b.label.toLowerCase().includes(rawQuery))));
 
       return (
         normName.includes(normQuery) ||
-        bcode.includes(rawQuery) ||
-        hasMultiBarcodeMatch ||
         code.includes(rawQuery) ||
-        cat.includes(rawQuery) ||
-        catLabel.includes(normQuery)
+        bcode.includes(rawQuery) ||
+        hasMultiBarcodeMatch
       );
     });
 
-    // Sort: exact matches first, then prefix matches, then substring
+    // Sort: exact matches first, then prefix matches, then alphabetical
     filtered.sort((a, b) => {
       const aNorm = normalizeArabic(a.name || '');
       const bNorm = normalizeArabic(b.name || '');
@@ -132,7 +129,7 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
       return aNorm.localeCompare(bNorm);
     });
 
-    return filtered.slice(0, 12);
+    return filtered.slice(0, 15);
   }, [inventory, value]);
 
   // Update floating dropdown coordinates
@@ -140,13 +137,13 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
     if (!inputRef.current) return;
     const rect = inputRef.current.getBoundingClientRect();
     const spaceBelow = window.innerHeight - rect.bottom;
-    const estimatedHeight = 310;
+    const estimatedHeight = 280;
     const showAbove = spaceBelow < estimatedHeight && rect.top > estimatedHeight;
 
     setCoords({
       top: showAbove ? rect.top - 6 : rect.bottom + 4,
-      left: Math.max(10, Math.min(rect.left, window.innerWidth - 440)),
-      width: Math.max(rect.width, 420),
+      left: Math.max(10, Math.min(rect.left, window.innerWidth - 380)),
+      width: Math.max(rect.width, 360),
       showAbove
     });
   }, []);
@@ -189,11 +186,17 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
 
+  const justSelectedRef = useRef(false);
+
   // Select an item from the suggestions
   const handleSelect = (item: InventoryItem) => {
-    onSelectItem(item);
+    justSelectedRef.current = true;
     setIsOpen(false);
     setHighlightedIndex(-1);
+    onSelectItem(item);
+    setTimeout(() => {
+      justSelectedRef.current = false;
+    }, 400);
   };
 
   // Keyboard navigation inside input
@@ -213,30 +216,37 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
         setHighlightedIndex(prev => (prev > 0 ? prev - 1 : matches.length - 1));
       }
     } else if (e.key === 'Enter') {
-      if (isOpen && highlightedIndex >= 0 && highlightedIndex < matches.length) {
-        e.preventDefault();
-        handleSelect(matches[highlightedIndex]);
-      } else if (isOpen && matches.length === 1 && normalizeArabic(matches[0].name) === normalizeArabic(value)) {
-        e.preventDefault();
-        handleSelect(matches[0]);
+      e.preventDefault();
+      if (isOpen && matches.length > 0) {
+        const selected = (highlightedIndex >= 0 && highlightedIndex < matches.length)
+          ? matches[highlightedIndex]
+          : matches[0];
+        handleSelect(selected);
+      } else {
+        setIsOpen(false);
+        // Move focus directly to the next editable field in the row
+        const notesInput = document.getElementById(`notes-input-${lineId}`) as HTMLInputElement | null;
+        const lengthInput = document.getElementById(`length-input-${lineId}`) as HTMLInputElement | null;
+        const countInput = document.getElementById(`count-input-${lineId}`) as HTMLInputElement | null;
+        const qtyInput = (document.getElementById(`quantity-input-${lineId}`) || document.getElementById(`dim-quantity-input-${lineId}`)) as HTMLInputElement | null;
+        const target = notesInput || lengthInput || countInput || qtyInput;
+        if (target) {
+          target.focus();
+          if (typeof target.select === 'function') target.select();
+        }
       }
     } else if (e.key === 'Tab') {
-      if (isOpen && highlightedIndex >= 0 && highlightedIndex < matches.length) {
-        handleSelect(matches[highlightedIndex]);
-      } else if (isOpen && matches.length === 1 && normalizeArabic(matches[0].name) === normalizeArabic(value)) {
-        handleSelect(matches[0]);
+      if (isOpen && matches.length > 0) {
+        e.preventDefault();
+        const selected = (highlightedIndex >= 0 && highlightedIndex < matches.length)
+          ? matches[highlightedIndex]
+          : matches[0];
+        handleSelect(selected);
       }
     } else if (e.key === 'Escape') {
       setIsOpen(false);
       setHighlightedIndex(-1);
     }
-  };
-
-  // Calculate pricing tier for item
-  const getItemPrice = (item: InventoryItem) => {
-    return pricingTier === 'wholesale'
-      ? Number((item.sellingPrice * 0.9).toFixed(2))
-      : item.sellingPrice;
   };
 
   return (
@@ -257,12 +267,13 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
             setHighlightedIndex(0);
           }}
           onFocus={() => {
+            if (justSelectedRef.current) return;
             setIsOpen(true);
             updatePosition();
           }}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className={`w-full pr-2 pl-7 py-1 bg-transparent border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white rounded font-bold text-slate-900 text-xs transition-colors ${
+          className={`w-full pr-2 pl-7 py-1.5 bg-transparent border-0 rounded-none focus:outline-none font-bold text-slate-900 text-xs transition-colors ${
             linkedItem ? 'text-blue-900' : ''
           }`}
         />
@@ -271,7 +282,7 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
         <div className="absolute left-1 flex items-center gap-1">
           {linkedItem ? (
             <span
-              title={`مرتبط بصنف مخزون مسجل: ${linkedItem.name} (متوفر: ${linkedItem.stockQuantity} ${linkedItem.unit})`}
+              title={`مرتبط بالصنف: ${linkedItem.name} (${linkedItem.code || ''})`}
               className="text-emerald-600 hover:text-emerald-700 cursor-pointer flex items-center"
               onClick={e => {
                 e.stopPropagation();
@@ -291,7 +302,7 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
                 setIsOpen(prev => !prev);
                 updatePosition();
               }}
-              title="البحث في الأصناف المخزنة"
+              title="البحث في قائمة الأصناف"
               className="text-slate-400 hover:text-blue-600 p-0.5 rounded cursor-pointer transition-colors"
             >
               <Search className="w-3.5 h-3.5" />
@@ -315,28 +326,26 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
               width: coords.width,
               zIndex: 99999
             }}
-            className="bg-white rounded-xl shadow-2xl border border-blue-400 overflow-hidden text-slate-800 text-xs animate-in fade-in zoom-in-95 duration-100 ring-4 ring-blue-500/15"
+            className="bg-white rounded-xl shadow-2xl border border-slate-300 overflow-hidden text-slate-800 text-xs animate-in fade-in zoom-in-95 duration-100 ring-4 ring-slate-900/10"
           >
             {/* Header */}
-            <div className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white px-3 py-2 flex items-center justify-between shadow-xs">
+            <div className="bg-slate-800 text-white px-3 py-1.5 flex items-center justify-between shadow-xs">
               <div className="flex items-center gap-1.5">
-                <Package className="w-4 h-4 text-blue-200" />
-                <span className="font-bold text-xs">الأصناف المسجلة بالمخزن</span>
-                <span className="bg-blue-500/50 text-blue-100 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
-                  {matches.length} صنف
+                <Package className="w-3.5 h-3.5 text-blue-300" />
+                <span className="font-bold text-xs">قائمة الأصناف</span>
+                <span className="bg-slate-700 text-slate-200 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
+                  {matches.length}
                 </span>
               </div>
-              <div className="text-[10px] text-blue-200 flex items-center gap-1">
+              <div className="text-[10px] text-slate-300 flex items-center gap-1">
                 <span>↑↓ للتنقل</span>
                 <span>•</span>
                 <span>Enter للاختيار</span>
-                <span>•</span>
-                <span>Esc للإغلاق</span>
               </div>
             </div>
 
-            {/* List of items */}
-            <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+            {/* List of items - ONLY Item Number and Item Name on the same line */}
+            <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
               {matches.length === 0 ? (
                 <div className="p-4 text-center">
                   <div className="text-amber-600 font-semibold text-xs mb-1 flex items-center justify-center gap-1">
@@ -344,7 +353,7 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
                     <span>لم يتم العثور على صنف مطابق لـ "{value}"</span>
                   </div>
                   <p className="text-[10px] text-slate-400 font-light mb-3">
-                    يمكنك إبقاء الاسم كما كتبته أو إضافة صنف جديد للمخزون فوراً.
+                    يمكنك إبقاء المسمى أو إضافة صنف جديد للمخزون.
                   </p>
                   {onQuickAdd && (
                     <button
@@ -356,122 +365,56 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
                       className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 mx-auto shadow-xs"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>إضافة "{value}" كصنف جديد للمخزون</span>
+                      <span>إضافة "{value}" كصنف جديد</span>
                     </button>
                   )}
                 </div>
               ) : (
                 matches.map((item, idx) => {
                   const isHighlighted = idx === highlightedIndex;
-                  const itemPrice = getItemPrice(item);
-                  const isOutOfStock = (item.stockQuantity ?? 0) <= 0;
-                  const isLowStock = !isOutOfStock && (item.stockQuantity ?? 0) <= (item.minAlertQuantity ?? 5);
 
                   return (
                     <div
                       key={item.id}
                       onClick={() => handleSelect(item)}
                       onMouseEnter={() => setHighlightedIndex(idx)}
-                      className={`p-2 transition-colors cursor-pointer flex items-center justify-between ${
+                      className={`px-3 py-2 transition-colors cursor-pointer flex items-center gap-2.5 ${
                         isHighlighted
-                          ? 'bg-blue-50 border-r-4 border-blue-600 font-semibold'
-                          : 'hover:bg-slate-50'
+                          ? 'bg-blue-600 text-white font-semibold'
+                          : 'hover:bg-slate-100 text-slate-800'
                       }`}
                     >
-                      {/* Item Thumbnail */}
-                      <div className="relative shrink-0 ml-2">
-                        {item.imageUrl ? (
-                          <img
-                            src={item.imageUrl}
-                            alt={item.name}
-                            className="w-9 h-9 object-cover rounded-md border border-slate-200 shadow-2xs"
-                          />
-                        ) : (
-                          <div className="w-9 h-9 rounded-md bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-300">
-                            <ImageIcon className="w-4 h-4" />
-                          </div>
-                        )}
-                        {/* Interactive Star Toggle */}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            updateInventoryItem(item.id, { isFavorite: !item.isFavorite });
-                          }}
-                          className={`absolute -top-1 -right-1 rounded-full p-0.5 shadow-xs transition-transform hover:scale-125 cursor-pointer ${
-                            item.isFavorite ? 'bg-amber-400 text-amber-950' : 'bg-slate-200/80 text-slate-400 hover:text-amber-500'
+                      {/* 1. رقم الصنف (Item Code) */}
+                      {item.code ? (
+                        <span
+                          className={`font-mono text-[11px] font-bold px-2 py-0.5 rounded border shrink-0 transition-colors ${
+                            isHighlighted
+                              ? 'bg-blue-700 text-white border-blue-500'
+                              : 'bg-slate-100 text-slate-700 border-slate-300'
                           }`}
-                          title={item.isFavorite ? 'صنف مفضل (انقر للإلغاء)' : 'إضافة إلى المفضلة'}
                         >
-                          <Star className={`w-2.5 h-2.5 ${item.isFavorite ? 'fill-amber-950' : ''}`} />
-                        </button>
-                      </div>
+                          {item.code}
+                        </span>
+                      ) : (
+                        <span
+                          className={`font-mono text-[11px] px-2 py-0.5 rounded border shrink-0 ${
+                            isHighlighted
+                              ? 'bg-blue-700 text-blue-200 border-blue-500'
+                              : 'bg-slate-50 text-slate-400 border-slate-200'
+                          }`}
+                        >
+                          -
+                        </span>
+                      )}
 
-                      {/* Item Info */}
-                      <div className="flex-1 min-w-0 pr-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className={`text-xs font-bold truncate ${isHighlighted ? 'text-blue-950' : 'text-slate-900'}`}>
-                            {item.name}
-                          </span>
-                          {item.isFavorite && (
-                            <span className="text-[10px] text-amber-600 font-semibold flex items-center gap-0.5 shrink-0">
-                              <Star className="w-2.5 h-2.5 fill-amber-400" />
-                              <span>مفضل</span>
-                            </span>
-                          )}
-                          <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium shrink-0 mr-auto">
-                            {getCategoryLabel(item.category)}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-400 font-light font-mono">
-                          {item.barcode && (
-                            <span className="flex items-center gap-0.5 text-slate-600">
-                              <span className="text-[10px] text-slate-400">باركود:</span>
-                              <span>{item.barcode}</span>
-                            </span>
-                          )}
-                          {(item.barcodeEntries?.length || item.additionalBarcodes?.length) ? (
-                            <span className="bg-sky-50 text-sky-700 text-[9px] px-1 py-0.2 rounded font-sans">
-                              +{(item.barcodeEntries?.length || item.additionalBarcodes?.length)} بديل
-                            </span>
-                          ) : null}
-                          {item.code && (
-                            <span className="text-slate-400 text-[10px]">
-                              [{item.code}]
-                            </span>
-                          )}
-                          {/* Stock Status Badge */}
-                          <span
-                            className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
-                              isOutOfStock
-                                ? 'bg-rose-100 text-rose-700'
-                                : isLowStock
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-emerald-100 text-emerald-800'
-                            }`}
-                          >
-                            {isOutOfStock
-                              ? 'نفذ من المخزن'
-                              : `متوفر: ${item.stockQuantity} ${item.unit || 'قطعة'}`}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Selling Price */}
-                      <div className="text-left pl-2 shrink-0">
-                        <div className="font-mono font-black text-sm text-blue-700">
-                          {itemPrice.toFixed(2)}
-                          <span className="text-[10px] font-sans font-normal text-slate-500 mr-1">
-                            {currency}
-                          </span>
-                        </div>
-                        {pricingTier === 'wholesale' && (
-                          <div className="text-[9px] text-emerald-600 font-bold">
-                            سعر بيع 1
-                          </div>
-                        )}
-                      </div>
+                      {/* 2. اسم الصنف على نفس السطر (Item Name) */}
+                      <span
+                        className={`flex-1 min-w-0 text-xs font-bold truncate ${
+                          isHighlighted ? 'text-white' : 'text-slate-900'
+                        }`}
+                      >
+                        <HighlightMatch text={item.name} query={value} />
+                      </span>
                     </div>
                   );
                 })
@@ -479,7 +422,7 @@ export const ItemAutocompleteInput: React.FC<ItemAutocompleteInputProps> = ({
             </div>
 
             {/* Bottom Actions Bar */}
-            <div className="bg-slate-50 border-t border-slate-200 px-3 py-2 flex items-center justify-between text-xs">
+            <div className="bg-slate-50 border-t border-slate-200 px-3 py-1.5 flex items-center justify-between text-xs">
               <div className="flex items-center gap-2">
                 {onQuickAdd && (
                   <button

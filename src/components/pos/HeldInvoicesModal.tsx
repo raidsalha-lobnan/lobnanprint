@@ -13,6 +13,7 @@ export interface HeldInvoiceData {
   lines: PosTableLine[];
   totalAmount: number;
   notes?: string;
+  paymentNotes?: string;
 }
 
 interface HeldInvoicesModalProps {

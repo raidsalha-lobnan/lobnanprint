@@ -233,4 +233,7 @@ export interface SystemUser {
   // إعدادات وصلاحيات أسعار البيع
   allowedPriceTier?: AllowedPriceTierScope; // 'all' (الكل) أو 'price1' (سعر 1 فقط) أو 'price2' أو 'price3'
   defaultPriceTier?: PriceTierKey;          // فئة السعر الافتراضية للكاشير والفواتير
+  // مشاركة مجلد مرفقات جوجل درايف
+  shareDriveAttachments?: boolean;          // تفعيل مشاركة ملفات ومرفقات Google Drive
+  driveSharedAt?: string;                   // تاريخ ووقت تفعيل المشاركة
 }

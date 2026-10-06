@@ -78,13 +78,28 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
   } = useAccounting();
 
   // Primary Sub-navigation tab
-  const [activeSubTab, setActiveSubTab] = useState<'employees' | 'adjustments' | 'payroll_sheets'>(initialSubTab);
+  const [activeSubTab, setActiveSubTabState] = useState<'employees' | 'adjustments' | 'payroll_sheets'>(() => {
+    try {
+      const saved = localStorage.getItem('employees_subtab');
+      if (saved && ['employees', 'adjustments', 'payroll_sheets'].includes(saved)) {
+        return saved as any;
+      }
+    } catch {}
+    return initialSubTab;
+  });
+
+  const setActiveSubTab = React.useCallback((tab: 'employees' | 'adjustments' | 'payroll_sheets') => {
+    setActiveSubTabState(tab);
+    try {
+      localStorage.setItem('employees_subtab', tab);
+    } catch {}
+  }, []);
 
   React.useEffect(() => {
-    if (initialSubTab) {
+    if (initialSubTab && !localStorage.getItem('employees_subtab')) {
       setActiveSubTab(initialSubTab);
     }
-  }, [initialSubTab]);
+  }, [initialSubTab, setActiveSubTab]);
 
   // Adjustments modal state
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
@@ -174,7 +189,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
     setFormHireDate(new Date().toISOString().split('T')[0]);
     setFormStatus('active');
     setFormPaymentMethod('bank_transfer');
-    setFormBankName('مصرف الراجحي');
+    setFormBankName('بنك فلسطين');
     setFormIban('');
     setFormEmergencyName('');
     setFormEmergencyPhone('');
@@ -1277,7 +1292,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
                       type="text"
                       value={formBankName}
                       onChange={e => setFormBankName(e.target.value)}
-                      placeholder="مثال: الراجحي، الأهلي، الإنماء..."
+                      placeholder="مثال: بنك فلسطين، البنك العربي، بنك القدس..."
                       className="w-full bg-white border border-slate-300 rounded-md p-2 focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
@@ -1493,7 +1508,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({ initialSubTab = 'e
                     onChange={e => setPayMethod(e.target.value as PaymentMethod)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-md p-2 font-semibold"
                   >
-                    <option value="bank_transfer">تحويل بنكي (مصرف الراجحي)</option>
+                    <option value="bank_transfer">تحويل بنكي</option>
                     <option value="cash">نقداً من الصندوق (الكاشير)</option>
                     <option value="cheque">شيك بنكي</option>
                   </select>

@@ -697,7 +697,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
 
   const liabPayables = accounts.find(a => a.code === '2101')?.balance || 0;
   const liabVat = accounts.find(a => a.code === '2103')?.balance || 0;
-  const totalLiabilities = liabPayables + liabVat;
+  const liabDelivery = accounts.find(a => a.code === '2104')?.balance || 0;
+  const totalLiabilities = liabPayables + liabVat + liabDelivery;
 
   const eqCapital = accounts.find(a => a.code === '3101')?.balance || 0;
   const eqRetained = accounts.find(a => a.code === '3201')?.balance || 0;
@@ -1016,12 +1017,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
             <table className="w-full text-right report-table border-collapse h-full">
               <thead className="bg-slate-800 text-white font-bold border-b border-slate-900 print:bg-slate-200 print:text-slate-900">
                 <tr>
-                  <th className="w-7 min-w-7 text-center border-l border-slate-600 print:border-slate-400">م</th>
-                  <th className="w-20 min-w-20 text-center border-l border-slate-600 print:border-slate-400">التاريخ</th>
+                  <th className="w-8 min-w-8 text-center border-l border-slate-600 print:border-slate-400">م</th>
+                  <th className="w-24 min-w-24 text-center border-l border-slate-600 print:border-slate-400">التاريخ</th>
                   <th className="border-l border-slate-600 print:border-slate-400">البيان والشرح والتفاصيل الكاملة</th>
-                  <th className="w-24 min-w-24 text-left bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">مدين (عليه)</th>
-                  <th className="w-24 min-w-24 text-left bg-emerald-950/40 print:bg-emerald-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">دائن (له)</th>
-                  <th className="w-28 min-w-28 text-left bg-slate-700 print:bg-slate-300 whitespace-nowrap">الرصيد التراكمي</th>
+                  <th className="w-28 min-w-28 text-left bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">مدين (عليه)</th>
+                  <th className="w-28 min-w-28 text-left bg-emerald-950/40 print:bg-emerald-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">دائن (له)</th>
+                  <th className="w-32 min-w-32 text-left bg-slate-700 print:bg-slate-300 whitespace-nowrap">الرصيد التراكمي</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 font-mono">
@@ -1220,7 +1221,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                             <table className="w-full text-right report-sub-table border-collapse">
                               <thead className="bg-slate-200 text-slate-800 font-bold border-b border-slate-300">
                                 <tr>
-                                  <th className="border-l border-slate-200">الصنف</th>
+                                  <th className="border-l border-slate-200">الصنف والبيان</th>
                                   <th className="text-center w-12 min-w-12 border-l border-slate-200">الطول</th>
                                   <th className="text-center w-12 min-w-12 border-l border-slate-200">العرض</th>
                                   <th className="text-center w-10 min-w-10 border-l border-slate-200">العدد</th>
@@ -1234,8 +1235,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                                   <tr key={it.itemId || itemIdx} className="hover:bg-blue-50/30">
                                     <td className="font-bold text-slate-900 border-l border-slate-200">
                                       <div>
-                                        {it.itemName}
-                                        {it.itemCode && <span className="text-[10px] text-slate-400 mr-1 font-mono">({it.itemCode})</span>}
+                                        <span>{it.itemName}</span>
+                                        {(it.notes || it.description) && (it.notes !== it.itemName) && (it.notes !== row.invoiceNotes) && (it.description !== row.invoiceNotes) && (
+                                          <span className="text-slate-600 font-medium"> / {it.notes || it.description}</span>
+                                        )}
+                                        {it.itemCode && <span className="text-[10px] text-slate-400 mr-1.5 font-mono font-normal">({it.itemCode})</span>}
                                       </div>
                                     </td>
                                     <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.length != null && it.length !== 0 ? it.length : '-'}</td>
@@ -1253,35 +1257,22 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                                   </tr>
                                 ))}
                               </tbody>
-                              <tfoot className="bg-slate-100 border-t border-slate-300 font-bold">
-                                <tr>
-                                  <td colSpan={4} className="py-1 px-1.5 text-slate-700">
-                                    {row.subCustomerName && (
-                                      <span className="text-blue-900 font-bold mr-1 bg-blue-50 px-1 py-0.5 rounded border border-blue-200">
-                                        الزبون الفرعي: {row.subCustomerName}
-                                      </span>
-                                    )}
-                                    {row.invoiceNotes && (
-                                      <span className="text-amber-900 font-medium bg-amber-50 px-1 py-0.5 rounded border border-amber-200">
-                                        ملاحظات الفاتورة: {row.invoiceNotes}
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td colSpan={3} className="py-1 px-1.5 text-left font-mono font-black text-blue-950">
-                                    <div className="flex items-center justify-end gap-1.5">
-                                      {row.discountAmount && row.discountAmount > 0 ? (
-                                        <span className="text-rose-700 font-bold">خصم: -{row.discountAmount.toFixed(2)}</span>
-                                      ) : null}
-                                      {row.taxAmount && row.taxAmount > 0 ? (
-                                        <span className="text-slate-600 font-bold">ضريبة: +{row.taxAmount.toFixed(2)}</span>
-                                      ) : null}
-                                      <span className="bg-slate-200 px-1.5 py-0.5 rounded">
-                                        صافي الفاتورة: {row.debit.toFixed(2)} {settings.currency}
-                                      </span>
-                                    </div>
-                                  </td>
-                                </tr>
-                              </tfoot>
+                              {Boolean((row.discountAmount && row.discountAmount > 0) || (row.taxAmount && row.taxAmount > 0)) && (
+                                <tfoot className="bg-slate-100 border-t border-slate-300 font-bold">
+                                  <tr>
+                                    <td colSpan={7} className="py-1 px-2 text-left font-mono font-bold text-slate-800">
+                                      <div className="flex items-center justify-end gap-3">
+                                        {row.discountAmount && row.discountAmount > 0 ? (
+                                          <span className="text-rose-700 font-bold">خصم الفاتورة: -{row.discountAmount.toFixed(2)}</span>
+                                        ) : null}
+                                        {row.taxAmount && row.taxAmount > 0 ? (
+                                          <span className="text-slate-600 font-bold">ضريبة: +{row.taxAmount.toFixed(2)}</span>
+                                        ) : null}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              )}
                             </table>
                           </div>
                         </td>
@@ -1491,12 +1482,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
             <table className="w-full text-right report-table border-collapse h-full">
               <thead className="bg-slate-800 text-white font-bold border-b border-slate-900 print:bg-slate-200 print:text-slate-900">
                 <tr>
-                  <th className="w-7 min-w-7 text-center border-l border-slate-600 print:border-slate-400">م</th>
-                  <th className="w-20 min-w-20 text-center border-l border-slate-600 print:border-slate-400">التاريخ</th>
+                  <th className="w-8 min-w-8 text-center border-l border-slate-600 print:border-slate-400">م</th>
+                  <th className="w-24 min-w-24 text-center border-l border-slate-600 print:border-slate-400">التاريخ</th>
                   <th className="border-l border-slate-600 print:border-slate-400">البيان والشرح والتفاصيل الكاملة</th>
-                  <th className="w-24 min-w-24 text-left bg-emerald-950/40 print:bg-emerald-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">مدين (سداد له)</th>
-                  <th className="w-24 min-w-24 text-left bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">دائن (توريد منه)</th>
-                  <th className="w-28 min-w-28 text-left bg-slate-700 print:bg-slate-300 whitespace-nowrap">الرصيد المستحق</th>
+                  <th className="w-28 min-w-28 text-left bg-emerald-950/40 print:bg-emerald-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">مدين (سداد له)</th>
+                  <th className="w-28 min-w-28 text-left bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">دائن (توريد منه)</th>
+                  <th className="w-32 min-w-32 text-left bg-slate-700 print:bg-slate-300 whitespace-nowrap">الرصيد المستحق</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 font-mono">
@@ -1692,7 +1683,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                             <table className="w-full text-right report-sub-table border-collapse">
                               <thead className="bg-slate-200 text-slate-800 font-bold border-b border-slate-300">
                                 <tr>
-                                  <th className="border-l border-slate-200">الصنف</th>
+                                  <th className="border-l border-slate-200">الصنف والبيان</th>
                                   <th className="text-center w-12 min-w-12 border-l border-slate-200">الطول</th>
                                   <th className="text-center w-12 min-w-12 border-l border-slate-200">العرض</th>
                                   <th className="text-center w-10 min-w-10 border-l border-slate-200">العدد</th>
@@ -1706,8 +1697,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                                   <tr key={it.itemId || itemIdx} className="hover:bg-amber-50/30">
                                     <td className="font-bold text-slate-900 border-l border-slate-200">
                                       <div>
-                                        {it.itemName}
-                                        {it.itemCode && <span className="text-[10px] text-slate-400 mr-1 font-mono">({it.itemCode})</span>}
+                                        <span>{it.itemName}</span>
+                                        {(it.notes || it.description) && (it.notes !== it.itemName) && (it.notes !== row.invoiceNotes) && (it.description !== row.invoiceNotes) && (
+                                          <span className="text-slate-600 font-medium"> / {it.notes || it.description}</span>
+                                        )}
+                                        {it.itemCode && <span className="text-[10px] text-slate-400 mr-1.5 font-mono font-normal">({it.itemCode})</span>}
                                       </div>
                                     </td>
                                     <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.length != null && it.length !== 0 ? it.length : '-'}</td>
@@ -1725,30 +1719,22 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                                   </tr>
                                 ))}
                               </tbody>
-                              <tfoot className="bg-slate-100 border-t border-slate-300 font-bold">
-                                <tr>
-                                  <td colSpan={4} className="py-1 px-1.5 text-slate-700">
-                                    {row.invoiceNotes && (
-                                      <span className="text-amber-900 font-medium bg-amber-50 px-1 py-0.5 rounded border border-amber-200">
-                                        ملاحظات الفاتورة: {row.invoiceNotes}
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td colSpan={3} className="py-1 px-1.5 text-left font-mono font-black text-amber-950">
-                                    <div className="flex items-center justify-end gap-1.5">
-                                      {row.discountAmount && row.discountAmount > 0 ? (
-                                        <span className="text-rose-700 font-bold">خصم: -{row.discountAmount.toFixed(2)}</span>
-                                      ) : null}
-                                      {row.taxAmount && row.taxAmount > 0 ? (
-                                        <span className="text-slate-600 font-bold">ضريبة: +{row.taxAmount.toFixed(2)}</span>
-                                      ) : null}
-                                      <span className="bg-slate-200 px-1.5 py-0.5 rounded">
-                                        صافي الفاتورة: {row.credit.toFixed(2)} {settings.currency}
-                                      </span>
-                                    </div>
-                                  </td>
-                                </tr>
-                              </tfoot>
+                              {Boolean((row.discountAmount && row.discountAmount > 0) || (row.taxAmount && row.taxAmount > 0)) && (
+                                <tfoot className="bg-slate-100 border-t border-slate-300 font-bold">
+                                  <tr>
+                                    <td colSpan={7} className="py-1 px-2 text-left font-mono font-bold text-slate-800">
+                                      <div className="flex items-center justify-end gap-3">
+                                        {row.discountAmount && row.discountAmount > 0 ? (
+                                          <span className="text-rose-700 font-bold">خصم الفاتورة: -{row.discountAmount.toFixed(2)}</span>
+                                        ) : null}
+                                        {row.taxAmount && row.taxAmount > 0 ? (
+                                          <span className="text-slate-600 font-bold">ضريبة: +{row.taxAmount.toFixed(2)}</span>
+                                        ) : null}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              )}
                             </table>
                           </div>
                         </td>
@@ -2588,6 +2574,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                   <span>أمانات ضريبة القيمة المضافة:</span>
                   <span className="font-mono font-semibold">{liabVat.toLocaleString('ar-SA')}</span>
                 </div>
+                {liabDelivery > 0 && (
+                  <div className="flex justify-between text-amber-800">
+                    <span>أمانات ومستحقات عمال التوصيل:</span>
+                    <span className="font-mono font-semibold">{liabDelivery.toLocaleString('ar-SA')}</span>
+                  </div>
+                )}
                 <div className="flex justify-between pt-1 border-t font-bold">
                   <span>إجمالي الخصوم والالتزامات:</span>
                   <span className="font-mono text-rose-700">{totalLiabilities.toLocaleString('ar-SA')}</span>

@@ -177,8 +177,8 @@ export function generateAccountStatement(params: {
     const isTarget = party.isSubCustomer
       ? (
           inv.subCustomerId === party.id ||
-          (inv.subCustomerName && inv.subCustomerName.trim().toLowerCase() === party.name.trim().toLowerCase()) ||
-          (inv.customCustomerText && inv.customCustomerText.toLowerCase().includes(party.name.toLowerCase()))
+          (inv.subCustomerName && (inv.subCustomerName || '').trim().toLowerCase() === (party.name || '').trim().toLowerCase()) ||
+          (inv.customCustomerText && party.name && inv.customCustomerText.toLowerCase().includes(party.name.toLowerCase()))
         )
       : (inv.customerId === party.id);
 
@@ -188,6 +188,8 @@ export function generateAccountStatement(params: {
         : '';
 
       const itemsDetail: StatementItemDetail[] = (inv.items || []).map(it => ({
+        itemId: it.itemId,
+        itemCode: (it as any).itemCode,
         itemName: it.itemName,
         quantity: it.quantity,
         unitPrice: it.unitPrice,

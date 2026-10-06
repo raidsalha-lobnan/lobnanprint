@@ -27,6 +27,8 @@ export function useHardwareBarcodeScanner({
     if (!enabled) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!e || typeof e.key !== 'string') return;
+
       // Don't intercept function keys or modifier keys
       if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') {
         return;
@@ -38,10 +40,10 @@ export function useHardwareBarcodeScanner({
 
       // If key is Enter, evaluate if we have a scanned barcode
       if (e.key === 'Enter') {
-        const barcode = bufferRef.current.trim();
+        const barcode = (bufferRef.current || '').trim();
         bufferRef.current = '';
 
-        if (barcode.length >= minChars) {
+        if (barcode && barcode.length >= minChars) {
           // If the event target is not an interactive input or textarea, prevent default submission
           const target = e.target as HTMLElement | null;
           const isTextarea = target?.tagName === 'TEXTAREA';
@@ -58,13 +60,13 @@ export function useHardwareBarcodeScanner({
       }
 
       // If elapsed time since last key is too long (user typing manually), reset buffer
-      if (elapsed > maxIntervalMs && bufferRef.current.length > 0) {
+      if (elapsed > maxIntervalMs && (bufferRef.current || '').length > 0) {
         bufferRef.current = '';
       }
 
       // Only accumulate printable single characters
       if (e.key.length === 1) {
-        bufferRef.current += e.key;
+        bufferRef.current = (bufferRef.current || '') + e.key;
       }
     };
 

@@ -2,7 +2,7 @@ import { LucideIcon } from 'lucide-react';
 
 export type PosButtonActionType =
   | 'save_invoice'           // F5 حفظ الفاتورة
-  | 'save_and_print'         // F10 حفظ وطباعة
+  | 'save_and_print'         // Alt+C حفظ وطباعة حراري
   | 'save_and_print_a4_custom'// حفظ وطباعة A4 تصميم 2
   | 'quick_pay_cash'         // دفع نقدي
   | 'pay_cash_and_print'     // دفع نقدي وطباعة
@@ -77,11 +77,11 @@ export const DEFAULT_POS_BUTTONS: PosCustomButton[] = [
   {
     id: 'btn_f10_print',
     label: 'حراري',
-    subLabel: 'حفظ وطباعة',
+    subLabel: 'حفظ وطباعة حراري',
     iconName: 'Printer',
     actionType: 'save_and_print',
     colorScheme: 'blue',
-    shortcut: 'Ctrl+C',
+    shortcut: 'Alt+C',
     location: 'bottom_bar',
     order: 2,
     isVisible: true
@@ -284,56 +284,100 @@ export const DEFAULT_POS_BUTTONS: PosCustomButton[] = [
 const POS_BUTTONS_STORAGE_KEY = 'pos_custom_buttons_config_v2';
 
 export function getPosButtonsStorageKey(userId?: string): string {
-  if (userId && userId.trim() !== '') {
-    return `${POS_BUTTONS_STORAGE_KEY}_user_${userId.trim()}`;
-  }
   return POS_BUTTONS_STORAGE_KEY;
 }
 
-export function loadPosCustomButtons(userId?: string): PosCustomButton[] {
+export function loadPosCustomButtons(userId?: string, adminFallback?: PosCustomButton[]): PosCustomButton[] {
   try {
-    const key = getPosButtonsStorageKey(userId);
-    let raw = localStorage.getItem(key);
-    // Fallback to legacy shared key if user specific doesn't exist yet
-    if (!raw && userId) {
-      raw = localStorage.getItem(POS_BUTTONS_STORAGE_KEY);
+    const raw = localStorage.getItem(POS_BUTTONS_STORAGE_KEY) ||
+      (userId ? localStorage.getItem(`${POS_BUTTONS_STORAGE_KEY}_user_${userId.trim()}`) : null) ||
+      localStorage.getItem(`${POS_BUTTONS_STORAGE_KEY}_user_usr-1`) ||
+      localStorage.getItem(`${POS_BUTTONS_STORAGE_KEY}_user_user-1789170883526`);
+
+    let buttons: PosCustomButton[] = [];
+
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        buttons = parsed.map(btn => {
+          const baseList = (adminFallback && adminFallback.length > 0) ? adminFallback : DEFAULT_POS_BUTTONS;
+          const defaultBtn = baseList.find(d => d.id === btn.id);
+          if (defaultBtn && !btn.isCustom) {
+            return {
+              ...btn,
+              shortcut: defaultBtn.shortcut,
+              label: defaultBtn.label,
+              subLabel: defaultBtn.subLabel || btn.subLabel,
+            };
+          }
+          return btn;
+        });
+      }
+    } else if (adminFallback && Array.isArray(adminFallback) && adminFallback.length > 0) {
+      buttons = adminFallback;
+    } else {
+      buttons = DEFAULT_POS_BUTTONS;
     }
-    if (!raw) return DEFAULT_POS_BUTTONS;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      // Migrate old default buttons to new labels/shortcuts
-      return parsed.map(btn => {
-        const defaultBtn = DEFAULT_POS_BUTTONS.find(d => d.id === btn.id);
-        if (defaultBtn && !btn.isCustom) {
-          return {
-            ...btn,
-            shortcut: defaultBtn.shortcut,
-            label: defaultBtn.label, // Also sync label to remove F5 from text
-          };
+
+    // Always enforce Alt+C for thermal print button (حراري)
+    let modified = false;
+    const migrated = buttons.map(btn => {
+      if (btn.id === 'btn_f10_print' || btn.label === 'حراري' || btn.actionType === 'save_and_print') {
+        if (btn.shortcut !== 'Alt+C' || btn.label !== 'حراري' || btn.subLabel !== 'حفظ وطباعة حراري') {
+          modified = true;
         }
-        return btn;
-      });
+        return {
+          ...btn,
+          label: 'حراري',
+          subLabel: 'حفظ وطباعة حراري',
+          shortcut: 'Alt+C',
+        };
+      }
+      return btn;
+    });
+
+    if (modified) {
+      savePosCustomButtons(migrated, userId);
     }
-    return DEFAULT_POS_BUTTONS;
+
+    return migrated;
   } catch (err) {
     console.warn('Failed to load POS custom buttons:', err);
-    return DEFAULT_POS_BUTTONS;
+    return (adminFallback || DEFAULT_POS_BUTTONS).map(btn => {
+      if (btn.id === 'btn_f10_print' || btn.label === 'حراري' || btn.actionType === 'save_and_print') {
+        return {
+          ...btn,
+          label: 'حراري',
+          subLabel: 'حفظ وطباعة حراري',
+          shortcut: 'Alt+C',
+        };
+      }
+      return btn;
+    });
   }
 }
 
 export function savePosCustomButtons(buttons: PosCustomButton[], userId?: string): void {
   try {
-    const key = getPosButtonsStorageKey(userId);
-    localStorage.setItem(key, JSON.stringify(buttons));
+    const jsonStr = JSON.stringify(buttons);
+    localStorage.setItem(POS_BUTTONS_STORAGE_KEY, jsonStr);
+    localStorage.setItem(`${POS_BUTTONS_STORAGE_KEY}_user_usr-1`, jsonStr);
+    localStorage.setItem(`${POS_BUTTONS_STORAGE_KEY}_user_user-1789170883526`, jsonStr);
+    if (userId && userId.trim() !== '') {
+      localStorage.setItem(`${POS_BUTTONS_STORAGE_KEY}_user_${userId.trim()}`, jsonStr);
+    }
   } catch (err) {
     console.error('Failed to save POS custom buttons:', err);
   }
 }
 
-export function resetPosCustomButtonsToDefault(userId?: string): PosCustomButton[] {
+export function resetPosCustomButtonsToDefault(userId?: string, adminFallback?: PosCustomButton[]): PosCustomButton[] {
   try {
-    const key = getPosButtonsStorageKey(userId);
-    localStorage.removeItem(key);
-  } catch {}
-  return DEFAULT_POS_BUTTONS;
+    const target = adminFallback || DEFAULT_POS_BUTTONS;
+    savePosCustomButtons(target, userId);
+    return target;
+  } catch {
+    return adminFallback || DEFAULT_POS_BUTTONS;
+  }
 }
+

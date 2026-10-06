@@ -41,6 +41,7 @@ import { InventoryItem, Party, PaymentMethod, Invoice } from '../../types';
 import { BarcodeScannerModal } from '../BarcodeScannerModal';
 import { matchItemByBarcode } from '../../utils/barcodeGenerator';
 import { posSound } from '../../utils/audio';
+import { isSquareMeterUnit } from '../../utils/unitsOfMeasure';
 
 interface MobilePosViewProps {
   onSwitchToDesktop?: () => void;
@@ -97,12 +98,31 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   const [selectedCurrencyCode, setSelectedCurrencyCode] = useState(settings.baseCurrencyCode || 'ILS');
   const activeCurrency = currencies.find(c => c.code === selectedCurrencyCode) || baseCurrency;
 
+  const MOBILE_POS_DRAFT_KEY = 'mobile_pos_active_draft';
+  const savedMobileDraft = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('mobile_pos_active_draft');
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return {} as any;
+  }, []);
+
   // 1. Customer / Supplier / Employee Mode & Inputs (زبون / مورد / موظف)
-  const [partyTypeMode, setPartyTypeMode] = useState<'customer' | 'supplier' | 'employee'>('customer');
-  const [customerNameInput, setCustomerNameInput] = useState<string>('زبون نقدي / عام');
-  const [customSubCustomerName, setCustomSubCustomerName] = useState<string>('');
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
-  const [selectedSubCustomerId, setSelectedSubCustomerId] = useState<string>('');
+  const [partyTypeMode, setPartyTypeMode] = useState<'customer' | 'supplier' | 'employee'>(() => {
+    return savedMobileDraft.partyTypeMode || 'customer';
+  });
+  const [customerNameInput, setCustomerNameInput] = useState<string>(() => {
+    return savedMobileDraft.customerNameInput !== undefined ? savedMobileDraft.customerNameInput : 'زبون نقدي / عام';
+  });
+  const [customSubCustomerName, setCustomSubCustomerName] = useState<string>(() => {
+    return savedMobileDraft.customSubCustomerName || '';
+  });
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(() => {
+    return savedMobileDraft.selectedCustomerId || '';
+  });
+  const [selectedSubCustomerId, setSelectedSubCustomerId] = useState<string>(() => {
+    return savedMobileDraft.selectedSubCustomerId || '';
+  });
   const [showPartySuggestions, setShowPartySuggestions] = useState<boolean>(false);
 
   // Bank treasury selection for card/bank payment
@@ -152,7 +172,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   const [bankCurrencyCode, setBankCurrencyCode] = useState<string>(settings.baseCurrencyCode || 'ILS');
   const [bankExchangeRate, setBankExchangeRate] = useState<number>(1.0);
 
-  const [invoiceNotes, setInvoiceNotes] = useState<string>('');
+  const [invoiceNotes, setInvoiceNotes] = useState<string>(() => savedMobileDraft.invoiceNotes || '');
 
   useEffect(() => {
     const found = currencies.find(c => c.code === payCurrencyCode);
@@ -235,12 +255,69 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
   const [newCustomerPhone, setNewCustomerPhone] = useState('');
 
   // Cart state
-  const [cart, setCart] = useState<MobileCartItem[]>([]);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
-  const [globalDiscount, setGlobalDiscount] = useState<string>('');
+  const [cart, setCart] = useState<MobileCartItem[]>(() => {
+    return Array.isArray(savedMobileDraft.cart) ? savedMobileDraft.cart : [];
+  });
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(() => {
+    return savedMobileDraft.paymentMethod || 'cash';
+  });
+  const [globalDiscount, setGlobalDiscount] = useState<string>(() => {
+    return savedMobileDraft.globalDiscount || '';
+  });
   const [paidAmountInput, setPaidAmountInput] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [successNotification, setSuccessNotification] = useState<{ number: string; total: number } | null>(null);
+
+  // Auto-save mobile POS draft (لضمان بقاء البيانات والأصناف عند التحديث أو F5)
+  useEffect(() => {
+    try {
+      const hasContent =
+        cart.length > 0 ||
+        (customerNameInput && customerNameInput !== 'زبون نقدي / عام') ||
+        selectedCustomerId !== '' ||
+        customSubCustomerName !== '' ||
+        globalDiscount !== '' ||
+        (invoiceNotes && invoiceNotes.trim() !== '');
+
+      if (hasContent) {
+        localStorage.setItem(MOBILE_POS_DRAFT_KEY, JSON.stringify({
+          partyTypeMode,
+          customerNameInput,
+          customSubCustomerName,
+          selectedCustomerId,
+          selectedSubCustomerId,
+          cart,
+          paymentMethod,
+          globalDiscount,
+          invoiceNotes,
+          timestamp: Date.now()
+        }));
+      } else {
+        localStorage.removeItem(MOBILE_POS_DRAFT_KEY);
+      }
+    } catch {}
+  }, [partyTypeMode, customerNameInput, customSubCustomerName, selectedCustomerId, selectedSubCustomerId, cart, paymentMethod, globalDiscount, invoiceNotes]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      try {
+        localStorage.setItem(MOBILE_POS_DRAFT_KEY, JSON.stringify({
+          partyTypeMode,
+          customerNameInput,
+          customSubCustomerName,
+          selectedCustomerId,
+          selectedSubCustomerId,
+          cart,
+          paymentMethod,
+          globalDiscount,
+          invoiceNotes,
+          timestamp: Date.now()
+        }));
+      } catch {}
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [partyTypeMode, customerNameInput, customSubCustomerName, selectedCustomerId, selectedSubCustomerId, cart, paymentMethod, globalDiscount, invoiceNotes]);
 
   // Shortcut Modals & Operations State
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -330,15 +407,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
 
     if (itemToAdd) {
       const price = essentialPrice ? parseFloat(essentialPrice) || itemToAdd.sellingPrice || 0 : itemToAdd.sellingPrice || 0;
-      const requiresDimensions = Boolean(
-        itemToAdd.requiresDimensions ||
-        itemToAdd.unit?.includes('متر') ||
-        itemToAdd.unit?.includes('م²') ||
-        itemToAdd.category?.includes('طباعة') ||
-        itemToAdd.category?.includes('بنر') ||
-        itemToAdd.category?.includes('فليكس') ||
-        itemToAdd.category?.includes('لوحات')
-      );
+      const requiresDimensions = isSquareMeterUnit(itemToAdd.unit, itemToAdd.unitCalculationType);
 
       setCart(prev => {
         const existingIdx = prev.findIndex(ci => ci.item.id === itemToAdd.id);
@@ -392,15 +461,7 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
 
   // Quick Catalog Add
   const handleCatalogAdd = (item: InventoryItem) => {
-    const requiresDimensions = Boolean(
-      (item as any).requiresDimensions ||
-      item.unit?.includes('متر') ||
-      item.unit?.includes('م²') ||
-      item.category?.includes('طباعة') ||
-      item.category?.includes('بنر') ||
-      item.category?.includes('فليكس') ||
-      item.category?.includes('لوحات')
-    );
+    const requiresDimensions = isSquareMeterUnit(item.unit, item.unitCalculationType);
 
     setCart(prev => {
       const existingIndex = prev.findIndex(ci => ci.item.id === item.id);
@@ -848,6 +909,9 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
       }
 
       // Reset
+      try {
+        localStorage.removeItem(MOBILE_POS_DRAFT_KEY);
+      } catch {}
       setCart([]);
       setGlobalDiscount('');
       setPaidAmountInput('');
@@ -1479,19 +1543,21 @@ export const MobilePosView: React.FC<MobilePosViewProps> = ({ onSwitchToDesktop 
 
                     {/* Dimensions & Trash */}
                     <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => openDimensionsModal(ci)}
-                        className={`p-1 rounded-md text-[10px] font-bold flex items-center gap-0.5 border transition-colors cursor-pointer ${
-                          ci.hasDimensions || ci.notes
-                            ? 'bg-amber-100 border-amber-300 text-amber-800'
-                            : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
-                        }`}
-                        title="المقاسات والملاحظات"
-                      >
-                        <Ruler className="w-3 h-3 text-amber-600" />
-                        <span className="text-[9px] hidden min-[360px]:inline">مقاس</span>
-                      </button>
+                      {isSquareMeterUnit(ci.item.unit, ci.item.unitCalculationType) && (
+                        <button
+                          type="button"
+                          onClick={() => openDimensionsModal(ci)}
+                          className={`p-1 rounded-md text-[10px] font-bold flex items-center gap-0.5 border transition-colors cursor-pointer ${
+                            ci.hasDimensions || ci.notes
+                              ? 'bg-amber-100 border-amber-300 text-amber-800'
+                              : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
+                          }`}
+                          title="المقاسات والملاحظات"
+                        >
+                          <Ruler className="w-3 h-3 text-amber-600" />
+                          <span className="text-[9px] hidden min-[360px]:inline">مقاس</span>
+                        </button>
+                      )}
 
                       <button
                         type="button"

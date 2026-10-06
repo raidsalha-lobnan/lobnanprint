@@ -25,7 +25,8 @@ import {
   AlertCircle,
   Copy,
   Check,
-  Plus
+  Plus,
+  PlusCircle
 } from 'lucide-react';
 import { posSound } from '../utils/audio';
 import { InvoiceStatusHistoryModal } from './pos/InvoiceStatusHistoryModal';
@@ -107,7 +108,8 @@ export const PrintOrdersView: React.FC = () => {
     setSelectedJobForPrint,
     printOrders,
     currentUser,
-    hasPermission
+    hasPermission,
+    setActiveTab
   } = useAccounting();
 
   const ALL_STATUSES = [...WORKSHOP_STATUSES, ...(hasPermission('edit_invoices') ? [{ id: 'delivered' as any, label: 'تم التسليم', color: 'text-emerald-700', border: 'border-emerald-300', bg: 'bg-emerald-50/50', badgeBg: 'bg-emerald-100', badgeText: 'text-emerald-900', description: 'تم تسليمها للعميل نهائياً' }] : [])];
@@ -146,11 +148,12 @@ export const PrintOrdersView: React.FC = () => {
     currentUser?.roleId === 'role-production-mgr';
 
   // Normalize any workflow status into the 5 explicit workshop stages
+  // فواتير حالة "جديد" أو "عروض" لا تظهر في أوامر الطباعة والورشة
   const normalizeWorkflowStatus = (
     status?: string
   ): 'design' | 'pending_approval' | 'print_external' | 'print_internal' | 'ready' | null => {
-    if (!status) return null;
-    if (status === 'delivered' || (status as any) === 'completed') return null;
+    if (!status || status === 'new' || status === 'draft' || status === 'pending' || status === 'quotation') return null;
+    if (status === 'delivered' || (status as any) === 'completed' || status === 'cancelled') return null;
     if (status === 'design' || status === 'designing') return 'design';
     if (status === 'pending_approval') return 'pending_approval';
     if (status === 'print_external' || status === 'in_progress_external') return 'print_external';
@@ -167,10 +170,64 @@ export const PrintOrdersView: React.FC = () => {
     return null;
   };
 
+  const standaloneOrdersMapped: Invoice[] = React.useMemo(() => {
+    const existingInvIds = new Set(invoices.map(i => i.id));
+    return printOrders
+      .filter(po => !po.associatedInvoiceId || !existingInvIds.has(po.associatedInvoiceId))
+      .map(po => ({
+        id: po.id,
+        invoiceNumber: po.orderNumber || po.id,
+        customerId: po.customerId,
+        customerName: po.customerName,
+        subCustomerName: po.subCustomerName,
+        customerPhone: po.customerPhone,
+        date: po.createdAt ? po.createdAt.split('T')[0] : new Date().toISOString().split('T')[0],
+        time: po.createdAtTime || (po.createdAt ? po.createdAt.split('T')[1]?.substring(0, 5) : '00:00'),
+        items: po.items && po.items.length > 0 ? po.items : [
+          {
+            itemId: 'custom-print',
+            itemCode: 'PRN',
+            itemName: po.title || 'أمر طباعة مخصص',
+            quantity: po.quantity || 1,
+            unitPrice: po.unitCost || 0,
+            totalPrice: po.totalPrice || 0,
+            unit: 'قطعة',
+            notes: `${po.paperType || ''} ${po.dimensions || ''} ${po.colorType || ''} ${(po.finishingOptions || []).join(', ')}`.trim()
+          }
+        ],
+        subtotal: po.totalPrice || 0,
+        taxAmount: 0,
+        taxRate: 0,
+        discountTotal: 0,
+        totalAmount: po.totalPrice || 0,
+        paidAmount: po.depositPaid || 0,
+        remainingAmount: po.remainingBalance || 0,
+        paymentStatus: (po.remainingBalance || 0) <= 0 ? 'paid' : (po.depositPaid || 0) > 0 ? 'partial' : 'unpaid',
+        paymentMethod: 'cash',
+        type: 'standard' as const,
+        status: 'draft' as const,
+        workflowStatus: (po.status as any) || 'design',
+        notes: po.notes || po.title || '',
+        isPrintOrder: true,
+        isWorkshopVisible: true,
+        deliveryDate: po.deliveryDate
+      } as unknown as Invoice));
+  }, [printOrders, invoices]);
+
+  const allWorkshopInvoices = React.useMemo(() => {
+    return [...invoices, ...standaloneOrdersMapped];
+  }, [invoices, standaloneOrdersMapped]);
+
   // Filter invoices to ONLY include the 5 workshop work statuses:
   // أي فاتورة يتم تغير حالتها لتم التسليم لا تظهر في شاشة أوامر الطباعة والورشة ويتم اعتماد حالة الفاتورة أنه تم التسليم
-  const workshopInvoices = invoices.filter((inv) => {
-    if (!hasPermission('edit_invoices') && (inv.workflowStatus === 'delivered' || inv.status === 'delivered' || inv.workflowStatus === 'completed')) {
+  const workshopInvoices = allWorkshopInvoices.filter((inv) => {
+    // القاعدة الصارمة: عندما تكون حالة الفاتورة جديد لا تظهر هذه الفاتورة في أوامر الطباعة والورشة
+    if (!inv.workflowStatus || inv.workflowStatus === 'new' || inv.status === 'new' || inv.workflowStatus === 'quotation') {
+      return false;
+    }
+
+    const isSuperAdminOrMgr = currentUser?.roleId === 'role-super-admin' || currentUser?.roleId === 'role-manager';
+    if (!isSuperAdminOrMgr && !hasPermission('edit') && !hasPermission('view_invoices') && (inv.workflowStatus === 'delivered' || inv.status === 'delivered' || inv.workflowStatus === 'completed')) {
       return false;
     }
     const normalized = normalizeWorkflowStatus(inv.workflowStatus);
@@ -201,11 +258,9 @@ export const PrintOrdersView: React.FC = () => {
     return true;
   });
 
-  // Calculate stats count per stage (excluding delivered)
+  // Calculate stats count per stage (excluding new, quotation, and delivered)
   const countsByStatus = ALL_STATUSES.reduce((acc, col) => {
-    acc[col.id] = invoices.filter((inv) => 
-      /* inv.workflowStatus !== 'delivered' &&
-      inv.status !== 'delivered' && */
+    acc[col.id] = workshopInvoices.filter((inv) => 
       normalizeWorkflowStatus(inv.workflowStatus) === col.id
     ).length;
     return acc;
@@ -330,16 +385,16 @@ export const PrintOrdersView: React.FC = () => {
               )}
             </div>
 
-            {/* Delivery Date */}
-            <div
-              className="flex items-center gap-1 text-[10px] font-mono text-slate-700 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 shrink-0"
-              title="تاريخ التسليم المتفق عليه"
-            >
-              <Calendar className="w-3 h-3 text-amber-600" />
-              <span className="font-semibold text-slate-500">تسليم:</span>
-              <strong className="text-slate-800">
-                {invoice.deliveryDate || invoice.date || 'غير محدد'}
-              </strong>
+            {/* التواريخ: تاريخ الاستلام وتحته تاريخ التسليم وجعل الكلام والتاريخ سطر واحد */}
+            <div className="flex flex-col gap-1 text-[10px] font-mono bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200 shrink-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-slate-500 whitespace-nowrap">تاريخ الاستلام:</span>
+                <strong className="text-slate-800 font-mono">{invoice.date || 'اليوم'}</strong>
+              </div>
+              <div className="flex items-center justify-between gap-2 border-t border-slate-200/60 pt-0.5">
+                <span className="font-bold text-amber-700 whitespace-nowrap">تاريخ التسليم:</span>
+                <strong className="text-amber-900 font-mono font-bold">{invoice.deliveryDate || invoice.date || 'غير محدد'}</strong>
+              </div>
             </div>
           </div>
 
@@ -359,9 +414,9 @@ export const PrintOrdersView: React.FC = () => {
               <table className="w-full text-right text-xs">
                 <thead className="bg-slate-50 text-slate-500 text-[10px] font-semibold border-b border-slate-200">
                   <tr>
-                    <th className="p-2">الصنف والمواصفات</th>
+                    <th className="p-2">الصنف</th>
                     <th className="p-2 text-center">الكمية</th>
-                    <th className="p-2">ملاحظات البند</th>
+                    <th className="p-2">البيان والملاحظات</th>
                     <th className="p-2 text-center">الملف المرفق والمراجعة</th>
                   </tr>
                 </thead>
@@ -375,7 +430,10 @@ export const PrintOrdersView: React.FC = () => {
                       <tr key={it.itemId || idx} className="hover:bg-slate-50/80 transition-colors">
                         <td className="p-2 align-top">
                           <div className="font-bold text-slate-900 text-xs leading-tight">
-                            {it.itemName}
+                            <span>{it.itemName}</span>
+                            {(it.notes || it.description) && (it.notes !== it.itemName) && (
+                              <span className="text-slate-600 font-normal"> / {it.notes || it.description}</span>
+                            )}
                           </div>
                           {it.dimensions && (
                             <div className="text-[9px] text-slate-400 font-light font-mono mt-0.5">
@@ -650,6 +708,20 @@ export const PrintOrdersView: React.FC = () => {
 
           {/* Search, Filter & View Mode Switcher */}
           <div className="flex items-center gap-2 flex-wrap">
+            {/* New Print Order Button - Opens Dedicated Full Screen */}
+            <button
+              type="button"
+              onClick={() => {
+                posSound.click();
+                setActiveTab('new_print_order');
+              }}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm px-3.5 py-1.5 rounded-lg shadow-sm hover:shadow flex items-center gap-1.5 transition-all cursor-pointer shrink-0 active:scale-95"
+              title="فتح شاشة أمر تشغيل وطباعة جديد كاملة (بدون تأثير محاسبي أو مخزني)"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>+ أمر جديد</span>
+            </button>
+
             {/* Search Input */}
             <div className="relative min-w-[200px] sm:min-w-[240px]">
               <Search className="w-3.5 h-3.5 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />

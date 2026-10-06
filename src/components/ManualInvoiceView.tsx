@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { DateInput } from '../components/common/DateInput';
 import { useAccounting } from '../context/AccountingContext';
-import { Printer, Save, Plus, Trash2 } from 'lucide-react';
+import { Printer, Save, Plus, Trash2, Truck } from 'lucide-react';
 import { OfficialStamp } from './common/OfficialStamp';
 
 
@@ -11,22 +11,82 @@ export const ManualInvoiceView: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   
-  const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [customerName, setCustomerName] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
-  const [customerAddress, setCustomerAddress] = useState('');
-  const [sellerName, setSellerName] = useState(settings?.companyName || '');
-  const [sellerPhone, setSellerPhone] = useState(settings?.phone || '');
-  const [sellerAddress, setSellerAddress] = useState(settings?.address || '');
+  const MANUAL_INV_DRAFT_KEY = 'manual_inv_draft';
+  const savedManualDraft = React.useMemo(() => {
+    try {
+      const raw = localStorage.getItem('manual_inv_draft');
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return {};
+  }, []);
+
+  const [invoiceNumber, setInvoiceNumber] = useState(() => savedManualDraft.invoiceNumber || '');
+  const [date, setDate] = useState(() => savedManualDraft.date || new Date().toISOString().split('T')[0]);
+  const [customerName, setCustomerName] = useState(() => savedManualDraft.customerName || '');
+  const [customerPhone, setCustomerPhone] = useState(() => savedManualDraft.customerPhone || '');
+  const [customerAddress, setCustomerAddress] = useState(() => savedManualDraft.customerAddress || '');
+  const [sellerName, setSellerName] = useState(() => savedManualDraft.sellerName || settings?.companyName || '');
+  const [sellerPhone, setSellerPhone] = useState(() => savedManualDraft.sellerPhone || settings?.phone || '');
+  const [sellerAddress, setSellerAddress] = useState(() => savedManualDraft.sellerAddress || settings?.address || '');
   
-  const [items, setItems] = useState(
-    Array(12).fill(null).map(() => ({ name: '', itemNotes: '', qty: '', price: '', total: 0 }))
-  );
+  const [items, setItems] = useState<Array<{ name: string; itemNotes: string; qty: string; price: string; total: number }>>(() => {
+    if (Array.isArray(savedManualDraft.items) && savedManualDraft.items.length > 0) {
+      return savedManualDraft.items;
+    }
+    return Array(12).fill(null).map(() => ({ name: '', itemNotes: '', qty: '', price: '', total: 0 }));
+  });
   
-  const [notes, setNotes] = useState('');
-  const [discount, setDiscount] = useState('');
+  const [notes, setNotes] = useState(() => savedManualDraft.notes || '');
+  const [discount, setDiscount] = useState(() => savedManualDraft.discount || '');
   const [activeItemIndex, setActiveItemIndex] = useState<number | null>(null);
+
+  // Auto-save manual invoice draft
+  useEffect(() => {
+    try {
+      const hasContent = customerName.trim() !== '' || customerPhone.trim() !== '' || notes.trim() !== '' || items.some(it => it.name.trim() !== '');
+      if (hasContent) {
+        localStorage.setItem(MANUAL_INV_DRAFT_KEY, JSON.stringify({
+          invoiceNumber,
+          date,
+          customerName,
+          customerPhone,
+          customerAddress,
+          sellerName,
+          sellerPhone,
+          sellerAddress,
+          items,
+          notes,
+          discount,
+          timestamp: Date.now()
+        }));
+      } else {
+        localStorage.removeItem(MANUAL_INV_DRAFT_KEY);
+      }
+    } catch {}
+  }, [invoiceNumber, date, customerName, customerPhone, customerAddress, sellerName, sellerPhone, sellerAddress, items, notes, discount]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      try {
+        localStorage.setItem(MANUAL_INV_DRAFT_KEY, JSON.stringify({
+          invoiceNumber,
+          date,
+          customerName,
+          customerPhone,
+          customerAddress,
+          sellerName,
+          sellerPhone,
+          sellerAddress,
+          items,
+          notes,
+          discount,
+          timestamp: Date.now()
+        }));
+      } catch {}
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [invoiceNumber, date, customerName, customerPhone, customerAddress, sellerName, sellerPhone, sellerAddress, items, notes, discount]);
   
   useEffect(() => {
     if (!invoiceNumber) {
@@ -76,6 +136,39 @@ export const ManualInvoiceView: React.FC = () => {
 
 
 
+  const handleAddDeliveryService = () => {
+    const deliveryService = inventory.find(
+      i => i.id === 'srv-delivery' || i.name.includes('خدمة توصيل') || i.name.includes('توصيل')
+    );
+    const price = deliveryService ? deliveryService.sellingPrice.toString() : '20';
+    const numPrice = parseFloat(price) || 20;
+
+    // Find first empty item row or append
+    const emptyIdx = items.findIndex(i => !i.name.trim() && !i.itemNotes.trim() && (!i.total || i.total === 0));
+    if (emptyIdx !== -1) {
+      const newItems = [...items];
+      newItems[emptyIdx] = {
+        name: deliveryService ? deliveryService.name : 'خدمة توصيل',
+        itemNotes: 'خدمة توصيل طلبات',
+        qty: '1',
+        price: price,
+        total: numPrice
+      };
+      setItems(newItems);
+    } else {
+      setItems(prev => [
+        ...prev,
+        {
+          name: deliveryService ? deliveryService.name : 'خدمة توصيل',
+          itemNotes: 'خدمة توصيل طلبات',
+          qty: '1',
+          price: price,
+          total: numPrice
+        }
+      ]);
+    }
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -97,7 +190,9 @@ export const ManualInvoiceView: React.FC = () => {
       items: validItems.map(i => ({
         id: Math.random().toString(36).substr(2, 9),
         inventoryItemId: '',
-        name: [i.name, i.itemNotes].filter(Boolean).join(' - '),
+        name: i.name.trim() || i.itemNotes.trim(),
+        description: i.itemNotes.trim() || undefined,
+        notes: i.itemNotes.trim() || undefined,
         quantity: Number(i.qty) || 1,
         unitPrice: Number(i.price) || 0,
         total: i.total,
@@ -126,6 +221,15 @@ export const ManualInvoiceView: React.FC = () => {
           <p className="text-[10px] text-slate-400 font-light">قم بتعبئة البيانات وطباعتها أو حفظها في السجل</p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleAddDeliveryService}
+            className="flex items-center gap-2 px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-sm shadow-sm transition-colors cursor-pointer"
+            title="إضافة خدمة توصيل تلقائياً كبند في الفاتورة"
+          >
+            <Truck className="w-4 h-4" />
+            <span>+ خدمة توصيل</span>
+          </button>
           <button
             onClick={handleSave}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm shadow-sm transition-colors"
@@ -236,7 +340,8 @@ export const ManualInvoiceView: React.FC = () => {
             <thead className="bg-[#dbeafe] text-[#1e3a8a] font-bold border-b-[1.5px] border-[#1e3a8a]">
               <tr>
                 <th className="py-2 border-l-[1.5px] border-[#1e3a8a] w-12">م</th>
-                <th className="py-2 border-l-[1.5px] border-[#1e3a8a]">البيان والصنف</th>
+                <th className="py-2 border-l-[1.5px] border-[#1e3a8a] w-48">الصنف</th>
+                <th className="py-2 border-l-[1.5px] border-[#1e3a8a]">البيان</th>
                 <th className="py-2 border-l-[1.5px] border-[#1e3a8a] w-24">الكمية</th>
                 <th className="py-2 border-l-[1.5px] border-[#1e3a8a] w-28">سعر الوحدة</th>
                 <th className="py-2 w-32">الإجمالي</th>
@@ -246,26 +351,19 @@ export const ManualInvoiceView: React.FC = () => {
               {items.map((item, idx) => (
                 <tr key={item.id} className="h-[4%]">
                   <td className="border-l-[1.5px] border-[#1e3a8a] font-bold text-sm text-slate-700">{idx + 1}</td>
+                  {/* عمود الصنف المستقل */}
                   <td className="border-l-[1.5px] border-[#1e3a8a] p-0 relative">
-                    <div className="flex items-center w-full h-full px-2">
-                      <input 
-                        type="text" 
-                        value={item.name} 
-                        onChange={e => {
-                          handleItemChange(idx, 'name', e.target.value);
-                          setActiveItemIndex(idx);
-                        }} 
-                        onFocus={() => setActiveItemIndex(idx)}
-                        className="flex-1 bg-transparent focus:outline-none focus:bg-slate-50 text-sm" 
-                      />
-                      {(item.name || item.itemNotes) && <span className="text-[#1e3a8a] font-bold mx-1 select-none">/</span>}
-                      <input 
-                        type="text" 
-                        value={item.itemNotes} 
-                        onChange={e => handleItemChange(idx, 'itemNotes', e.target.value)} 
-                        className="flex-1 bg-transparent focus:outline-none focus:bg-slate-50 text-sm text-slate-600" 
-                      />
-                    </div>
+                    <input 
+                      type="text" 
+                      value={item.name} 
+                      onChange={e => {
+                        handleItemChange(idx, 'name', e.target.value);
+                        setActiveItemIndex(idx);
+                      }} 
+                      onFocus={() => setActiveItemIndex(idx)}
+                      placeholder="اختر أو اكتب الصنف..."
+                      className="w-full px-2.5 py-1.5 bg-transparent focus:outline-none focus:bg-slate-50 text-sm font-bold text-right" 
+                    />
                     {/* Dropdown */}
                     {activeItemIndex === idx && (() => {
                       const itemResults = inventory.filter(i => i.name.includes(item.name) && item.name.trim() !== '');
@@ -287,6 +385,17 @@ export const ManualInvoiceView: React.FC = () => {
                       }
                       return null;
                     })()}
+                  </td>
+
+                  {/* عمود البيان المستقل */}
+                  <td className="border-l-[1.5px] border-[#1e3a8a] p-0">
+                    <input 
+                      type="text" 
+                      value={item.itemNotes} 
+                      onChange={e => handleItemChange(idx, 'itemNotes', e.target.value)} 
+                      placeholder="البيان، الشرح أو تفاصيل البند..."
+                      className="w-full px-2.5 py-1.5 bg-transparent focus:outline-none focus:bg-slate-50 text-sm text-slate-700 placeholder:text-slate-400 text-right" 
+                    />
                   </td>
                   <td className="border-l-[1.5px] border-[#1e3a8a] px-2">
                     <input type="number" min="0" value={item.qty} onChange={e => handleItemChange(idx, 'qty', e.target.value)} className="w-full text-center bg-transparent focus:outline-none focus:bg-slate-50 text-sm" />

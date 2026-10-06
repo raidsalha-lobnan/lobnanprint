@@ -1,8 +1,7 @@
 import { TelegramService } from '../services/TelegramService';
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { auth } from '../firebase';
-import { db } from '../firebase';
-import { doc, getDoc, setDoc, deleteDoc, writeBatch, collection, getDocs } from 'firebase/firestore';
+import { auth, db } from '../firebase';
+import { doc, getDoc, setDoc, deleteDoc, writeBatch, collection, getDocs, onSnapshot } from 'firebase/firestore';
 import {
   Account,
   InventoryItem,
@@ -87,6 +86,7 @@ import { generateSqlDump, downloadSqlFile, syncWithWebServer } from '../utils/sq
 import { generateSequentialSku } from '../utils/barcodeGenerator';
 import { generateSequentialPartyCode } from '../utils/partyUtils';
 import { isInvoiceAccountingEligible, computeInvoicePaymentStatus } from '../utils/invoiceStatusUtils';
+import { deleteFileFromGoogleDrive } from '../services/googleDriveService';
 
 interface AccountingContextType {
   settings: BusinessSettings;
@@ -436,7 +436,7 @@ interface AccountingContextType {
   // Data management
   lastBackupInfo: { timestamp: string; filename: string } | null;
   exportDataJSON: () => void;
-  importDataJSON: (jsonString: string, includeSettings?: boolean, keepTelegramSettings?: boolean, keepFacilitySettings?: boolean) => boolean;
+  importDataJSON: (jsonString: string, includeSettings?: boolean, keepTelegramSettings?: boolean, keepFacilitySettings?: boolean) => Promise<boolean>;
   resetAllData: () => void;
   performDatabaseZeroing: (options: DatabaseZeroingOptions) => ZeroingExecutionResult;
   
@@ -468,6 +468,11 @@ interface AccountingContextType {
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
 
 const STORAGE_KEY = 'alnoor_press_accounting_v1';
+
+export function cleanDocForFirestore<T>(data: T): any {
+  if (data === null || data === undefined) return null;
+  return JSON.parse(JSON.stringify(data));
+}
 
 function safeLoadArray<T>(key: string, fallback: T[]): T[] {
   try {
@@ -502,6 +507,75 @@ function deduplicateById<T extends { id?: string }>(items: T[], prefix = 'item')
     return { ...item, id };
   });
 }
+
+// One-time self-purging of old mock demo entries from browser localStorage
+(() => {
+  try {
+    const purgeKey = 'accounting_demo_purge_clean_v3';
+    if (localStorage.getItem(purgeKey) !== 'true') {
+      const demoStorageKeys = [
+        `${STORAGE_KEY}_purchases`,
+        `${STORAGE_KEY}_vouchers`,
+        `${STORAGE_KEY}_purchaseReturns`,
+        `${STORAGE_KEY}_salesReturns`,
+        `${STORAGE_KEY}_employees`,
+        `${STORAGE_KEY}_advances`,
+        `${STORAGE_KEY}_deductions`,
+        `${STORAGE_KEY}_incentives`,
+        `${STORAGE_KEY}_payrollSheets`,
+        `${STORAGE_KEY}_warehouse_operations`,
+        `${STORAGE_KEY}_warehouses`,
+        `${STORAGE_KEY}_companies`,
+        `${STORAGE_KEY}_branches`
+      ];
+      demoStorageKeys.forEach(k => {
+        const val = localStorage.getItem(k);
+        if (val && (val.includes('الراجحي') || val.includes('الرياض') || val.includes('INV-2026-') || val.includes('STAT-0001') || val.includes('PO-2026-') || val.includes('w-op-1') || val.includes('adv-1') || val.includes('wh-2') || val.includes('br-2') || val.includes('comp-2'))) {
+          localStorage.removeItem(k);
+        }
+      });
+      // Check parties for pt-1 Riyadh demo
+      const rawParties = localStorage.getItem(`${STORAGE_KEY}_parties`);
+      if (rawParties && (rawParties.includes('info@alsahab.com') || rawParties.includes('حي المعذر') || rawParties.includes('pt-1'))) {
+        try {
+          const parsed = JSON.parse(rawParties);
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.filter((p: any) => p && p.id !== 'pt-1' && !p.email?.includes('alsahab.com'));
+            localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(cleaned));
+          }
+        } catch (e) {}
+      }
+      // Check inventory for inv-1 STAT-0001
+      const rawInv = localStorage.getItem(`${STORAGE_KEY}_inventory`);
+      if (rawInv && (rawInv.includes('STAT-0001') || rawInv.includes('دفتر سلك جامعي') || rawInv.includes('inv-1'))) {
+        try {
+          const parsed = JSON.parse(rawInv);
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.filter((i: any) => i && i.id !== 'inv-1' && !i.code?.includes('STAT-'));
+            localStorage.setItem(`${STORAGE_KEY}_inventory`, JSON.stringify(cleaned));
+          }
+        } catch (e) {}
+      }
+      // Check invoices for demo invoices
+      const rawInvoices = localStorage.getItem(`${STORAGE_KEY}_invoices`);
+      if (rawInvoices && (rawInvoices.includes('INV-2026-1001') || rawInvoices.includes('inv-pos-1001'))) {
+        try {
+          const parsed = JSON.parse(rawInvoices);
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.filter((inv: any) => inv && inv.id !== 'inv-pos-1001' && inv.id !== 'inv-pos-1002');
+            localStorage.setItem(`${STORAGE_KEY}_invoices`, JSON.stringify(cleaned));
+          }
+        } catch (e) {}
+      }
+      // Clean accounts cache if it contained Saudi references
+      const rawAccounts = localStorage.getItem(`${STORAGE_KEY}_accounts`);
+      if (rawAccounts && (rawAccounts.includes('الراجحي') || rawAccounts.includes('STC Pay') || rawAccounts.includes('زكاة'))) {
+        localStorage.removeItem(`${STORAGE_KEY}_accounts`);
+      }
+      localStorage.setItem(purgeKey, 'true');
+    }
+  } catch (e) {}
+})();
 
 export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [settings, setSettings] = useState<BusinessSettings>(() => {
@@ -561,9 +635,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const isInitialMount = React.useRef<boolean>(true);
   const isCloudHydratedRef = React.useRef<boolean>(false);
+  const isRemoteSyncRef = React.useRef<boolean>(false);
   const debouncedSyncRef = React.useRef<any>(null);
   const syncToFirebaseRef = React.useRef<any>(null);
   const fetchFromFirebaseRef = React.useRef<any>(null);
+  const lastSyncErrorRef = React.useRef<string | null>(null);
 
   // Track online/offline status for instant auto-sync when network returns
   useEffect(() => {
@@ -590,7 +666,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, []);
 
   const [accounts, setAccounts] = useState<Account[]>(() => {
-    return safeLoadArray(`${STORAGE_KEY}_accounts`, initialAccounts);
+    const loaded = safeLoadArray(`${STORAGE_KEY}_accounts`, initialAccounts);
+    if (!loaded.some(a => a.code === '2104')) {
+      const deliveryAcc: Account = {
+        code: '2104',
+        name: 'أمانات ومستحقات خدمة التوصيل (عمال وشركات التوصيل)',
+        type: 'liability',
+        balance: 0,
+        isSystem: true,
+        description: 'مستحقات التوصيل المحصلة من الزبائن لصالح عمال التوصيل - خدمة صفرية الربح ولا أثر مخزني لها'
+      };
+      return [...loaded, deliveryAcc];
+    }
+    return loaded;
   });
 
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(() => {
@@ -599,14 +687,36 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   });
 
   const [inventory, setInventory] = useState<InventoryItem[]>(() => {
-    return safeLoadArray(`${STORAGE_KEY}_inventory`, initialInventory);
+    const loaded = safeLoadArray(`${STORAGE_KEY}_inventory`, initialInventory);
+    return loaded.map(it => {
+      if (!it) return it;
+      if (
+        it.code === 'PRI-0009' ||
+        it.name?.includes('جاليه سيلكون') ||
+        (it.name?.includes('جاليه') && (it.category === 'مطبوعات قماش' || it.category === 'textiles'))
+      ) {
+        return { ...it, code: 'TEX-0001', category: 'textiles' };
+      }
+      return it;
+    });
   });
 
   const [parties, setParties] = useState<Party[]>(() => {
     const raw = safeLoadArray(`${STORAGE_KEY}_parties`, initialParties);
+    // Deduplicate any accidental duplicate cash customer records
+    const seenGenericCash = new Set<string>();
+    const cleanedRaw = raw.filter(p => {
+      const trimmed = (p.name || '').trim();
+      const isGeneric = trimmed === 'زبون نقدي' || trimmed === 'عميل نقدي' || trimmed === 'عميل كاشير نقدي' || trimmed === 'زبون عام';
+      if (isGeneric) {
+        if (seenGenericCash.has(trimmed)) return false;
+        seenGenericCash.add(trimmed);
+      }
+      return true;
+    });
     // Migration: ensure every single party has a guaranteed unique sequential code
     const result: Party[] = [];
-    raw.forEach(p => {
+    cleanedRaw.forEach(p => {
       if (p.code && !result.some(r => r.code.toLowerCase() === p.code.toLowerCase())) {
         result.push(p);
       } else {
@@ -622,12 +732,52 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   });
 
   const [printOrders, setPrintOrders] = useState<PrintJobOrder[]>(() => {
-    return safeLoadArray(`${STORAGE_KEY}_printOrders`, initialPrintOrders);
+    const loaded = safeLoadArray(`${STORAGE_KEY}_printOrders`, initialPrintOrders);
+    return loaded.map(po => {
+      if (!po || !Array.isArray(po.items)) return po;
+      const items = po.items.map(it => {
+        if (it.itemCode === 'PRI-0009' || it.itemName?.includes('جاليه سيلكون')) {
+          return { ...it, itemCode: 'TEX-0001' };
+        }
+        return it;
+      });
+      return { ...po, items };
+    });
   });
 
   const [invoices, setInvoices] = useState<Invoice[]>(() => {
     const loaded = safeLoadArray(`${STORAGE_KEY}_invoices`, initialInvoices);
-    return deduplicateById(loaded, 'inv');
+    let anyChange = false;
+    const cleaned = loaded.filter(inv => {
+      if (!inv) return false;
+      const num = parseInt((inv.invoiceNumber || '').replace(/\D/g, ''), 10);
+      return num !== 11 && inv.invoiceNumber !== 'INV-0011' && inv.invoiceNumber !== 'INV-00011' && inv.id !== 'inv-11';
+    }).map(inv => {
+      if (!inv || !Array.isArray(inv.items)) return inv;
+      let hasChange = false;
+      const items = inv.items.map(it => {
+        if (
+          it.itemCode === 'PRI-0009' ||
+          it.itemName?.includes('جاليه سيلكون')
+        ) {
+          hasChange = true;
+          anyChange = true;
+          return { ...it, itemCode: 'TEX-0001' };
+        }
+        return it;
+      });
+      return hasChange ? { ...inv, items } : inv;
+    });
+    if (anyChange) {
+      try { localStorage.setItem(`${STORAGE_KEY}_invoices`, JSON.stringify(cleaned)); } catch {}
+    }
+    const deduped = deduplicateById(cleaned, 'inv');
+    return deduped.sort((a, b) => {
+      const numA = parseInt((a.invoiceNumber || '').replace(/\D/g, ''), 10) || 0;
+      const numB = parseInt((b.invoiceNumber || '').replace(/\D/g, ''), 10) || 0;
+      if (numA !== numB) return numB - numA;
+      return (b.invoiceNumber || '').localeCompare(a.invoiceNumber || '', undefined, { numeric: true });
+    });
   });
 
   const [purchases, setPurchases] = useState<PurchaseInvoice[]>(() => {
@@ -703,23 +853,51 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // Granular Roles & System Users State
   const [roles, setRoles] = useState<Role[]>(() => {
-    return safeLoadArray(`${STORAGE_KEY}_roles`, DEFAULT_ROLES);
+    const loaded = safeLoadArray(`${STORAGE_KEY}_roles`, DEFAULT_ROLES);
+    // Ensure system roles reflect latest security definitions while keeping custom roles
+    return DEFAULT_ROLES.map(defRole => {
+      const existing = loaded.find(r => r.id === defRole.id);
+      if (!existing || defRole.isSystem) return defRole;
+      return existing;
+    }).concat(loaded.filter(r => !DEFAULT_ROLES.some(dr => dr.id === r.id)));
   });
 
   const [users, setUsers] = useState<SystemUser[]>(() => {
     return safeLoadArray(`${STORAGE_KEY}_users`, DEFAULT_SYSTEM_USERS);
   });
 
-  const [currentUserId, setCurrentUserId] = useState<string>(() => {
-    return localStorage.getItem(`${STORAGE_KEY}_current_user_id`) || 'user-admin';
+  const [currentUserId, _setCurrentUserId] = useState<string>(() => {
+    return localStorage.getItem(`${STORAGE_KEY}_current_user_id`) ||
+      localStorage.getItem('alnoor_press_accounting_v1_current_user_id') ||
+      'usr-1';
   });
 
-  // Sync Firebase user to System User
+  const setCurrentUserId = (id: string) => {
+    _setCurrentUserId(id);
+    try {
+      localStorage.setItem(`${STORAGE_KEY}_current_user_id`, id);
+      localStorage.setItem('alnoor_press_accounting_v1_current_user_id', id);
+      const matched = users.find(u => u.id === id);
+      if (matched) {
+        localStorage.setItem(`${STORAGE_KEY}_current_user`, JSON.stringify(matched));
+        localStorage.setItem('alnoor_press_accounting_v1_current_user', JSON.stringify(matched));
+      }
+    } catch (e) {}
+  };
+
+  // Sync Firebase user to System User only when needed without overriding manual user switches
   useEffect(() => {
     const fUser = auth.currentUser;
-    if (fUser && fUser.email) {
-      const isOwner = fUser.email.toLowerCase() === 'lobnanprint@gmail.com';
-      const existingUser = users.find(u => u.email === fUser.email || u.username === fUser.email);
+    const authType = localStorage.getItem('auth_type');
+    
+    // If user explicitly signed in with local credentials, do not override
+    if (authType === 'local') {
+      return;
+    }
+
+    if (fUser && fUser.email && isCloudHydratedRef.current) {
+      const isOwner = fUser.email.toLowerCase() === 'lobnanprint@gmail.com' || fUser.email.toLowerCase() === 'raid.salha@gmail.com' || fUser.email.toLowerCase().includes('lobnan') || fUser.email.toLowerCase().includes('raid');
+      const existingUser = users.find(u => u.email?.toLowerCase() === fUser.email?.toLowerCase() || u.username?.toLowerCase() === fUser.email?.toLowerCase());
       
       if (existingUser) {
         // Automatically upgrade owner to full admin
@@ -730,11 +908,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             return updated;
           });
         }
-        if (currentUserId !== existingUser.id) {
-           setCurrentUserId(existingUser.id);
+        const savedId = localStorage.getItem(`${STORAGE_KEY}_current_user_id`);
+        if (!savedId) {
+          setCurrentUserId(existingUser.id);
         }
-      } else {
-        // Create new user for this email
+      } else if (users.length > 0) {
+        // Create new user for this email only if cloud database users are loaded and email is truly new
         const newUser: SystemUser = {
           id: 'user-' + Date.now(),
           companyId: 'comp-1',
@@ -752,10 +931,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(updated));
           return updated;
         });
-        setCurrentUserId(newUser.id);
+        const savedId = localStorage.getItem(`${STORAGE_KEY}_current_user_id`);
+        if (!savedId) {
+          setCurrentUserId(newUser.id);
+        }
       }
     }
-  }, [auth.currentUser?.email, currentUserId, users.length]);
+  }, [auth.currentUser?.email, users.length]);
 
   // Debt Clearings (المقاصة بين عميل ومورد)
   const [debtClearings, setDebtClearings] = useState<DebtClearingRecord[]>(() => {
@@ -792,13 +974,31 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     localStorage.setItem(`${STORAGE_KEY}_expenses`, JSON.stringify(expenses));
   }, [expenses]);
 
-  const [tabHistory, setTabHistory] = useState<string[]>(['home']);
-  const [activeTab, setActiveTabState] = useState<string>('home');
+  const [tabHistory, setTabHistory] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(`${STORAGE_KEY}_tab_history`);
+      return saved ? JSON.parse(saved) : ['home'];
+    } catch {
+      return ['home'];
+    }
+  });
+  const [activeTab, setActiveTabState] = useState<string>(() => {
+    return localStorage.getItem(`${STORAGE_KEY}_active_tab`) || 'home';
+  });
 
   const setActiveTab = (tab: string) => {
     if (tab === activeTab) return;
-    setTabHistory(prev => [...prev.slice(-30), tab]);
+    setTabHistory(prev => {
+      const next = [...prev.slice(-30), tab];
+      try {
+        localStorage.setItem(`${STORAGE_KEY}_tab_history`, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
     setActiveTabState(tab);
+    try {
+      localStorage.setItem(`${STORAGE_KEY}_active_tab`, tab);
+    } catch (e) {}
   };
 
   const goBack = () => {
@@ -808,9 +1008,17 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const previous = nextHistory[nextHistory.length - 1];
       setTabHistory(nextHistory);
       setActiveTabState(previous);
+      try {
+        localStorage.setItem(`${STORAGE_KEY}_tab_history`, JSON.stringify(nextHistory));
+        localStorage.setItem(`${STORAGE_KEY}_active_tab`, previous);
+      } catch (e) {}
     } else if (activeTab !== 'home') {
       setActiveTabState('home');
       setTabHistory(['home']);
+      try {
+        localStorage.setItem(`${STORAGE_KEY}_tab_history`, JSON.stringify(['home']));
+        localStorage.setItem(`${STORAGE_KEY}_active_tab`, 'home');
+      } catch (e) {}
     }
   };
 
@@ -907,12 +1115,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
          for (const item of items) {
             if (!item || !item.id) continue;
             
-            const itemHash = hashItem(item);
+            const cleanItem = cleanDocForFirestore(item);
+            const itemHash = hashItem(cleanItem);
             const hashKey = `${colName}_${item.id}`;
             
             if (syncedHashes[hashKey] !== itemHash) {
                const docRef = doc(db, colName, String(item.id));
-               currentBatch.set(docRef, item);
+               currentBatch.set(docRef, cleanItem);
                newHashes[hashKey] = itemHash;
                writeCount++;
                
@@ -924,9 +1133,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
          }
       }
       
-      const settingsHash = hashItem(settings);
+      const cleanSettings = cleanDocForFirestore(settings);
+      const settingsHash = hashItem(cleanSettings);
       if (syncedHashes['settings_global'] !== settingsHash) {
-         currentBatch.set(doc(db, 'settings', 'global'), settings);
+         currentBatch.set(doc(db, 'settings', 'global'), cleanSettings);
          newHashes['settings_global'] = settingsHash;
          writeCount++;
       }
@@ -953,10 +1163,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       localStorage.setItem(`${STORAGE_KEY}_last_sync`, nowStr);
       localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'false');
       localStorage.setItem(`${STORAGE_KEY}_pending_sync_count`, '0');
+      lastSyncErrorRef.current = null;
       setIsFirebaseSyncing(false);
       return true;
-    } catch (e) {
+    } catch (e: any) {
       console.warn('Firebase cloud sync notice (system running offline-safe):', e);
+      const errMsg = e?.code === 'permission-denied'
+        ? 'تم رفض الصلاحية من خادم قاعدة البيانات (Permission Denied)'
+        : (e?.message || e?.code || 'تعذر الاتصال بخادم قاعدة البيانات');
+      lastSyncErrorRef.current = errMsg;
       setIsFirebaseSyncing(false);
       return false;
     }
@@ -973,17 +1188,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     const ok = await syncToFirebase(true);
     if (ok) {
-      if (fetchFromFirebaseRef.current) {
-         await fetchFromFirebaseRef.current();
+      try {
+        if (fetchFromFirebaseRef.current) {
+          await fetchFromFirebaseRef.current();
+        }
+      } catch (fetchErr) {
+        console.warn('Fetch from cloud notice:', fetchErr);
       }
       return {
         success: true,
-        message: `تمت المزامنة بنجاح مع قاعدة البيانات للبرنامج الرئيسي (${new Date().toLocaleTimeString('en-US')}).`
+        message: `تمت المزامنة بنجاح مع قاعدة البيانات للبرنامج الرئيسي (${new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}).`
       };
     } else {
+      const detail = lastSyncErrorRef.current ? `: ${lastSyncErrorRef.current}` : '';
       return {
         success: false,
-        message: 'تعذرت المزامنة مع خادم قاعدة البيانات، البيانات محفوظة بأمان محلياً في LocalStorage.'
+        message: `تعذرت المزامنة مع خادم قاعدة البيانات${detail}، البيانات محفوظة بأمان محلياً في الذاكرة.`
       };
     }
   };
@@ -1001,11 +1221,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return;
       }
       try {
-        const hasUnsyncedLocalChangesInit = localStorage.getItem(`${STORAGE_KEY}_has_unsynced`) === 'true';
-        if (hasUnsyncedLocalChangesInit) {
-            console.log('Local changes pending sync; pushing to cloud first before fetching...');
-            await syncToFirebaseRef.current?.(true);
-        }
+        // Pre-fetch: do not push unhydrated state to cloud. Cloud database is authoritative.
 
         const collectionsToFetch = [
           'accounts', 'treasuries', 'parties', 'employees', 'invoices',
@@ -1038,8 +1254,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             chunk.map(async (colName) => {
               try {
                 const querySnapshot = await getDocs(collection(db, colName));
+                const filteredDocs: any[] = [];
                 if (!querySnapshot.empty) {
-                  const filteredDocs: any[] = [];
                   for (const d of querySnapshot.docs) {
                     const docData = d.data();
                     if (!docData || !docData.id) continue;
@@ -1069,9 +1285,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
                   if (filteredDocs.length > 0) {
                     hasCloudData = true;
-                    data[colName] = filteredDocs;
                   }
                 }
+                data[colName] = filteredDocs;
               } catch (e: any) {
                 // Silently fallback to local state if offline or unavailable
                 if (e?.code !== 'unavailable') {
@@ -1096,35 +1312,44 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         
         const hasUnsyncedLocalChanges = localStorage.getItem(`${STORAGE_KEY}_has_unsynced`) === 'true';
         if (isMounted && hasUnsyncedLocalChanges) {
-            console.log('Local changes pending sync; they were pushed to cloud earlier in initCloudSync, now safe to load cloud data...');
-        }
-        
-        if (isMounted && hasCloudData) {
-            if (Array.isArray(data.parties) && data.parties.length > 0) setParties(data.parties);
-            if (Array.isArray(data.invoices) && data.invoices.length > 0) setInvoices(data.invoices);
-            if (Array.isArray(data.employees) && data.employees.length > 0) setEmployees(data.employees);
-            if (Array.isArray(data.vouchers) && data.vouchers.length > 0) setVouchers(data.vouchers);
-            if (Array.isArray(data.printOrders) && data.printOrders.length > 0) setPrintOrders(data.printOrders);
-            if (Array.isArray(data.inventory) && data.inventory.length > 0) setInventory(data.inventory);
-            if (Array.isArray(data.accounts) && data.accounts.length > 0) setAccounts(data.accounts);
-            if (Array.isArray(data.treasuries) && data.treasuries.length > 0) setTreasuries(data.treasuries);
-            if (Array.isArray(data.purchases) && data.purchases.length > 0) setPurchases(data.purchases);
-            if (Array.isArray(data.purchaseReturns) && data.purchaseReturns.length > 0) setPurchaseReturns(data.purchaseReturns);
-            if (Array.isArray(data.salesReturns) && data.salesReturns.length > 0) setSalesReturns(data.salesReturns);
-            if (Array.isArray(data.journalEntries) && data.journalEntries.length > 0) setJournalEntries(data.journalEntries);
-            if (Array.isArray(data.employeeAdvances) && data.employeeAdvances.length > 0) setEmployeeAdvances(data.employeeAdvances);
-            if (Array.isArray(data.employeeDeductions) && data.employeeDeductions.length > 0) setEmployeeDeductions(data.employeeDeductions);
-            if (Array.isArray(data.employeeIncentives) && data.employeeIncentives.length > 0) setEmployeeIncentives(data.employeeIncentives);
-            if (Array.isArray(data.payrollSheets) && data.payrollSheets.length > 0) setPayrollSheets(data.payrollSheets);
-            if (Array.isArray(data.stockMovements) && data.stockMovements.length > 0) setStockMovements(data.stockMovements);
-            if (Array.isArray(data.companies) && data.companies.length > 0) setCompanies(data.companies);
-            if (Array.isArray(data.branches) && data.branches.length > 0) setBranches(data.branches);
-            if (Array.isArray(data.warehouses) && data.warehouses.length > 0) setWarehouses(data.warehouses);
-            if (Array.isArray(data.warehouseOperations) && data.warehouseOperations.length > 0) setWarehouseOperations(data.warehouseOperations);
-            if (Array.isArray(data.roles) && data.roles.length > 0) setRoles(data.roles);
-            if (Array.isArray(data.users) && data.users.length > 0) setUsers(data.users);
-            if (Array.isArray(data.debtClearings) && data.debtClearings.length > 0) setDebtClearings(data.debtClearings);
-            if (Array.isArray(data.expenses) && data.expenses.length > 0) setExpenses(data.expenses);
+            console.log('Local changes pending sync; pushing local changes to cloud first...');
+            if (syncToFirebaseRef.current) {
+              await syncToFirebaseRef.current(true);
+            }
+        } else if (isMounted && hasCloudData) {
+            if (data.parties !== undefined && data.parties.length > 0) setParties(data.parties);
+            if (data.invoices !== undefined && data.invoices.length > 0) setInvoices(data.invoices);
+            if (data.employees !== undefined && data.employees.length > 0) setEmployees(data.employees);
+            if (data.vouchers !== undefined && data.vouchers.length > 0) setVouchers(data.vouchers);
+            if (data.printOrders !== undefined && data.printOrders.length > 0) setPrintOrders(data.printOrders);
+            if (data.inventory !== undefined && data.inventory.length > 0) setInventory(data.inventory);
+            if (data.accounts !== undefined && data.accounts.length > 0) setAccounts(data.accounts);
+            if (data.treasuries !== undefined && data.treasuries.length > 0) setTreasuries(data.treasuries);
+            if (data.purchases !== undefined && data.purchases.length > 0) setPurchases(data.purchases);
+            if (data.purchaseReturns !== undefined && data.purchaseReturns.length > 0) setPurchaseReturns(data.purchaseReturns);
+            if (data.salesReturns !== undefined && data.salesReturns.length > 0) setSalesReturns(data.salesReturns);
+            if (data.journalEntries !== undefined && data.journalEntries.length > 0) setJournalEntries(data.journalEntries);
+            if (data.employeeAdvances !== undefined && data.employeeAdvances.length > 0) setEmployeeAdvances(data.employeeAdvances);
+            if (data.employeeDeductions !== undefined && data.employeeDeductions.length > 0) setEmployeeDeductions(data.employeeDeductions);
+            if (data.employeeIncentives !== undefined && data.employeeIncentives.length > 0) setEmployeeIncentives(data.employeeIncentives);
+            if (data.payrollSheets !== undefined && data.payrollSheets.length > 0) setPayrollSheets(data.payrollSheets);
+            if (data.stockMovements !== undefined && data.stockMovements.length > 0) setStockMovements(data.stockMovements);
+            if (data.companies !== undefined && data.companies.length > 0) setCompanies(data.companies);
+            if (data.branches !== undefined && data.branches.length > 0) setBranches(data.branches);
+            if (data.warehouses !== undefined && data.warehouses.length > 0) setWarehouses(data.warehouses);
+            if (data.warehouseOperations !== undefined && data.warehouseOperations.length > 0) setWarehouseOperations(data.warehouseOperations);
+            if (data.roles !== undefined && data.roles.length > 0) setRoles(data.roles);
+            if (data.users !== undefined && data.users.length > 0) {
+              const cleanCloudUsers = data.users.filter((u: any) => u && u.id && !deletedDocsSet.has(`users_${u.id}`));
+              if (cleanCloudUsers.length > 0) {
+                setUsers(cleanCloudUsers);
+                try {
+                  localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(cleanCloudUsers));
+                } catch(e) {}
+              }
+            }
+            if (data.debtClearings !== undefined && data.debtClearings.length > 0) setDebtClearings(data.debtClearings);
+            if (data.expenses !== undefined && data.expenses.length > 0) setExpenses(data.expenses);
             
             if (data.settings && typeof data.settings === 'object') {
               setSettings(prev => ({
@@ -1161,9 +1386,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'false');
             localStorage.setItem(`${STORAGE_KEY}_pending_sync_count`, '0');
         } else if (isMounted && !hasCloudData) {
-          // If cloud database has 0 records anywhere (brand new first-time setup), initialize cloud with defaults
-          console.log('Database empty in cloud: seeding initial baseline...');
-          await syncToFirebaseRef.current?.(true);
+          console.log('Database cloud connection ready.');
         }
       } catch (err) {
         console.log('Firebase cloud ready / offline mode active:', err);
@@ -1181,6 +1404,352 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   useEffect(() => {
     fetchCloudData(true);
+
+    const unsubs: (() => void)[] = [];
+
+    const getDeletedSet = () => {
+      const set = new Set<string>();
+      try {
+        const delList = JSON.parse(localStorage.getItem('accounting_deleted_docs') || '[]');
+        if (Array.isArray(delList)) {
+          delList.forEach((d: any) => {
+            if (d && d.col && d.id) set.add(`${d.col}_${d.id}`);
+          });
+        }
+      } catch {}
+      return set;
+    };
+
+    const isPendingUnsynced = () => localStorage.getItem(`${STORAGE_KEY}_has_unsynced`) === 'true';
+
+    try {
+      // 1. Live Invoices (فواتير المبيعات ونقاط البيع لحظياً لكافة المستخدمين)
+      const unsubInvoices = onSnapshot(collection(db, 'invoices'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const delSet = getDeletedSet();
+        const docs = snapshot.docs
+          .map(d => ({ ...d.data(), id: d.id } as Invoice))
+          .filter(inv => {
+            if (!inv || !inv.id || delSet.has(`invoices_${inv.id}`)) return false;
+            const num = parseInt((inv.invoiceNumber || '').replace(/\D/g, ''), 10);
+            if (num === 11 || inv.invoiceNumber === 'INV-0011' || inv.invoiceNumber === 'INV-00011' || inv.id === 'inv-11') {
+              registerDeletedDoc('invoices', inv.id);
+              deleteDoc(doc(db, 'invoices', inv.id)).catch(() => {});
+              return false;
+            }
+            return true;
+          })
+          .map(inv => {
+            if (!inv || !Array.isArray(inv.items)) return inv;
+            let hasChange = false;
+            const items = inv.items.map(it => {
+              if (
+                it.itemCode === 'PRI-0009' ||
+                it.itemName?.includes('جاليه سيلكون')
+              ) {
+                hasChange = true;
+                return { ...it, itemCode: 'TEX-0001' };
+              }
+              return it;
+            });
+            if (hasChange) {
+              const updated = { ...inv, items };
+              setDoc(doc(db, 'invoices', inv.id), cleanDocForFirestore(updated), { merge: true }).catch(() => {});
+              return updated;
+            }
+            return inv;
+          });
+        if (docs.length === 0 && isPendingUnsynced()) return;
+        docs.sort((a, b) => {
+          const numA = parseInt((a.invoiceNumber || '').replace(/\D/g, ''), 10) || 0;
+          const numB = parseInt((b.invoiceNumber || '').replace(/\D/g, ''), 10) || 0;
+          if (numA !== numB) return numB - numA;
+          const invCmp = (b.invoiceNumber || '').localeCompare(a.invoiceNumber || '', undefined, { numeric: true });
+          if (invCmp !== 0) return invCmp;
+          return (b.createdAt || '').localeCompare(a.createdAt || '');
+        });
+        setInvoices(docs);
+        try { localStorage.setItem(`${STORAGE_KEY}_invoices`, JSON.stringify(docs)); } catch {}
+      }, (e) => console.debug('Live invoices sync:', e));
+      unsubs.push(unsubInvoices);
+
+      // 2. Live Print Orders (أوامر تشغيل ومطبوعات المطبعة لحظياً للجميع)
+      const unsubPrintOrders = onSnapshot(collection(db, 'printOrders'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const delSet = getDeletedSet();
+        const docs = snapshot.docs
+          .map(d => d.data() as PrintJobOrder)
+          .filter(ord => ord && ord.id && !delSet.has(`printOrders_${ord.id}`))
+          .map(ord => {
+            if (!ord || !Array.isArray(ord.items)) return ord;
+            let hasChange = false;
+            const items = ord.items.map(it => {
+              if (it.itemCode === 'PRI-0009' || it.itemName?.includes('جاليه سيلكون')) {
+                hasChange = true;
+                return { ...it, itemCode: 'TEX-0001' };
+              }
+              return it;
+            });
+            if (hasChange) {
+              const updated = { ...ord, items };
+              setDoc(doc(db, 'printOrders', ord.id), cleanDocForFirestore(updated), { merge: true }).catch(() => {});
+              return updated;
+            }
+            return ord;
+          });
+        if (docs.length === 0 && isPendingUnsynced()) return;
+        docs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '') || (b.id || '').localeCompare(a.id || ''));
+        setPrintOrders(docs);
+        try { localStorage.setItem(`${STORAGE_KEY}_printOrders`, JSON.stringify(docs)); } catch {}
+      }, (e) => console.debug('Live printOrders sync:', e));
+      unsubs.push(unsubPrintOrders);
+
+      // 3. Live Parties (العملاء والموردين وحساباتهم وأرصدتهم لحظياً)
+      const unsubParties = onSnapshot(collection(db, 'parties'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const delSet = getDeletedSet();
+        const docs = snapshot.docs
+          .map(d => d.data() as Party)
+          .filter(p => p && p.id && !delSet.has(`parties_${p.id}`));
+        if (docs.length === 0 && isPendingUnsynced()) return;
+        docs.sort((a, b) => (a.code || '').localeCompare(b.code || '') || (a.name || '').localeCompare(b.name || ''));
+        setParties(docs);
+        try { localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(docs)); } catch {}
+      }, (e) => console.debug('Live parties sync:', e));
+      unsubs.push(unsubParties);
+
+      // 4. Live Inventory (المخزون، الأصناف، والأسعار لكافة المستخدمين)
+      const unsubInventory = onSnapshot(collection(db, 'inventory'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const delSet = getDeletedSet();
+        const docs = snapshot.docs
+          .map(d => ({ ...d.data(), id: d.id } as InventoryItem))
+          .filter(it => it && it.id && !delSet.has(`inventory_${it.id}`))
+          .map(it => {
+            if (
+              it.code === 'PRI-0009' ||
+              it.name?.includes('جاليه سيلكون') ||
+              (it.name?.includes('جاليه') && (it.category === 'مطبوعات قماش' || it.category === 'textiles'))
+            ) {
+              const updated = { ...it, code: 'TEX-0001', category: 'textiles' };
+              if (it.code !== 'TEX-0001' || it.category !== 'textiles') {
+                setDoc(doc(db, 'inventory', it.id), cleanDocForFirestore(updated), { merge: true }).catch(() => {});
+              }
+              return updated;
+            }
+            return it;
+          });
+        if (docs.length === 0 && isPendingUnsynced()) return;
+        docs.sort((a, b) => (a.code || '').localeCompare(b.code || '') || (a.name || '').localeCompare(b.name || ''));
+        setInventory(docs);
+        try { localStorage.setItem(`${STORAGE_KEY}_inventory`, JSON.stringify(docs)); } catch {}
+      }, (e) => console.debug('Live inventory sync:', e));
+      unsubs.push(unsubInventory);
+
+      // 5. Live Vouchers (سندات القبض والصرف)
+      const unsubVouchers = onSnapshot(collection(db, 'vouchers'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const delSet = getDeletedSet();
+        const docs = snapshot.docs
+          .map(d => d.data() as PaymentVoucher)
+          .filter(v => v && v.id && !delSet.has(`vouchers_${v.id}`));
+        if (docs.length === 0 && isPendingUnsynced()) return;
+        docs.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.id || '').localeCompare(a.id || ''));
+        setVouchers(docs);
+        try { localStorage.setItem(`${STORAGE_KEY}_vouchers`, JSON.stringify(docs)); } catch {}
+      }, (e) => console.debug('Live vouchers sync:', e));
+      unsubs.push(unsubVouchers);
+
+      // 6. Live Users (المستخدمين وبياناتهم وصلاحياتهم المحفوظة في قاعدة البيانات)
+      const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const delSet = getDeletedSet();
+        const docs = snapshot.docs
+          .map(d => d.data() as SystemUser)
+          .filter(u => u && u.id && !delSet.has(`users_${u.id}`));
+        if (docs.length > 0) {
+          setUsers(docs);
+          try { localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(docs)); } catch {}
+        }
+      }, (e) => console.debug('Live users sync:', e));
+      unsubs.push(unsubUsers);
+
+      // 7. Live Roles (الأدوار وصلاحيات الشاشات)
+      const unsubRoles = onSnapshot(collection(db, 'roles'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const docs = snapshot.docs.map(d => d.data() as Role).filter(r => r && r.id);
+        if (docs.length > 0) {
+          setRoles(docs);
+          try { localStorage.setItem(`${STORAGE_KEY}_roles`, JSON.stringify(docs)); } catch {}
+        }
+      }, (e) => console.debug('Live roles sync:', e));
+      unsubs.push(unsubRoles);
+
+      // 8. Live Treasuries (الصناديق والخزائن)
+      const unsubTreasuries = onSnapshot(collection(db, 'treasuries'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const docs = snapshot.docs.map(d => d.data() as Treasury).filter(t => t && t.id);
+        if (docs.length > 0) {
+          docs.sort((a, b) => (a.accountCode || '').localeCompare(b.accountCode || '') || (a.name || '').localeCompare(b.name || ''));
+          setTreasuries(docs);
+          try { localStorage.setItem(`${STORAGE_KEY}_treasuries`, JSON.stringify(docs)); } catch {}
+        }
+      }, (e) => console.debug('Live treasuries sync:', e));
+      unsubs.push(unsubTreasuries);
+
+      // 9. Live Purchases (المشتريات)
+      const unsubPurchases = onSnapshot(collection(db, 'purchases'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const docs = snapshot.docs.map(d => d.data() as PurchaseInvoice).filter(p => p && p.id);
+        if (docs.length === 0 && isPendingUnsynced()) return;
+        docs.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.id || '').localeCompare(a.id || ''));
+        setPurchases(docs);
+        try { localStorage.setItem(`${STORAGE_KEY}_purchases`, JSON.stringify(docs)); } catch {}
+      }, (e) => console.debug('Live purchases sync:', e));
+      unsubs.push(unsubPurchases);
+
+      // 10. Live Expenses (المصروفات)
+      const unsubExpenses = onSnapshot(collection(db, 'expenses'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const docs = snapshot.docs.map(d => d.data() as ExpenseItem).filter(e => e && e.id);
+        if (docs.length === 0 && isPendingUnsynced()) return;
+        docs.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.id || '').localeCompare(a.id || ''));
+        setExpenses(docs);
+        try { localStorage.setItem(`${STORAGE_KEY}_expenses`, JSON.stringify(docs)); } catch {}
+      }, (e) => console.debug('Live expenses sync:', e));
+      unsubs.push(unsubExpenses);
+
+      // 11. Live Debt Clearings (المقاصات)
+      const unsubDebtClearings = onSnapshot(collection(db, 'debtClearings'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const docs = snapshot.docs.map(d => d.data() as DebtClearingRecord).filter(dc => dc && dc.id);
+        if (docs.length === 0 && isPendingUnsynced()) return;
+        docs.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.id || '').localeCompare(a.id || ''));
+        setDebtClearings(docs);
+        try { localStorage.setItem(`${STORAGE_KEY}_debt_clearings`, JSON.stringify(docs)); } catch {}
+      }, (e) => console.debug('Live debtClearings sync:', e));
+      unsubs.push(unsubDebtClearings);
+
+      // 12. Live Accounts (شجرة الحسابات)
+      const unsubAccounts = onSnapshot(collection(db, 'accounts'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const docs = snapshot.docs.map(d => d.data() as Account).filter(a => a && a.code);
+        if (docs.length > 0) {
+          docs.sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+          setAccounts(docs);
+          try { localStorage.setItem(`${STORAGE_KEY}_accounts`, JSON.stringify(docs)); } catch {}
+        }
+      }, (e) => console.debug('Live accounts sync:', e));
+      unsubs.push(unsubAccounts);
+
+      // 13. Live Journal Entries (قيود اليومية العامة)
+      const unsubJournals = onSnapshot(collection(db, 'journals'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const docs = snapshot.docs.map(d => d.data() as JournalEntry).filter(j => j && j.id);
+        if (docs.length === 0 && isPendingUnsynced()) return;
+        docs.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (Number(b.entryNumber) || 0) - (Number(a.entryNumber) || 0));
+        setJournalEntries(docs);
+        try { localStorage.setItem(`${STORAGE_KEY}_journals`, JSON.stringify(docs)); } catch {}
+      }, (e) => console.debug('Live journals sync:', e));
+      unsubs.push(unsubJournals);
+
+      // 14. Live Stock Movements (حركات المخزون)
+      const unsubStockMovements = onSnapshot(collection(db, 'stockMovements'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const docs = snapshot.docs.map(d => d.data() as StockMovement).filter(sm => sm && sm.id);
+        if (docs.length === 0 && isPendingUnsynced()) return;
+        docs.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        setStockMovements(docs);
+        try { localStorage.setItem(`${STORAGE_KEY}_stockMovements`, JSON.stringify(docs)); } catch {}
+      }, (e) => console.debug('Live stockMovements sync:', e));
+      unsubs.push(unsubStockMovements);
+
+      // 15. Live Employees (الموظفين)
+      const unsubEmployees = onSnapshot(collection(db, 'employees'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const docs = snapshot.docs.map(d => d.data() as Employee).filter(emp => emp && emp.id);
+        if (docs.length > 0) {
+          docs.sort((a, b) => (a.code || '').localeCompare(b.code || '') || (a.name || '').localeCompare(b.name || ''));
+          setEmployees(docs);
+          try { localStorage.setItem(`${STORAGE_KEY}_employees`, JSON.stringify(docs)); } catch {}
+        }
+      }, (e) => console.debug('Live employees sync:', e));
+      unsubs.push(unsubEmployees);
+
+      // 16. Live Payroll Sheets (مسيرات الرواتب)
+      const unsubPayroll = onSnapshot(collection(db, 'payrollSheets'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const docs = snapshot.docs.map(d => d.data() as PayrollSheet).filter(ps => ps && ps.id);
+        if (docs.length === 0 && isPendingUnsynced()) return;
+        docs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        setPayrollSheets(docs);
+        try { localStorage.setItem(`${STORAGE_KEY}_payrollSheets`, JSON.stringify(docs)); } catch {}
+      }, (e) => console.debug('Live payroll sync:', e));
+      unsubs.push(unsubPayroll);
+
+      // 17. Live Companies & Branches (الشركات والفروع)
+      const unsubBranches = onSnapshot(collection(db, 'branches'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const docs = snapshot.docs.map(d => d.data() as Branch).filter(b => b && b.id);
+        if (docs.length > 0) {
+          docs.sort((a, b) => (a.branchCode || '').localeCompare(b.branchCode || ''));
+          setBranches(docs);
+          try { localStorage.setItem(`${STORAGE_KEY}_branches`, JSON.stringify(docs)); } catch {}
+        }
+      }, (e) => console.debug('Live branches sync:', e));
+      unsubs.push(unsubBranches);
+
+      // 18. Live Warehouses & Operations (المستودعات وحركاتها)
+      const unsubWarehouses = onSnapshot(collection(db, 'warehouses'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const docs = snapshot.docs.map(d => d.data() as Warehouse).filter(w => w && w.id);
+        if (docs.length > 0) {
+          docs.sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+          setWarehouses(docs);
+          try { localStorage.setItem(`${STORAGE_KEY}_warehouses`, JSON.stringify(docs)); } catch {}
+        }
+      }, (e) => console.debug('Live warehouses sync:', e));
+      unsubs.push(unsubWarehouses);
+
+      const unsubWhOps = onSnapshot(collection(db, 'warehouseOperations'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const docs = snapshot.docs.map(d => d.data() as WarehouseOperation).filter(wo => wo && wo.id);
+        if (docs.length === 0 && isPendingUnsynced()) return;
+        docs.sort((a, b) => (b.date || b.createdAt || '').localeCompare(a.date || a.createdAt || ''));
+        setWarehouseOperations(docs);
+        try { localStorage.setItem(`${STORAGE_KEY}_warehouse_operations`, JSON.stringify(docs)); } catch {}
+      }, (e) => console.debug('Live warehouseOperations sync:', e));
+      unsubs.push(unsubWhOps);
+
+      // 19. Live Sales Returns & Purchase Returns (المردودات)
+      const unsubSalesReturns = onSnapshot(collection(db, 'salesReturns'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const docs = snapshot.docs.map(d => d.data() as SalesReturn).filter(sr => sr && sr.id);
+        if (docs.length === 0 && isPendingUnsynced()) return;
+        docs.sort((a, b) => (b.date || b.createdAt || '').localeCompare(a.date || a.createdAt || ''));
+        setSalesReturns(docs);
+        try { localStorage.setItem(`${STORAGE_KEY}_salesReturns`, JSON.stringify(docs)); } catch {}
+      }, (e) => console.debug('Live salesReturns sync:', e));
+      unsubs.push(unsubSalesReturns);
+
+      const unsubPurchaseReturns = onSnapshot(collection(db, 'purchaseReturns'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const docs = snapshot.docs.map(d => d.data() as PurchaseReturn).filter(pr => pr && pr.id);
+        if (docs.length === 0 && isPendingUnsynced()) return;
+        docs.sort((a, b) => (b.date || b.createdAt || '').localeCompare(a.date || a.createdAt || ''));
+        setPurchaseReturns(docs);
+        try { localStorage.setItem(`${STORAGE_KEY}_purchaseReturns`, JSON.stringify(docs)); } catch {}
+      }, (e) => console.debug('Live purchaseReturns sync:', e));
+      unsubs.push(unsubPurchaseReturns);
+    } catch (listenerErr) {
+      console.warn('Realtime listeners initialization notice:', listenerErr);
+    }
+
+    return () => {
+      unsubs.forEach(unsub => {
+        try { unsub(); } catch {}
+      });
+    };
   }, []);
 
   const [selectedPurchaseForPrint, setSelectedPurchaseForPrint] = useState<PurchaseInvoice | null>(null);
@@ -1257,13 +1826,74 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     );
   }, [accounts]);
 
+  // One-time data consistency and SKU migration (TEX-0001 for جاليه سيلكون)
+  useEffect(() => {
+    try {
+      const draftKeys = [
+        'accounting_pending_multi_draft_invoices_v5',
+        'accounting_pending_draft_invoices_v4',
+        'accounting_pending_draft_invoices_v3',
+        'live_onedrive_drafts_v3'
+      ];
+      draftKeys.forEach(k => {
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            let changed = false;
+            const next = parsed.map((d: any) => {
+              if (Array.isArray(d.items)) {
+                const items = d.items.map((it: any) => {
+                  if (it.itemCode === 'PRI-0009' || it.itemName?.includes('جاليه سيلكون')) {
+                    changed = true;
+                    return { ...it, itemCode: 'TEX-0001' };
+                  }
+                  return it;
+                });
+                return { ...d, items };
+              }
+              return d;
+            });
+            if (changed) {
+              localStorage.setItem(k, JSON.stringify(next));
+            }
+          }
+        }
+      });
+    } catch (e) {
+      console.warn('Drafts migration notice:', e);
+    }
+  }, []);
+
   // Helper accessors and CRUD for Multi-Company, Multi-Branch & Granular RBAC
   const currentUser: SystemUser = React.useMemo(() => {
-    return users.find(u => u.id === currentUserId) || users[0] || DEFAULT_SYSTEM_USERS[0];
+    return users.find(u => u.id === currentUserId) || users[0] || {
+      id: 'usr-admin',
+      companyId: 'comp-1',
+      username: 'admin',
+      fullName: 'مدير النظام',
+      roleId: 'role-admin',
+      roleName: 'مدير النظام',
+      defaultBranchId: 'br-1',
+      allowedBranchIds: ['*'],
+      status: 'active',
+      createdAt: '2024-01-01'
+    };
   }, [users, currentUserId]);
 
   const getCurrentUser = (): SystemUser => {
-    return users.find(u => u.id === currentUserId) || users[0] || DEFAULT_SYSTEM_USERS[0];
+    return users.find(u => u.id === currentUserId) || users[0] || {
+      id: 'usr-admin',
+      companyId: 'comp-1',
+      username: 'admin',
+      fullName: 'مدير النظام',
+      roleId: 'role-admin',
+      roleName: 'مدير النظام',
+      defaultBranchId: 'br-1',
+      allowedBranchIds: ['*'],
+      status: 'active',
+      createdAt: '2024-01-01'
+    };
   };
 
   const getActiveBranch = (): Branch | undefined => {
@@ -1291,20 +1921,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const canAccessBranch = (branchId: string, user?: SystemUser): boolean => {
-    const targetUser = user || users.find(u => u.id === currentUserId) || users[0];
-    if (!targetUser) return true;
-    if (targetUser.allowedBranchIds.includes('*') || targetUser.allowedBranchIds.length === 0) {
-      return true;
-    }
-    return targetUser.allowedBranchIds.includes(branchId);
+    return true;
   };
 
   const getAllowedBranchesForUser = (user?: SystemUser): Branch[] => {
-    const targetUser = user || users.find(u => u.id === currentUserId) || users[0];
-    if (!targetUser || targetUser.allowedBranchIds.includes('*') || targetUser.allowedBranchIds.length === 0) {
-      return branches;
-    }
-    return branches.filter(b => targetUser.allowedBranchIds.includes(b.id));
+    return branches;
   };
 
   // Resolve effective price for item considering customer special prices & allowed pricing tier
@@ -1389,11 +2010,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       createdAt: new Date().toISOString()
     };
     setCompanies(prev => [...prev, newComp]);
+    setDoc(doc(db, 'companies', newComp.id), cleanDocForFirestore(newComp)).catch(() => {});
     return newComp;
   };
 
   const updateCompany = (id: string, updated: Partial<Company>) => {
-    setCompanies(prev => prev.map(c => c.id === id ? { ...c, ...updated } : c));
+    const existing = companies.find(c => c.id === id);
+    const merged: Company = existing ? { ...existing, ...updated } : ({ ...updated, id } as Company);
+    setCompanies(prev => prev.map(c => (c.id === id ? merged : c)));
+    try {
+      const next = companies.map(c => (c.id === id ? merged : c));
+      localStorage.setItem(`${STORAGE_KEY}_companies`, JSON.stringify(next));
+    } catch {}
+    setDoc(doc(db, 'companies', id), cleanDocForFirestore(merged), { merge: true }).catch(() => {});
   };
 
   const deleteCompany = (id: string) => {
@@ -1413,11 +2042,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       createdAt: new Date().toISOString()
     };
     setBranches(prev => [...prev, newBranch]);
+    setDoc(doc(db, 'branches', newBranch.id), cleanDocForFirestore(newBranch)).catch(() => {});
     return newBranch;
   };
 
   const updateBranch = (id: string, updated: Partial<Branch>) => {
-    setBranches(prev => prev.map(b => b.id === id ? { ...b, ...updated } : b));
+    const existing = branches.find(b => b.id === id);
+    const merged: Branch = existing ? { ...existing, ...updated } : ({ ...updated, id } as Branch);
+    setBranches(prev => prev.map(b => (b.id === id ? merged : b)));
+    try {
+      const next = branches.map(b => (b.id === id ? merged : b));
+      localStorage.setItem(`${STORAGE_KEY}_branches`, JSON.stringify(next));
+    } catch {}
+    setDoc(doc(db, 'branches', id), cleanDocForFirestore(merged), { merge: true }).catch(() => {});
   };
 
   const deleteBranch = (id: string) => {
@@ -1445,12 +2082,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       createdAt: new Date().toISOString()
     };
     setWarehouses(prev => [...prev, newWh]);
+    setDoc(doc(db, 'warehouses', newWh.id), cleanDocForFirestore(newWh)).catch(() => {});
 
     // Link new warehouse to its branch if not already linked
     if (wh.branchId) {
       setBranches(prev => prev.map(b => {
         if (b.id === wh.branchId && !b.warehouseIds.includes(newWh.id)) {
-          return { ...b, warehouseIds: [...b.warehouseIds, newWh.id] };
+          const updatedB = { ...b, warehouseIds: [...b.warehouseIds, newWh.id] };
+          setDoc(doc(db, 'branches', b.id), cleanDocForFirestore(updatedB)).catch(() => {});
+          return updatedB;
         }
         return b;
       }));
@@ -1460,23 +2100,26 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const updateWarehouse = (id: string, updated: Partial<Warehouse>) => {
-    setWarehouses(prev => prev.map(w => {
-      if (w.id === id) {
-        const nextWh = { ...w, ...updated };
-        if (updated.branchId) {
-          const b = branches.find(br => br.id === updated.branchId);
-          nextWh.branchName = b?.name || nextWh.branchName;
-        }
-        return nextWh;
-      }
-      return w;
-    }));
+    const existing = warehouses.find(w => w.id === id);
+    let nextWh: Warehouse = existing ? { ...existing, ...updated } : ({ ...updated, id } as Warehouse);
+    if (updated.branchId) {
+      const b = branches.find(br => br.id === updated.branchId);
+      nextWh.branchName = b?.name || nextWh.branchName;
+    }
+    setWarehouses(prev => prev.map(w => (w.id === id ? nextWh : w)));
+    try {
+      const next = warehouses.map(w => (w.id === id ? nextWh : w));
+      localStorage.setItem(`${STORAGE_KEY}_warehouses`, JSON.stringify(next));
+    } catch {}
+    setDoc(doc(db, 'warehouses', id), cleanDocForFirestore(nextWh), { merge: true }).catch(() => {});
 
     // Update branch warehouseIds if branch changed
     if (updated.branchId) {
       setBranches(prev => prev.map(b => {
         if (b.id === updated.branchId && !b.warehouseIds.includes(id)) {
-          return { ...b, warehouseIds: [...b.warehouseIds, id] };
+          const updatedB = { ...b, warehouseIds: [...b.warehouseIds, id] };
+          setDoc(doc(db, 'branches', b.id), cleanDocForFirestore(updatedB)).catch(() => {});
+          return updatedB;
         }
         return b;
       }));
@@ -1489,10 +2132,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     setWarehouses(prev => prev.filter(w => w.id !== id));
     deleteDoc(doc(db, 'warehouses', id)).catch(e => console.warn('Could not delete warehouse in cloud:', e));
-    setBranches(prev => prev.map(b => ({
-      ...b,
-      warehouseIds: b.warehouseIds.filter(wId => wId !== id)
-    })));
+    setBranches(prev => prev.map(b => {
+      const updatedB = {
+        ...b,
+        warehouseIds: b.warehouseIds.filter(wId => wId !== id)
+      };
+      setDoc(doc(db, 'branches', b.id), cleanDocForFirestore(updatedB)).catch(() => {});
+      return updatedB;
+    }));
     if (activeWarehouseId === id) {
       const remaining = warehouses.filter(w => w.id !== id);
       if (remaining.length > 0) setActiveWarehouseId(remaining[0].id);
@@ -1891,12 +2538,24 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       if (newStockMovementsToAdd.length > 0) {
         setStockMovements(prevMovements => [...newStockMovementsToAdd, ...prevMovements]);
+        newStockMovementsToAdd.forEach(sm => {
+          setDoc(doc(db, 'stockMovements', sm.id), cleanDocForFirestore(sm)).catch(() => {});
+        });
       }
+
+      // Sync updated inventory items to Firestore
+      newOp.items.forEach(opItem => {
+        const it = updatedInventory.find(item => item.id === opItem.itemId);
+        if (it) {
+          setDoc(doc(db, 'inventory', it.id), cleanDocForFirestore(it)).catch(() => {});
+        }
+      });
 
       return updatedInventory;
     });
 
     setWarehouseOperations(prev => [newOp, ...prev]);
+    setDoc(doc(db, 'warehouseOperations', newOp.id), cleanDocForFirestore(newOp)).catch(() => {});
     return newOp;
   };
 
@@ -1908,11 +2567,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       createdAt: new Date().toISOString()
     };
     setRoles(prev => [...prev, newRole]);
+    setDoc(doc(db, 'roles', newRole.id), cleanDocForFirestore(newRole)).catch(() => {});
     return newRole;
   };
 
   const updateRole = (id: string, updated: Partial<Role>) => {
-    setRoles(prev => prev.map(r => r.id === id ? { ...r, ...updated } : r));
+    let finalRole: Role | null = null;
+    setRoles(prev => prev.map(r => {
+      if (r.id === id) {
+        finalRole = { ...r, ...updated };
+        return finalRole;
+      }
+      return r;
+    }));
+    if (finalRole) {
+      setDoc(doc(db, 'roles', id), cleanDocForFirestore(finalRole)).catch(() => {});
+    }
   };
 
   const deleteRole = (id: string) => {
@@ -1928,19 +2598,49 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       id: `user-${Date.now()}`,
       createdAt: new Date().toISOString()
     };
-    setUsers(prev => [...prev, newUser]);
+    setUsers(prev => {
+      const next = [...prev, newUser];
+      try {
+        localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+
+    // Immediate Firestore persistence so user can log in immediately from any browser/device
+    setDoc(doc(db, 'users', newUser.id), newUser).catch(e => {
+      console.warn('Direct save user to cloud note:', e);
+    });
+
     return newUser;
   };
 
   const updateUser = (id: string, updated: Partial<SystemUser>) => {
-    setUsers(prev => prev.map(u => u.id === id ? { ...u, ...updated } : u));
+    setUsers(prev => {
+      const next = prev.map(u => (u.id === id ? { ...u, ...updated } : u));
+      try {
+        localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(next));
+      } catch (e) {}
+      const target = next.find(u => u.id === id);
+      if (target) {
+        setDoc(doc(db, 'users', id), target).catch(e => {
+          console.warn('Direct update user in cloud note:', e);
+        });
+      }
+      return next;
+    });
   };
 
   const deleteUser = (id: string) => {
     if (users.length <= 1) {
       return { success: false, message: 'لا يمكن حذف المستخدم الوحيد بالنظام' };
     }
-    setUsers(prev => prev.filter(u => u.id !== id));
+    setUsers(prev => {
+      const next = prev.filter(u => u.id !== id);
+      try {
+        localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
     deleteDoc(doc(db, 'users', id)).catch(e => console.warn('Could not delete user in cloud:', e));
     if (currentUserId === id) {
       const remaining = users.filter(u => u.id !== id);
@@ -2144,6 +2844,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setTreasuries(prev => [...prev, newTreasury]);
+    setDoc(doc(db, 'treasuries', newTreasury.id), cleanDocForFirestore(newTreasury)).catch(() => {});
     return newTreasury;
   };
 
@@ -2156,6 +2857,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           if (updated.name && updated.name !== t.name) {
             setAccounts(accs => accs.map(a => a.code === t.accountCode ? { ...a, name: updated.name! } : a));
           }
+          setDoc(doc(db, 'treasuries', id), cleanDocForFirestore(updatedTreasury)).catch(() => {});
           return updatedTreasury;
         }
         return t;
@@ -2262,6 +2964,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       createdAt: new Date().toISOString()
     };
     setJournalEntries(prev => [newJournal, ...prev]);
+    setDoc(doc(db, 'journals', newJournal.id), cleanDocForFirestore(newJournal)).catch(() => {});
 
     // 2. Update Accounts in chart of accounts
     setAccounts(prev =>
@@ -2319,12 +3022,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             targetTreasuryName: dest.name
           };
 
-          return {
+          const updatedSourceT = {
             ...t,
             balance: totalEstimatedBase,
             currencyBalances: currentBalances,
             transactions: [tx, ...(t.transactions || [])]
           };
+          setDoc(doc(db, 'treasuries', t.id), cleanDocForFirestore(updatedSourceT)).catch(() => {});
+          return updatedSourceT;
         }
 
         if (t.id === dest.id) {
@@ -2364,12 +3069,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             targetTreasuryName: source.name
           };
 
-          return {
+          const updatedDestT = {
             ...t,
             balance: totalEstimatedBase,
             currencyBalances: currentBalances,
             transactions: [tx, ...(t.transactions || [])]
           };
+          setDoc(doc(db, 'treasuries', t.id), cleanDocForFirestore(updatedDestT)).catch(() => {});
+          return updatedDestT;
         }
 
         return t;
@@ -2563,6 +3270,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       baseAmount: baseEquivalent
     };
     setVouchers(prev => [newVoucher, ...prev]);
+    setDoc(doc(db, 'vouchers', newVoucher.id), cleanDocForFirestore(newVoucher)).catch(() => {});
 
     return {
       success: true,
@@ -2652,6 +3360,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       createdAt: new Date().toISOString()
     };
     setJournalEntries(prev => [newJournal, ...prev]);
+    setDoc(doc(db, 'journals', newJournal.id), cleanDocForFirestore(newJournal)).catch(() => {});
 
     // 2. Update Accounts in Chart of Accounts
     setAccounts(prev =>
@@ -2715,12 +3424,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             contraAccountName: contraName
           };
 
-          return {
+          const updatedT = {
             ...t,
             balance: totalEstimatedBase,
             currencyBalances: curBal,
             transactions: [tx, ...(t.transactions || [])]
           };
+          setDoc(doc(db, 'treasuries', t.id), cleanDocForFirestore(updatedT)).catch(() => {});
+          return updatedT;
         }
         return t;
       })
@@ -2745,6 +3456,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       baseAmount: baseEquivalent
     };
     setVouchers(prev => [newVoucher, ...prev]);
+    setDoc(doc(db, 'vouchers', newVoucher.id), cleanDocForFirestore(newVoucher)).catch(() => {});
 
     return {
       success: true,
@@ -2807,6 +3519,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       createdAt: new Date().toISOString()
     };
     setJournalEntries(prev => [jEntry, ...prev]);
+    setDoc(doc(db, 'journals', jEntry.id), cleanDocForFirestore(jEntry)).catch(() => {});
 
     // 2. Update accounts in chart of accounts (Payables and Receivables only, NOT Cash/Bank)
     setAccounts(prev =>
@@ -2838,6 +3551,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setDebtClearings(prev => [record, ...prev]);
+    setDoc(doc(db, 'debtClearings', record.id), cleanDocForFirestore(record)).catch(() => {});
     return { success: true, message: `تم قيد سند المقاصة بنجاح برقم ${clrNum}`, record };
   };
 
@@ -3061,23 +3775,33 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const uniqueSuffix = Math.random().toString(36).substring(2, 8) + '-' + Math.floor(Math.random() * 1000);
     const id = 'je-' + Date.now() + '-' + uniqueSuffix;
     const createdAt = new Date().toISOString();
+    const nextIndex = journalEntries.length + 1;
+    const entryNumber = `JE-2026-${String(nextIndex).padStart(4, '0')}`;
+    const newEntry: JournalEntry = {
+      ...entry,
+      id,
+      entryNumber,
+      createdAt
+    };
 
-    setJournalEntries(prev => {
-      const nextIndex = prev.length + 1;
-      const entryNumber = `JE-2026-${String(nextIndex).padStart(4, '0')}`;
-      const newEntry: JournalEntry = {
-        ...entry,
-        id,
-        entryNumber,
-        createdAt
-      };
-      return [newEntry, ...prev];
+    setJournalEntries(prev => [newEntry, ...prev]);
+
+    // Direct cloud save
+    setDoc(doc(db, 'journals', newEntry.id), cleanDocForFirestore(newEntry)).catch(err => {
+      console.warn('Direct cloud save journal notice:', err);
     });
 
-    // Telegram Notification
+    // Telegram Notification - Do not send daily journal proofs for invoice/POS transactions
     try {
-      const msg2 = `📝 <b>قيد يومية جديد</b>\nالبيان: ${entry.description}\nالقيمة: ${entry.lines.reduce((sum, l) => sum + l.debit, 0)} ${settings?.currency || ''}`;
-      TelegramService.sendMessage(msg2, settings);
+      const isInvoiceRelated =
+        entry.referenceType === 'pos_invoice' ||
+        entry.referenceType === 'cogs' ||
+        entry.referenceType === ('invoice' as any) ||
+        (entry.description && (entry.description.includes('فاتورة مبيعات') || entry.description.includes('تكلفة البضاعة المباعة')));
+      if (!isInvoiceRelated) {
+        const msg2 = `📝 <b>قيد يومية جديد</b>\nالبيان: ${entry.description}\nالقيمة: ${entry.lines.reduce((sum, l) => sum + l.debit, 0)} ${settings?.currency || ''}`;
+        TelegramService.sendMessage(msg2, settings);
+      }
     } catch(e) {}
 
     // Update account balances according to double entry rule
@@ -3136,6 +3860,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setExpenses(prev => [newExpense, ...prev]);
+
+    // Direct cloud save
+    setDoc(doc(db, 'expenses', newExpense.id), cleanDocForFirestore(newExpense)).catch(err => {
+      console.warn('Direct cloud save expense notice:', err);
+    });
 
     // 1. Post balanced double-entry journal (Debit Expense, Credit Treasury)
     addJournalEntry({
@@ -3199,11 +3928,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // 2. Revert journal entry
     if (existing.journalEntryId) {
       setJournalEntries(prev => prev.filter(je => je.id !== existing.journalEntryId));
+      deleteDoc(doc(db, 'journals', existing.journalEntryId)).catch(() => {});
     }
 
     // 3. Remove expense item from state & cloud
     setExpenses(prev => prev.filter(e => e.id !== id));
     registerDeletedDoc('expenses', id);
+    deleteDoc(doc(db, 'expenses', id)).catch(() => {});
   };
 
   const addStockMovement = (movement: Omit<StockMovement, 'id'>) => {
@@ -3214,6 +3945,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       time: movement.time || new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })
     };
     setStockMovements(prev => [newMovement, ...prev]);
+    setDoc(doc(db, 'stockMovements', newMovement.id), cleanDocForFirestore(newMovement)).catch(() => {});
   };
 
   const addInventoryItem = (item: Omit<InventoryItem, 'id'>) => {
@@ -3223,13 +3955,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     // Enforce SKU uniqueness: ensure item.code never duplicates any existing item
     let uniqueCode = (item.code || '').trim();
-    const isDuplicate = inventory.some(it => it.code.trim().toLowerCase() === uniqueCode.toLowerCase());
+    const isDuplicate = inventory.some(it => (it.code || '').trim().toLowerCase() === uniqueCode.toLowerCase());
     if (!uniqueCode || isDuplicate) {
-      uniqueCode = generateSequentialSku(item.category, inventory.map(i => i.code));
+      uniqueCode = generateSequentialSku(item.category, inventory.map(i => i.code || ''), settings.categories);
     }
 
     const newItem: InventoryItem = { ...item, id, code: uniqueCode, lastMovementDate: today };
     setInventory(prev => [newItem, ...prev]);
+
+    // Save directly to cloud
+    setDoc(doc(db, 'inventory', newItem.id), cleanDocForFirestore(newItem)).catch(err => {
+      console.warn('Direct cloud save inventory notice:', err);
+    });
 
     // If opening stock > 0, record opening balance in stock movements ledger
     if (item.stockQuantity > 0) {
@@ -3257,21 +3994,33 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const updateInventoryItem = (id: string, updated: Partial<InventoryItem>) => {
-    setInventory(prev => prev.map(it => {
-      if (it.id !== id) return it;
-      // If code is being updated, verify it does not collide with another item
+    const existing = inventory.find(it => it.id === id);
+    let merged: InventoryItem;
+    if (existing) {
       if (updated.code) {
         const trimmed = updated.code.trim();
-        const conflict = prev.some(other => other.id !== id && other.code.trim().toLowerCase() === trimmed.toLowerCase());
+        const conflict = inventory.some(other => other.id !== id && (other.code || '').trim().toLowerCase() === trimmed.toLowerCase());
         if (conflict) {
-          console.warn(`SKU conflict: "${trimmed}" already in use. Retaining original SKU "${it.code}".`);
-          return { ...it, ...updated, code: it.code };
+          console.warn(`SKU conflict: "${trimmed}" already in use. Retaining original SKU "${existing.code}".`);
+          merged = { ...existing, ...updated, code: existing.code };
+        } else {
+          merged = { ...existing, ...updated };
         }
+      } else {
+        merged = { ...existing, ...updated };
       }
-      return { ...it, ...updated };
-    }));
-  };
+    } else {
+      merged = { ...updated, id } as InventoryItem;
+    }
 
+    setInventory(prev => prev.map(it => (it.id === id ? merged : it)));
+    try {
+      const next = inventory.map(it => (it.id === id ? merged : it));
+      if (!inventory.some(it => it.id === id)) next.push(merged);
+      localStorage.setItem(`${STORAGE_KEY}_inventory`, JSON.stringify(next));
+    } catch {}
+    setDoc(doc(db, 'inventory', id), cleanDocForFirestore(merged), { merge: true }).catch(() => {});
+  };
 
   const deleteInventoryItem = (id: string): { success: boolean; message: string } => {
     const hasMovements = stockMovements.some(m => m.itemId === id);
@@ -3291,6 +4040,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     setInventory(prev => prev.filter(it => it.id !== id));
     registerDeletedDoc('inventory', id);
+    deleteDoc(doc(db, 'inventory', id)).catch(() => {});
     return { success: true, message: 'تم حذف الصنف بنجاح' };
   };
 
@@ -3327,13 +4077,25 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             performedBy: 'لجنة الجرد والمطابقة'
           });
         }
-        return { ...it, stockQuantity: newQuantity, lastMovementDate: today };
+        const updatedItem = { ...it, stockQuantity: newQuantity, lastMovementDate: today };
+        setDoc(doc(db, 'inventory', id), cleanDocForFirestore(updatedItem)).catch(() => {});
+        return updatedItem;
       }
       return it;
     }));
   };
 
   const addParty = (partyData: Omit<Party, 'id' | 'balance' | 'code'> & { initialBalance?: number; code?: string }) => {
+    // منع تكرار إنشاء زبون نقدي أو عميل عام بأي حال من الأحوال
+    const trimmedName = (partyData.name || '').trim();
+    const isGenericCash = trimmedName === 'زبون نقدي' || trimmedName === 'عميل نقدي' || trimmedName === 'عميل كاشير نقدي' || trimmedName === 'زبون عام';
+    if (isGenericCash) {
+      const existing = parties.find(p => (p.name || '').trim() === trimmedName);
+      if (existing) {
+        return existing;
+      }
+    }
+
     const id = 'pt-' + Date.now();
     // Enforce sequential code generated automatically by the program (cannot be duplicated or altered)
     const code = generateSequentialPartyCode(partyData.type, parties);
@@ -3356,23 +4118,100 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       openingBalanceType: partyData.openingBalanceType || (initialBal < 0 ? 'credit' : 'debit'),
       openingBalanceDate: partyData.openingBalanceDate || new Date().toISOString().split('T')[0]
     };
-    setParties(prev => [...prev, newParty]);
+    setParties(prev => {
+      const next = [...prev, newParty];
+      try {
+        localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(next));
+        localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'true');
+      } catch (e) {}
+      return next;
+    });
+
+    setHasUnsyncedChanges(true);
+    setPendingSyncCount(prev => prev + 1);
+
+    // Save directly to cloud
+    setDoc(doc(db, 'parties', newParty.id), cleanDocForFirestore(newParty)).catch(err => {
+      console.warn('Direct cloud save party notice:', err);
+    });
+
     return newParty;
   };
 
   const updateParty = (id: string, updated: Partial<Party>) => {
-    setParties(prev => prev.map(p => {
-      if (p.id !== id) return p;
-      // Rule: Customer sequential code cannot be changed once issued!
-      const { code: _ignored, ...allowedUpdates } = updated;
-      const merged = { ...p, ...allowedUpdates, code: p.code };
-      // If opening balance was updated and balance is untouched, adjust balance
-      if (updated.openingBalance !== undefined && updated.balance === undefined) {
-        const isCredit = merged.openingBalanceType === 'credit' || (!merged.openingBalanceType && merged.type === 'supplier');
-        merged.balance = isCredit ? -Math.abs(merged.openingBalance) : Math.abs(merged.openingBalance);
+    let finalMergedParty: Party | null = null;
+    let targetId = id;
+
+    setParties(prev => {
+      // 1. Resolve existing party robustly (by id or code)
+      const existing = prev.find(p => p.id === id || (p.code && p.code.toLowerCase() === id.toLowerCase()));
+      if (existing) {
+        targetId = existing.id;
       }
-      return merged;
-    }));
+
+      const { code: _ignored, ...allowedUpdates } = updated;
+      const merged: Party = existing
+        ? { ...existing, ...allowedUpdates, code: existing.code }
+        : ({ ...allowedUpdates, id: targetId } as Party);
+
+      // If existing party exists, preserve existing balance unless explicitly updated.balance is passed or openingBalance is modified
+      if (updated.balance !== undefined) {
+        merged.balance = updated.balance;
+      } else if (updated.openingBalance !== undefined) {
+        const isCredit = merged.openingBalanceType === 'credit' || (!merged.openingBalanceType && merged.type === 'supplier');
+        const nextOpeningVal = isCredit ? -Math.abs(merged.openingBalance) : Math.abs(merged.openingBalance);
+        
+        if (existing) {
+          const oldIsCredit = existing.openingBalanceType === 'credit' || (!existing.openingBalanceType && existing.type === 'supplier');
+          const oldOpeningVal = oldIsCredit ? -Math.abs(existing.openingBalance || 0) : Math.abs(existing.openingBalance || 0);
+          
+          // Current balance adjusts by the difference in opening balance
+          const diff = nextOpeningVal - oldOpeningVal;
+          merged.balance = Number(((existing.balance || 0) + diff).toFixed(2));
+        } else {
+          merged.balance = nextOpeningVal;
+        }
+      } else if (existing) {
+        merged.balance = existing.balance;
+      }
+
+      finalMergedParty = merged;
+
+      const nextParties = prev.map(p => (p.id === targetId ? merged : p));
+      if (!prev.some(p => p.id === targetId)) {
+        nextParties.push(merged);
+      }
+
+      // 2. Persist to LocalStorage immediately with the updated array
+      try {
+        localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(nextParties));
+        localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'true');
+        const hashes = JSON.parse(localStorage.getItem('accounting_synced_hashes') || '{}');
+        delete hashes[`parties_${targetId}`];
+        localStorage.setItem('accounting_synced_hashes', JSON.stringify(hashes));
+      } catch (e) {}
+
+      // 3. Direct cloud update
+      setDoc(doc(db, 'parties', targetId), cleanDocForFirestore(merged), { merge: true }).catch(err => {
+        console.warn('Direct cloud update party notice:', err);
+      });
+
+      return nextParties;
+    });
+
+    setHasUnsyncedChanges(true);
+    setPendingSyncCount(prev => prev + 1);
+
+    if (debouncedSyncRef.current) {
+      clearTimeout(debouncedSyncRef.current);
+    }
+    debouncedSyncRef.current = setTimeout(() => {
+      if (navigator.onLine && syncToFirebaseRef.current) {
+        syncToFirebaseRef.current(true);
+      }
+    }, 1500);
+
+    return finalMergedParty;
   };
 
   const deleteParty = (id: string): { success: boolean; message?: string } => {
@@ -3391,6 +4230,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     setParties(prev => prev.filter(p => p.id !== id));
     registerDeletedDoc('parties', id);
+    deleteDoc(doc(db, 'parties', id)).catch(err => console.warn('Direct cloud delete party notice:', err));
     if (selectedPartyForStatement?.id === id) {
       setSelectedPartyForStatement(null);
     }
@@ -3406,16 +4246,25 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       paymentHistory: employeeData.paymentHistory || []
     };
     setEmployees(prev => [newEmp, ...prev]);
+    setDoc(doc(db, 'employees', newEmp.id), cleanDocForFirestore(newEmp)).catch(() => {});
     return newEmp;
   };
 
   const updateEmployee = (id: string, updated: Partial<Employee>) => {
-    setEmployees(prev => prev.map(emp => emp.id === id ? { ...emp, ...updated } : emp));
+    const existing = employees.find(emp => emp.id === id);
+    const merged: Employee = existing ? { ...existing, ...updated } : ({ ...updated, id } as Employee);
+    setEmployees(prev => prev.map(emp => (emp.id === id ? merged : emp)));
+    try {
+      const next = employees.map(emp => (emp.id === id ? merged : emp));
+      localStorage.setItem(`${STORAGE_KEY}_employees`, JSON.stringify(next));
+    } catch {}
+    setDoc(doc(db, 'employees', id), cleanDocForFirestore(merged), { merge: true }).catch(() => {});
   };
 
   const deleteEmployee = (id: string) => {
     setEmployees(prev => prev.filter(emp => emp.id !== id));
     registerDeletedDoc('employees', id);
+    deleteDoc(doc(db, 'employees', id)).catch(() => {});
   };
 
   const payEmployeeSalary = (
@@ -3444,18 +4293,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setEmployees(prev =>
-      prev.map(emp =>
-        emp.id === employeeId
-          ? {
-              ...emp,
-              paymentHistory: [paymentRecord, ...(emp.paymentHistory || [])]
-            }
-          : emp
-      )
+      prev.map(emp => {
+        if (emp.id === employeeId) {
+          const updatedEmp = {
+            ...emp,
+            paymentHistory: [paymentRecord, ...(emp.paymentHistory || [])]
+          };
+          setDoc(doc(db, 'employees', emp.id), cleanDocForFirestore(updatedEmp)).catch(() => {});
+          return updatedEmp;
+        }
+        return emp;
+      })
     );
 
     const cashBankCode = paymentMethod === 'cash' ? '1101' : '1102';
-    const cashBankName = paymentMethod === 'cash' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (مصرف الراجحي)';
+    const cashBankName = paymentMethod === 'cash' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (شيكات وحوالات)';
 
     const newVoucher: PaymentVoucher = {
       id: 'vch-' + Date.now(),
@@ -3471,6 +4323,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setVouchers(prev => [newVoucher, ...prev]);
+    setDoc(doc(db, 'vouchers', newVoucher.id), cleanDocForFirestore(newVoucher)).catch(() => {});
 
     addJournalEntry({
       date: today,
@@ -3509,7 +4362,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!emp) return;
 
     const treasuryAcc = accounts.find(a => a.code === treasuryAccountCode);
-    const treasuryName = treasuryAcc ? treasuryAcc.name : (treasuryAccountCode === '1101' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (مصرف الراجحي)');
+    const treasuryName = treasuryAcc ? treasuryAcc.name : (treasuryAccountCode === '1101' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (شيكات وحوالات)');
 
     let voucherNumber: string | undefined = undefined;
 
@@ -3528,6 +4381,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         description: `سند صرف سلفة نقدية للموظف: ${emp.name} (${emp.jobTitle}) - ${reason}`
       };
       setVouchers(prev => [newVoucher, ...prev]);
+      setDoc(doc(db, 'vouchers', newVoucher.id), cleanDocForFirestore(newVoucher)).catch(() => {});
 
       // Journal entry: Debit 1104 (سلف ومستحقات الموظفين), Credit Treasury (1101/1102)
       addJournalEntry({
@@ -3555,26 +4409,29 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       // Add to employee payment history
       setEmployees(prev =>
-        prev.map(e =>
-          e.id === employeeId
-            ? {
-                ...e,
-                paymentHistory: [
-                  {
-                    id: 'sp-' + Date.now(),
-                    date,
-                    amount,
-                    type: 'advance',
-                    period: `سلفة نقدية (${date})`,
-                    paymentMethod: treasuryAccountCode === '1101' ? 'cash' : 'bank_transfer',
-                    voucherNumber,
-                    notes: reason
-                  },
-                  ...(e.paymentHistory || [])
-                ]
-              }
-            : e
-        )
+        prev.map(e => {
+          if (e.id === employeeId) {
+            const updatedEmp = {
+              ...e,
+              paymentHistory: [
+                {
+                  id: 'sp-' + Date.now(),
+                  date,
+                  amount,
+                  type: 'advance' as const,
+                  period: `سلفة نقدية (${date})`,
+                  paymentMethod: treasuryAccountCode === '1101' ? 'cash' as const : 'bank_transfer' as const,
+                  voucherNumber,
+                  notes: reason
+                },
+                ...(e.paymentHistory || [])
+              ]
+            };
+            setDoc(doc(db, 'employees', e.id), cleanDocForFirestore(updatedEmp)).catch(() => {});
+            return updatedEmp;
+          }
+          return e;
+        })
       );
     }
 
@@ -3593,10 +4450,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setEmployeeAdvances(prev => [newAdvance, ...prev]);
+    setDoc(doc(db, 'employeeAdvances', newAdvance.id), cleanDocForFirestore(newAdvance)).catch(() => {});
   };
 
   const cancelEmployeeAdvance = (id: string) => {
-    setEmployeeAdvances(prev => prev.map(a => a.id === id ? { ...a, status: 'cancelled' } : a));
+    setEmployeeAdvances(prev => prev.map(a => {
+      if (a.id === id) {
+        const updated = { ...a, status: 'cancelled' as const };
+        setDoc(doc(db, 'employeeAdvances', id), cleanDocForFirestore(updated)).catch(() => {});
+        return updated;
+      }
+      return a;
+    }));
   };
 
   const addEmployeeDeduction = (employeeId: string, amount: number, date: string, reason: string) => {
@@ -3614,10 +4479,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setEmployeeDeductions(prev => [newDed, ...prev]);
+    setDoc(doc(db, 'employeeDeductions', newDed.id), cleanDocForFirestore(newDed)).catch(() => {});
   };
 
   const cancelEmployeeDeduction = (id: string) => {
-    setEmployeeDeductions(prev => prev.map(d => d.id === id ? { ...d, status: 'cancelled' } : d));
+    setEmployeeDeductions(prev => prev.map(d => {
+      if (d.id === id) {
+        const updated = { ...d, status: 'cancelled' as const };
+        setDoc(doc(db, 'employeeDeductions', id), cleanDocForFirestore(updated)).catch(() => {});
+        return updated;
+      }
+      return d;
+    }));
   };
 
   const addEmployeeIncentive = (employeeId: string, amount: number, date: string, reason: string) => {
@@ -3635,10 +4508,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setEmployeeIncentives(prev => [newInc, ...prev]);
+    setDoc(doc(db, 'employeeIncentives', newInc.id), cleanDocForFirestore(newInc)).catch(() => {});
   };
 
   const cancelEmployeeIncentive = (id: string) => {
-    setEmployeeIncentives(prev => prev.map(i => i.id === id ? { ...i, status: 'cancelled' } : i));
+    setEmployeeIncentives(prev => prev.map(i => {
+      if (i.id === id) {
+        const updated = { ...i, status: 'cancelled' as const };
+        setDoc(doc(db, 'employeeIncentives', id), cleanDocForFirestore(updated)).catch(() => {});
+        return updated;
+      }
+      return i;
+    }));
   };
 
   const createDraftPayrollSheet = (
@@ -3659,22 +4540,29 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setPayrollSheets(prev => [newSheet, ...prev]);
+    setDoc(doc(db, 'payrollSheets', newSheet.id), cleanDocForFirestore(newSheet)).catch(() => {});
     return newSheet;
   };
 
   const updateDraftPayrollSheet = (id: string, updated: Partial<PayrollSheet>) => {
+    let finalSheet: PayrollSheet | null = null;
     setPayrollSheets(prev =>
       prev.map(sheet => {
         if (sheet.id === id && sheet.status === 'draft') {
-          return { ...sheet, ...updated };
+          finalSheet = { ...sheet, ...updated };
+          return finalSheet;
         }
         return sheet;
       })
     );
+    if (finalSheet) {
+      setDoc(doc(db, 'payrollSheets', id), cleanDocForFirestore(finalSheet)).catch(() => {});
+    }
   };
 
   const deleteDraftPayrollSheet = (id: string) => {
     setPayrollSheets(prev => prev.filter(s => !(s.id === id && s.status === 'draft')));
+    deleteDoc(doc(db, 'payrollSheets', id)).catch(() => {});
   };
 
   const unapprovePayrollSheet = (id: string): { success: boolean; message?: string } => {
@@ -3749,7 +4637,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     const treasuryCode = treasuryAccountCodeOverride || sheet.treasuryAccountCode || '1101';
     const treasuryAcc = accounts.find(a => a.code === treasuryCode);
-    const treasuryName = treasuryAcc ? treasuryAcc.name : (treasuryCode === '1101' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (مصرف الراجحي)');
+    const treasuryName = treasuryAcc ? treasuryAcc.name : (treasuryCode === '1101' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (شيكات وحوالات)');
 
     // Check treasury balance
     if (treasuryAcc && treasuryAcc.balance < sheet.totalNet) {
@@ -3934,6 +4822,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       quantity: number;
       discount?: number;
       unitPrice?: number;
+      itemName?: string;
       description?: string;
       notes?: string;
       hasDimensions?: boolean;
@@ -3944,6 +4833,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       tax?: number;
       taxRate?: number;
       attachments?: LineAttachment[];
+      imageThumbnail?: string;
     }>,
     customerName: string,
     paymentMethod: PaymentMethod,
@@ -4039,6 +4929,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     let subtotal = 0;
     let discountTotal = extraOptions?.overallDiscount || 0;
     let totalCogs = 0;
+    let deliveryFeeTotal = 0;
 
     const invoiceItems = items.map(line => {
       const unitP = line.unitPrice !== undefined ? line.unitPrice : line.item.sellingPrice;
@@ -4065,17 +4956,24 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const lineTax = Number(((lineNet * lineTaxRate) / 100).toFixed(2));
       const lineTotal = Number((lineNet + lineTax).toFixed(2));
 
-      const isDeliveryItem = line.item.id === 'srv-delivery' || line.item.id === 'srv-delivery-mobile' || line.item.barcode === 'DELIVERY' || line.item.name === 'خدمة توصيل' || line.item.name?.trim().startsWith('توصيل') || line.item.category === 'services';
-      // خدمة التوصيل تحمل على الزبون بالتكلفة الأصلية دون مربح (التكلفة = سعر البيع)
-      const itemCost = isDeliveryItem ? unitP : (line.item.purchasePrice || 0);
+      const isDeliveryItem = line.item.id === 'srv-delivery' || line.item.id === 'srv-delivery-mobile' || line.item.barcode === 'DELIVERY' || line.item.name === 'خدمة توصيل' || line.item.name?.trim().startsWith('توصيل');
 
       subtotal += lineSubtotal;
       discountTotal += lineDiscount;
-      totalCogs += itemCost * quantity;
+
+      // خدمة التوصيل: خدمة خدماتية لا تتطلب مخازن وهي خالية من المرابح تماماً (التكلفة = سعر البيع للزبون = ما يحاسب به عامل التوصيل)
+      // ولا تدخل ضمن تكلفة البضاعة المباعة (COGS) للمخازن ولا قيود أرباح المنشأة
+      if (isDeliveryItem) {
+        deliveryFeeTotal += lineNet;
+      } else if (line.item.category !== 'services' && line.item.category !== 'copy_scan') {
+        const itemCost = line.item.purchasePrice || 0;
+        totalCogs += itemCost * quantity;
+      }
 
       return {
         itemId: line.item.id,
-        itemName: line.item.name,
+        itemCode: line.item.code || '',
+        itemName: line.itemName || line.item.name,
         category: line.item.category,
         quantity,
         unitPrice: unitP,
@@ -4091,7 +4989,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         count,
         unit: line.unit || line.item.unit || 'قطعة',
         attachments: line.attachments || [],
-        barcode: line.item.barcode
+        barcode: line.item.barcode,
+        imageThumbnail: line.imageThumbnail || ''
       };
     });
 
@@ -4112,6 +5011,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const baseTaxAmount = Number((taxAmount * exchangeRate).toFixed(2));
     const basePaidAmount = Number((paidAmount * exchangeRate).toFixed(2));
     const baseRemainingAmount = Number((remainingAmount * exchangeRate).toFixed(2));
+    const baseDeliveryFee = Number((deliveryFeeTotal * exchangeRate).toFixed(2));
+    const baseMerchandiseRevenue = Math.max(0, Number((baseNetBeforeTax - baseDeliveryFee).toFixed(2)));
 
     // Sub-customer resolution & persistence (الزبون الفرعي / الدين المؤقت)
     let resolvedSubCustId = extraOptions?.subCustomerId;
@@ -4479,13 +5380,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         referenceId: invId,
         lines: [
           ...journalDebitLines,
-          {
+          ...(baseMerchandiseRevenue > 0 ? [{
             accountCode: '4101',
             accountName: 'إيرادات مبيعات المكتبة والقرطاسية',
             debit: 0,
-            credit: baseNetBeforeTax,
-            description: 'صافي مبيعات الفاتورة (محول للشيكل)'
-          },
+            credit: baseMerchandiseRevenue,
+            description: 'صافي مبيعات البضاعة والمطبوعات (محول للشيكل)'
+          }] : []),
+          ...(baseDeliveryFee > 0 ? [{
+            accountCode: '2104',
+            accountName: 'أمانات ومستحقات خدمة التوصيل (عمال وشركات التوصيل)',
+            debit: 0,
+            credit: baseDeliveryFee,
+            description: `أمانات ومستحقات خدمة توصيل لعامل التوصيل (خالية المرابح تماماً - ${transactionCurrencySymbol} ${deliveryFeeTotal})`
+          }] : []),
           ...(baseTaxAmount > 0 ? [{
             accountCode: '2103',
             accountName: 'أمانات ضريبة القيمة المضافة المستحقة (VAT)',
@@ -4589,9 +5497,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setInvoices(prev => [newInvoice, ...prev]);
     }
     
-    // Telegram Notification
+    // Direct immediate cloud save for multi-user synchronization
+    setDoc(doc(db, 'invoices', newInvoice.id), cleanDocForFirestore(newInvoice)).catch(err => {
+      console.warn('Direct cloud save invoice notice:', err);
+    });
+
+    // Telegram Notification - Send ONLY: Name, Item(s), Amount without journal entries or extra info
     try {
-      const msg = `🟢 <b>فاتورة جديدة (${newInvoice.invoiceNumber})</b>\nالعميل: ${newInvoice.customerName}\nالقيمة: ${newInvoice.totalAmount} ${settings.currency}\nالمستخدم: ${newInvoice.userName || 'النظام'}`;
+      const itemsList = (newInvoice.items || [])
+        .map(it => `${it.itemName || (it as any).name || 'صنف'}${it.quantity > 1 ? ` (${it.quantity})` : ''}`)
+        .join('، ') || 'بدون أصناف';
+      const currencySymbol = newInvoice.currencySymbol || settings.currency || '₪';
+      const msg = `🧾 <b>فاتورة مبيعات (${newInvoice.invoiceNumber})</b>\n👤 <b>الاسم:</b> ${newInvoice.customerName || 'عميل نقدي'}\n📦 <b>الصنف:</b> ${itemsList}\n💰 <b>المبلغ:</b> ${newInvoice.totalAmount} ${currencySymbol}`;
       TelegramService.sendMessage(msg, settings);
     } catch(e) {}
 
@@ -4818,11 +5735,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       return updated;
     }));
+
+    setTimeout(() => {
+      const target = invoices.find(inv => inv.id === id);
+      if (target) {
+        setDoc(doc(db, 'invoices', id), cleanDocForFirestore({ ...target, ...updates })).catch(err => {
+          console.warn('Direct cloud update invoice notice:', err);
+        });
+      }
+    }, 100);
   };
 
   const deleteInvoice = (id: string) => {
     setInvoices(prev => prev.filter(inv => inv.id !== id));
     registerDeletedDoc('invoices', id);
+    deleteDoc(doc(db, 'invoices', id)).catch(err => console.warn('Direct cloud delete invoice notice:', err));
   };
 
   const addInvoiceTechnicalNote = (invoiceId: string, text: string) => {
@@ -4869,16 +5796,17 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     itemIndexOrId: string | number,
     attachmentId: string
   ): { success: boolean; message?: string } => {
-    let result = { success: true, message: 'تم حذف المرفق' };
+    let result = { success: true, message: 'تم حذف المرفق بنجاح' };
     setInvoices(prev => prev.map(inv => {
       if (inv.id !== invoiceId) return inv;
       const updatedItems = inv.items.map((item, idx) => {
         const matches = typeof itemIndexOrId === 'number' ? idx === itemIndexOrId : (item.itemId === itemIndexOrId || String(idx) === String(itemIndexOrId));
         if (!matches) return item;
         const targetAttachment = item.attachments?.find(a => a.id === attachmentId);
-        if (targetAttachment?.isOriginal) {
-          result = { success: false, message: 'لا يمكن حذف المرفقات الأصلية المعتمدة للفاتورة' };
-          return item;
+        if (targetAttachment?.driveFileId) {
+          deleteFileFromGoogleDrive(targetAttachment.driveFileId).catch(err => {
+            console.warn('Drive deletion note:', err);
+          });
         }
         return {
           ...item,
@@ -4961,6 +5889,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setPrintOrders(prev => [newOrder, ...prev]);
+
+    // Save directly to Firestore for real-time multi-user syncing
+    setDoc(doc(db, 'printOrders', newOrder.id), cleanDocForFirestore(newOrder)).catch(err => {
+      console.warn('Direct cloud save print order notice:', err);
+    });
 
     // If deposit was paid, record journal entry for deposit
     if (orderData.depositPaid > 0) {
@@ -5045,6 +5978,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       return updated;
     }));
+
+    setTimeout(() => {
+      const target = printOrders.find(j => j.id === id);
+      if (target) {
+        setDoc(doc(db, 'printOrders', id), cleanDocForFirestore({ ...target, ...updates })).catch(err => {
+          console.warn('Direct cloud update print order notice:', err);
+        });
+      }
+    }, 100);
   };
 
   const updatePrintOrderStatus = (id: string, newStatus: PrintJobOrder['status']) => {
@@ -5060,7 +6002,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         // Journal entry for collection
         const paymentAccountCode = paymentMethod === 'cash' ? '1101' : paymentMethod === 'card' ? '1102' : '1102';
-        const paymentAccountName = paymentMethod === 'cash' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (مصرف الراجحي)';
+        const paymentAccountName = paymentMethod === 'cash' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (شيكات وحوالات)';
 
         addJournalEntry({
           date: today,
@@ -5123,6 +6065,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     setPurchases(prev => [newPur, ...prev]);
 
+    // Direct cloud save
+    setDoc(doc(db, 'purchases', newPur.id), cleanDocForFirestore(newPur)).catch(err => {
+      console.warn('Direct cloud save purchase notice:', err);
+    });
+
     // Increase inventory (convert unit price to base Shekel if foreign currency was used)
     const purMovementTime = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
     setInventory(prev => prev.map(it => {
@@ -5149,12 +6096,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           reason: `توريد مشتريات من المورد (${invoiceData.supplierName})`,
           performedBy: 'قسم المشتريات'
         });
-        return {
+        const updatedItem = {
           ...it,
           stockQuantity: newQty,
           purchasePrice: unitCostInBase,
           lastMovementDate: invoiceData.date
         };
+        setDoc(doc(db, 'inventory', it.id), cleanDocForFirestore(updatedItem)).catch(() => {});
+        return updatedItem;
       }
       return it;
     }));
@@ -5184,7 +6133,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (basePaidAmount > 0) {
       journalLines.push({
         accountCode: invoiceData.paymentMethod === 'cash' ? '1101' : '1102',
-        accountName: invoiceData.paymentMethod === 'cash' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (مصرف الراجحي)',
+        accountName: invoiceData.paymentMethod === 'cash' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (شيكات وحوالات)',
         debit: 0,
         credit: basePaidAmount,
         description: `سداد قيمة فاتورة مشتريات (بالشيكل)`
@@ -5201,21 +6150,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       const payVoucherId = `vch-pur-${id}`;
       const payVoucherNumber = `PAY-PUR-${invoiceNumber.replace('PUR-', '')}`;
-      setVouchers(prev => [
-        {
-          id: payVoucherId,
-          voucherNumber: payVoucherNumber,
-          type: 'payment',
-          date: invoiceData.date,
-          partyId: invoiceData.supplierId,
-          partyName: invoiceData.supplierName,
-          amount: basePaidAmount,
-          paymentMethod: invoiceData.paymentMethod === 'cash' ? 'cash' : 'card',
-          accountCode: '2101',
-          description: `سند صرف وسداد لفاتورة مشتريات رقم ${invoiceNumber}`
-        },
-        ...prev
-      ]);
+      const newPayVoucher: PaymentVoucher = {
+        id: payVoucherId,
+        voucherNumber: payVoucherNumber,
+        type: 'payment',
+        date: invoiceData.date,
+        partyId: invoiceData.supplierId,
+        partyName: invoiceData.supplierName,
+        amount: basePaidAmount,
+        paymentMethod: invoiceData.paymentMethod === 'cash' ? 'cash' : 'bank_transfer',
+        accountCode: '2101',
+        description: `سند صرف وسداد لفاتورة مشتريات رقم ${invoiceNumber}`
+      };
+      setVouchers(prev => [newPayVoucher, ...prev]);
+      setDoc(doc(db, 'vouchers', payVoucherId), cleanDocForFirestore(newPayVoucher)).catch(() => {});
     }
 
     if (baseRemainingToSupplier > 0) {
@@ -5228,7 +6176,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
 
       // Update supplier balance (credit) in BASE CURRENCY
-      setParties(prev => prev.map(p => p.id === invoiceData.supplierId ? { ...p, balance: p.balance - baseRemainingToSupplier } : p));
+      setParties(prev => prev.map(p => {
+        if (p.id === invoiceData.supplierId) {
+          const updatedP = { ...p, balance: p.balance - baseRemainingToSupplier };
+          setDoc(doc(db, 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
+          return updatedP;
+        }
+        return p;
+      }));
     }
 
     addJournalEntry({
@@ -5282,9 +6237,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     setVouchers(prev => [newVoucher, ...prev]);
 
+    // Direct cloud save
+    setDoc(doc(db, 'vouchers', newVoucher.id), cleanDocForFirestore(newVoucher)).catch(err => {
+      console.warn('Direct cloud save voucher notice:', err);
+    });
+
     const cashBankCode = voucherData.treasuryAccountCode || (voucherData.paymentMethod === 'cash' ? '1101' : '1102');
     const targetTreasury = treasuries.find(t => t.accountCode === cashBankCode || t.id === cashBankCode);
-    const cashBankName = targetTreasury ? targetTreasury.name : (voucherData.paymentMethod === 'cash' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (مصرف الراجحي)');
+    const cashBankName = targetTreasury ? targetTreasury.name : (voucherData.paymentMethod === 'cash' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (شيكات وحوالات)');
     const effectiveAccountCode = voucherData.accountCode || (voucherData.type === 'receipt' ? '1201' : '2101');
 
     if (voucherData.type === 'receipt') {
@@ -5333,7 +6293,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (voucherData.partyId) {
         setParties(prev => prev.map(p => {
           if (p.id === voucherData.partyId) {
-            return { ...p, balance: Number((p.balance - baseAmount).toFixed(2)) };
+            const updatedP = { ...p, balance: Number((p.balance - baseAmount).toFixed(2)) };
+            setDoc(doc(db, 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
+            return updatedP;
           }
           return p;
         }));
@@ -5382,28 +6344,42 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       // If supplier, adjust supplier balance (increases toward 0, reducing debt in ILS)
       if (voucherData.partyId) {
-        setParties(prev => prev.map(p => p.id === voucherData.partyId ? { ...p, balance: Number((p.balance + baseAmount).toFixed(2)) } : p));
+        setParties(prev => prev.map(p => {
+          if (p.id === voucherData.partyId) {
+            const updatedP = { ...p, balance: Number((p.balance + baseAmount).toFixed(2)) };
+            setDoc(doc(db, 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
+            return updatedP;
+          }
+          return p;
+        }));
       }
     }
   };
 
   const updatePaymentVoucher = (id: string, updates: Partial<PaymentVoucher>) => {
+    let finalVoucher: PaymentVoucher | null = null;
     setVouchers(prev => prev.map(v => {
       if (v.id !== id) return v;
       // Do not allow changing unique voucherNumber
       const { voucherNumber: _ignored, ...allowed } = updates;
-      return { ...v, ...allowed };
+      finalVoucher = { ...v, ...allowed };
+      return finalVoucher;
     }));
+    if (finalVoucher) {
+      setDoc(doc(db, 'vouchers', id), cleanDocForFirestore(finalVoucher)).catch(() => {});
+    }
   };
 
   const deletePaymentVoucher = (id: string) => {
     setVouchers(prev => prev.filter(v => v.id !== id));
     registerDeletedDoc('vouchers', id);
+    deleteDoc(doc(db, 'vouchers', id)).catch(() => {});
   };
 
   const deletePurchaseInvoice = (id: string) => {
     setPurchases(prev => prev.filter(p => p.id !== id));
     registerDeletedDoc('purchases', id);
+    deleteDoc(doc(db, 'purchases', id)).catch(() => {});
   };
 
   const createPurchaseReturn = (returnData: Omit<PurchaseReturn, 'id' | 'returnNumber' | 'createdAt'>): PurchaseReturn => {
@@ -5427,6 +6403,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setPurchaseReturns(prev => [newReturn, ...prev]);
+
+    // Direct cloud save
+    setDoc(doc(db, 'purchaseReturns', newReturn.id), cleanDocForFirestore(newReturn)).catch(err => {
+      console.warn('Direct cloud save purchase return notice:', err);
+    });
 
     // 1. Deduct stock quantity from inventory (returning goods to supplier)
     const retMovementTime = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
@@ -5453,18 +6434,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           reason: `مردودات مشتريات إلى المورد (${returnData.supplierName})`,
           performedBy: 'أمين المستودع'
         });
-        return {
+        const updatedItem = {
           ...it,
           stockQuantity: newQty,
           lastMovementDate: today
         };
+        setDoc(doc(db, 'inventory', it.id), cleanDocForFirestore(updatedItem)).catch(() => {});
+        return updatedItem;
       }
       return it;
     }));
 
     // 2. Adjust supplier balance or treasury
     const cashBankCode = returnData.settlementType === 'cash_refund' ? '1101' : '1102';
-    const cashBankName = returnData.settlementType === 'cash_refund' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (مصرف الراجحي)';
+    const cashBankName = returnData.settlementType === 'cash_refund' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (شيكات وحوالات)';
 
     const journalLines = [
       {
@@ -5494,7 +6477,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     if (returnData.settlementType === 'credit_balance') {
       // Reduce supplier debt (supplier balance is negative, so adding increases it toward 0)
-      setParties(prev => prev.map(p => p.id === returnData.supplierId ? { ...p, balance: p.balance + baseTotalAmount } : p));
+      setParties(prev => prev.map(p => {
+        if (p.id === returnData.supplierId) {
+          const updatedP = { ...p, balance: p.balance + baseTotalAmount };
+          setDoc(doc(db, 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
+          return updatedP;
+        }
+        return p;
+      }));
     } else {
       // Refund to cash/bank treasury
       adjustTreasuryBalance(
@@ -5520,6 +6510,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const deletePurchaseReturn = (id: string) => {
     setPurchaseReturns(prev => prev.filter(r => r.id !== id));
     registerDeletedDoc('purchaseReturns', id);
+    deleteDoc(doc(db, 'purchaseReturns', id)).catch(() => {});
   };
 
   const createSalesReturn = (returnData: Omit<SalesReturn, 'id' | 'returnNumber' | 'createdAt'>): SalesReturn => {
@@ -5544,6 +6535,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
 
     setSalesReturns(prev => [newReturn, ...prev]);
+
+    // Direct cloud save
+    setDoc(doc(db, 'salesReturns', newReturn.id), cleanDocForFirestore(newReturn)).catch(err => {
+      console.warn('Direct cloud save sales return notice:', err);
+    });
 
     // 1. Return stock quantity back to inventory (adding returned goods to stock)
     const retMovementTime = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
@@ -5570,18 +6566,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           reason: `مردودات مبيعات من العميل (${returnData.customerName})`,
           performedBy: currentUser?.fullName || 'الكاشير'
         });
-        return {
+        const updatedItem = {
           ...it,
           stockQuantity: newQty,
           lastMovementDate: today
         };
+        setDoc(doc(db, 'inventory', it.id), cleanDocForFirestore(updatedItem)).catch(() => {});
+        return updatedItem;
       }
       return it;
     }));
 
     // 2. Adjust customer balance or refund from treasury
     const cashBankCode = returnData.settlementType === 'cash_refund' ? '1101' : '1102';
-    const cashBankName = returnData.settlementType === 'cash_refund' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (مصرف الراجحي)';
+    const cashBankName = returnData.settlementType === 'cash_refund' ? 'الصندوق النقدي (الكاشير)' : 'الحساب البنكي (شيكات وحوالات)';
 
     const journalLines = [
       {
@@ -5610,7 +6608,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     ];
 
     if (returnData.settlementType === 'credit_balance') {
-      setParties(prev => prev.map(p => p.id === returnData.customerId ? { ...p, balance: Number((p.balance - baseTotalAmount).toFixed(2)) } : p));
+      setParties(prev => prev.map(p => {
+        if (p.id === returnData.customerId) {
+          const updatedP = { ...p, balance: Number((p.balance - baseTotalAmount).toFixed(2)) };
+          setDoc(doc(db, 'parties', p.id), cleanDocForFirestore(updatedP)).catch(() => {});
+          return updatedP;
+        }
+        return p;
+      }));
     } else {
       adjustTreasuryBalance(
         returnData.treasuryAccountCode || cashBankCode,
@@ -5635,6 +6640,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const deleteSalesReturn = (id: string) => {
     setSalesReturns(prev => prev.filter(r => r.id !== id));
     registerDeletedDoc('salesReturns', id);
+    deleteDoc(doc(db, 'salesReturns', id)).catch(() => {});
   };
 
   const [lastBackupInfo, setLastBackupInfo] = useState<{ timestamp: string; filename: string } | null>(() => {
@@ -6274,21 +7280,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   };
 
-  const importDataJSON = (jsonString: string, includeSettings = true, keepTelegramSettings = true, keepFacilitySettings = true): boolean => {
+  const importDataJSON = async (jsonString: string, includeSettings = true, keepTelegramSettings = true, keepFacilitySettings = true): Promise<boolean> => {
     try {
       const data = JSON.parse(jsonString);
       if (data.accounts && data.inventory && data.settings) {
+        let finalSettings = { ...settings };
         if (!keepFacilitySettings && data.settings) {
-            const settingsToImport = { ...data.settings };
+            finalSettings = { ...data.settings };
             if (keepTelegramSettings) {
-              settingsToImport.telegramConfig = settings.telegramConfig;
+              finalSettings.telegramConfig = settings.telegramConfig;
             }
-            setSettings(settingsToImport);
+            setSettings(finalSettings);
         } else if (keepFacilitySettings && data.settings && keepTelegramSettings === false) {
-           // Edge case: User wants to keep facility settings, but REPLACE telegram settings
-           const settingsToImport = { ...settings };
-           settingsToImport.telegramConfig = data.settings.telegramConfig;
-           setSettings(settingsToImport);
+           finalSettings = { ...settings };
+           finalSettings.telegramConfig = data.settings.telegramConfig;
+           setSettings(finalSettings);
         }
 
         if (includeSettings) {
@@ -6316,23 +7322,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (data.vouchers) setVouchers(data.vouchers);
         if (data.debtClearings) setDebtClearings(data.debtClearings);
         if (data.expenses) setExpenses(data.expenses);
-        // settings already restored if requested
         if (data.warehouseOperations) setWarehouseOperations(data.warehouseOperations);
         if (data.treasuries) setTreasuries(data.treasuries);
 
-        // Force synchronous save to localStorage before reload so that changes are preserved
-        if (!keepFacilitySettings && data.settings) {
-            const settingsToImport = { ...data.settings };
-            if (keepTelegramSettings) {
-              settingsToImport.telegramConfig = settings.telegramConfig;
-            }
-            localStorage.setItem(`${STORAGE_KEY}_settings`, JSON.stringify(settingsToImport));
-        } else if (keepFacilitySettings && data.settings && keepTelegramSettings === false) {
-           const settingsToImport = { ...settings };
-           settingsToImport.telegramConfig = data.settings.telegramConfig;
-           localStorage.setItem(`${STORAGE_KEY}_settings`, JSON.stringify(settingsToImport));
-        }
-
+        // Synchronously write all imported records to localStorage
+        localStorage.setItem(`${STORAGE_KEY}_settings`, JSON.stringify(finalSettings));
         if (includeSettings) {
           if (data.roles) localStorage.setItem(`${STORAGE_KEY}_roles`, JSON.stringify(data.roles));
           if (data.users) localStorage.setItem(`${STORAGE_KEY}_users`, JSON.stringify(data.users));
@@ -6362,8 +7356,88 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (data.warehouseOperations) localStorage.setItem(`${STORAGE_KEY}_warehouse_operations`, JSON.stringify(data.warehouseOperations));
         if (data.treasuries) localStorage.setItem(`${STORAGE_KEY}_treasuries`, JSON.stringify(data.treasuries));
 
-        // Mark as unsynced so that the app pushes to Firebase upon reload
-        localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'true');
+        // Clear previous deletion tracking so imported items are never purged
+        localStorage.removeItem('accounting_deleted_docs');
+
+        // Direct push to Firestore cloud database in chunked batches
+        try {
+          const collectionsToPush: Record<string, any[]> = {
+            accounts: data.accounts || [],
+            treasuries: data.treasuries || [],
+            parties: data.parties || [],
+            employees: data.employees || [],
+            invoices: data.invoices || [],
+            purchases: data.purchases || [],
+            purchaseReturns: data.purchaseReturns || [],
+            salesReturns: data.salesReturns || [],
+            vouchers: data.vouchers || [],
+            printOrders: data.printOrders || [],
+            journalEntries: data.journalEntries || [],
+            employeeAdvances: data.employeeAdvances || [],
+            employeeDeductions: data.employeeDeductions || [],
+            employeeIncentives: data.employeeIncentives || [],
+            payrollSheets: data.payrollSheets || [],
+            inventory: data.inventory || [],
+            stockMovements: data.stockMovements || [],
+            debtClearings: data.debtClearings || [],
+            expenses: data.expenses || [],
+            warehouseOperations: data.warehouseOperations || []
+          };
+
+          if (includeSettings) {
+            if (data.roles) collectionsToPush.roles = data.roles;
+            if (data.users) collectionsToPush.users = data.users;
+            if (data.companies) collectionsToPush.companies = data.companies;
+            if (data.branches) collectionsToPush.branches = data.branches;
+            if (data.warehouses) collectionsToPush.warehouses = data.warehouses;
+          }
+
+          const newHashes: Record<string, string> = {};
+          let currentBatch = writeBatch(db);
+          let opCount = 0;
+
+          for (const [colName, items] of Object.entries(collectionsToPush)) {
+            if (!Array.isArray(items)) continue;
+            for (const item of items) {
+              if (!item || !item.id) continue;
+              const cleanItem = cleanDocForFirestore(item);
+              const itemHash = JSON.stringify(cleanItem);
+              const hashKey = `${colName}_${item.id}`;
+              
+              currentBatch.set(doc(db, colName, String(item.id)), cleanItem);
+              newHashes[hashKey] = itemHash;
+              opCount++;
+
+              if (opCount % 400 === 0) {
+                await currentBatch.commit();
+                currentBatch = writeBatch(db);
+              }
+            }
+          }
+
+          if (finalSettings) {
+            const cleanSettings = cleanDocForFirestore(finalSettings);
+            currentBatch.set(doc(db, 'settings', 'global'), cleanSettings);
+            newHashes['settings_global'] = JSON.stringify(cleanSettings);
+            opCount++;
+          }
+
+          if (opCount % 400 !== 0 && opCount > 0) {
+            await currentBatch.commit();
+          }
+
+          localStorage.setItem('accounting_synced_hashes', JSON.stringify(newHashes));
+          localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'false');
+          const timeStr = new Date().toLocaleTimeString('en-US');
+          setLastFirebaseSyncTime(timeStr);
+          setLastSyncTime(timeStr);
+          setHasUnsyncedChanges(false);
+          setPendingSyncCount(0);
+          localStorage.setItem(`${STORAGE_KEY}_last_sync`, timeStr);
+        } catch (cloudErr) {
+          console.warn('Direct cloud push after import caught notice, marking for sync:', cloudErr);
+          localStorage.setItem(`${STORAGE_KEY}_has_unsynced`, 'true');
+        }
 
         return true;
       }

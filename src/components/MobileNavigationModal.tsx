@@ -497,8 +497,8 @@ export const MobileNavigationModal: React.FC<MobileNavigationModalProps> = ({
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-[15px] font-black text-white tracking-tight truncate">
-                    برنامج الأيهم المحاسبي
+                  <h2 className="text-[14px] font-black text-white tracking-tight truncate">
+                    {settings.appTitle || 'برنامج الأيهم المحاسبي - مطبعة ومكتبة لبنان - م.رائد صالحة'}
                   </h2>
                 </div>
                 <p className="text-[11px] font-bold text-blue-400 truncate mt-0.5">

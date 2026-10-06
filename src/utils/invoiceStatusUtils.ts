@@ -222,7 +222,17 @@ export interface InvoiceWorkflowStatusMeta {
  */
 export function getInvoiceWorkflowStatusMeta(status?: PosInvoiceWorkflowStatus): InvoiceWorkflowStatusMeta {
   const getRaw = () => {
-    switch (status) {
+    switch (status as any) {
+      case 'draft':
+        return {
+          id: 'draft' as PosInvoiceWorkflowStatus,
+          label: 'مسودة محفوظة 📝',
+          badgeBg: 'bg-amber-100',
+          badgeText: 'text-amber-900',
+          badgeBorder: 'border-amber-400',
+          isAccounting: false,
+          description: 'مسودة فاتورة محفوظة للمراجعة والاعتماد'
+        };
       case 'new':
         return {
           id: 'new' as PosInvoiceWorkflowStatus,

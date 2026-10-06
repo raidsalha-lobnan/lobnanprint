@@ -66,13 +66,28 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ initialTab = 'supp
   } = useAccounting();
 
   // Top Active Tab: Suppliers vs Invoices vs Returns vs Payment Vouchers
-  const [activeTab, setActiveTab] = useState<'suppliers' | 'invoices' | 'returns' | 'vouchers'>(initialTab);
+  const [activeTab, setActiveTabState] = useState<'suppliers' | 'invoices' | 'returns' | 'vouchers'>(() => {
+    try {
+      const saved = localStorage.getItem('purchases_subtab');
+      if (saved && ['suppliers', 'invoices', 'returns', 'vouchers'].includes(saved)) {
+        return saved as any;
+      }
+    } catch {}
+    return initialTab;
+  });
+
+  const setActiveTab = React.useCallback((tab: 'suppliers' | 'invoices' | 'returns' | 'vouchers') => {
+    setActiveTabState(tab);
+    try {
+      localStorage.setItem('purchases_subtab', tab);
+    } catch {}
+  }, []);
 
   React.useEffect(() => {
-    if (initialTab) {
+    if (initialTab && !localStorage.getItem('purchases_subtab')) {
       setActiveTab(initialTab);
     }
-  }, [initialTab]);
+  }, [initialTab, setActiveTab]);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Suppliers Management State

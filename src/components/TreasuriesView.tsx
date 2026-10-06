@@ -137,7 +137,7 @@ export const TreasuriesView: React.FC = () => {
     setFormName('');
     setFormType('bank_app');
     setFormBalance(0);
-    setFormBankName('مصرف الراجحي');
+    setFormBankName('الحساب البنكي');
     setFormAccountNumber('');
     setFormNotes('');
     setFormStatus('active');
@@ -427,7 +427,7 @@ export const TreasuriesView: React.FC = () => {
             <span className="text-xs font-normal text-slate-500">{settings.currency}</span>
           </div>
           <div className="mt-1 text-[11px] text-blue-600 font-medium">
-            التحويلات السريعة ومصرف الراجحي/الأهلي
+            التحويلات السريعة والحسابات البنكية
           </div>
         </div>
 
@@ -769,7 +769,7 @@ export const TreasuriesView: React.FC = () => {
                   required
                   value={formName}
                   onChange={e => setFormName(e.target.value)}
-                  placeholder="مثال: تطبيق مصرف الراجحي للأعمال، الصندوق النقدي الفرعي، STC Pay..."
+                  placeholder="مثال: الحساب البنكي الرئيسي، الصندوق النقدي الفرعي..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:ring-2 focus:ring-emerald-500 transition-colors"
                 />
               </div>
@@ -824,7 +824,7 @@ export const TreasuriesView: React.FC = () => {
                     type="text"
                     value={formBankName}
                     onChange={e => setFormBankName(e.target.value)}
-                    placeholder="مصرف الراجحي، البنك الأهلي، الإنماء، STC..."
+                    placeholder="بنك فلسطين، البنك العربي، بنك القدس..."
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
@@ -1075,7 +1075,7 @@ export const TreasuriesView: React.FC = () => {
                   type="text"
                   value={transferNotes}
                   onChange={e => setTransferNotes(e.target.value)}
-                  placeholder="مثال: توريد نقدية مبيعات الكاشير إلى حساب الراجحي، أو تغذية العهدة..."
+                  placeholder="مثال: توريد نقدية مبيعات الكاشير إلى الحساب البنكي، أو تغذية العهدة..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:ring-2 focus:ring-blue-500"
                 />
               </div>

@@ -45,8 +45,9 @@ export const SupplierModal: React.FC<SupplierModalProps> = ({
         setCommercialRegister(supplierToEdit.commercialRegister || '');
         setCity(supplierToEdit.city || '');
         setAddress(supplierToEdit.address || '');
-        setOpeningBalance(supplierToEdit.openingBalance || Math.abs(supplierToEdit.balance) || 0);
-        setOpeningBalanceType(supplierToEdit.openingBalanceType || (supplierToEdit.balance < 0 ? 'credit' : 'debit'));
+        const manualOpBal = supplierToEdit.openingBalance !== undefined ? supplierToEdit.openingBalance : 0;
+        setOpeningBalance(manualOpBal);
+        setOpeningBalanceType(supplierToEdit.openingBalanceType || 'credit');
         setOpeningBalanceDate(supplierToEdit.openingBalanceDate || new Date().toISOString().split('T')[0]);
         setNotes(supplierToEdit.notes || '');
         setGeneratedCode(supplierToEdit.code || '');

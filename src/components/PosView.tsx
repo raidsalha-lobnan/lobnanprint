@@ -13,21 +13,26 @@ import { RequisitionModal } from './pos/RequisitionModal';
 import { FavoriteItemsDrawer } from './pos/FavoriteItemsDrawer';
 import { InvoicesReviewModal } from './pos/InvoicesReviewModal';
 import { HeldInvoicesModal, HeldInvoiceData } from './pos/HeldInvoicesModal';
+import { DraftInvoicesQueueModal } from './pos/DraftInvoicesQueueModal';
+import { SheetInvoiceRow } from '../services/liveSheetService';
 import { ItemSearchModal } from './pos/ItemSearchModal';
 import { ItemAutocompleteInput } from './pos/ItemAutocompleteInput';
 import { PosCustomerSearchInput } from './pos/PosCustomerSearchInput';
 import { AutocompleteCombobox, ComboboxOption } from './common/AutocompleteCombobox';
+import { QuickAddPartyModal } from './pos/QuickAddPartyModal';
 import { PosFavoritesSidebar } from './pos/PosFavoritesSidebar';
 import { posSound } from '../utils/audio';
 import { useHardwareBarcodeScanner } from '../utils/useBarcodeScanner';
 import { matchItemByBarcode } from '../utils/barcodeGenerator';
 import { findPartyByCodeOrNumber } from '../utils/partyUtils';
-import { getAvailableUnitsOfMeasure } from '../utils/unitsOfMeasure';
+import { getAvailableUnitsOfMeasure, isSquareMeterUnit } from '../utils/unitsOfMeasure';
+import { matchKeyboardShortcut } from '../utils/keyboardShortcuts';
 import {
   Search,
   Barcode,
   Trash2,
   Plus,
+  Edit2,
   Printer,
   Save,
   RotateCcw,
@@ -76,10 +81,22 @@ import {
   CheckCircle2,
   Ruler,
   Paperclip,
-  RefreshCw
+  RefreshCw,
+  FileSpreadsheet
 } from 'lucide-react';
-import { PosCustomButton, loadPosCustomButtons, savePosCustomButtons } from '../types/posCustomizer';
-import { PosLayoutConfig, DEFAULT_POS_LAYOUT_CONFIG, loadPosLayoutConfig, savePosLayoutConfig } from '../types/posLayoutCustomizer';
+import { PosCustomButton, loadPosCustomButtons, savePosCustomButtons, DEFAULT_POS_BUTTONS } from '../types/posCustomizer';
+import {
+  PosLayoutConfig,
+  DEFAULT_POS_LAYOUT_CONFIG,
+  loadPosLayoutConfig,
+  savePosLayoutConfig,
+  PosColumnKey,
+  DEFAULT_POS_COLUMN_WIDTHS,
+  MIN_POS_COLUMN_WIDTHS,
+  loadPosColumnWidths,
+  savePosColumnWidths,
+  resetPosColumnWidthsToDefault
+} from '../types/posLayoutCustomizer';
 import { PosCustomButtonRenderer } from './pos/PosCustomButtonRenderer';
 import { DayInvoicesNavigator } from './pos/DayInvoicesNavigator';
 import { PosButtonCustomizerModal } from './pos/PosButtonCustomizerModal';
@@ -101,6 +118,7 @@ import {
 
 export interface PosTableLine {
   id: string;
+  itemCode?: string;       // رقم الصنف / كود الصنف المخزني
   barcode: string;
   itemName: string;        // الصنف
   description: string;     // الوصف
@@ -118,6 +136,7 @@ export interface PosTableLine {
   total: number;           // الإجمالي
   attachments: LineAttachment[]; // المرفقات
   inventoryItemId?: string;
+  imageThumbnail?: string; // الصورة المصغرة للبند
 }
 
 const generateUniqueLineId = () => `line-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
@@ -273,6 +292,60 @@ const DraggableDigitalDisplay = ({ amount }: { amount: number }) => {
   );
 };
 
+const compressToThumbnail = (file: File): Promise<string> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 120;
+        const MAX_HEIGHT = 120;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.7));
+        } else {
+          resolve(e.target?.result as string);
+        }
+      };
+      img.onerror = () => resolve('');
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+};
+
+const parseThumbnails = (val?: string): string[] => {
+  if (!val) return [];
+  const trimmed = val.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
+  }
+  return [val];
+};
+
 export const PosView: React.FC = () => {
   const {
     inventory,
@@ -331,8 +404,54 @@ export const PosView: React.FC = () => {
     setCustomExchangeRate(activeCurrency.rateAgainstBase || 1.0);
   }, [activeCurrency.rateAgainstBase, selectedCurrencyCode]);
 
+const POS_FULL_DRAFT_KEY = 'pos_active_full_draft';
+
+interface PosFullDraftData {
+  tableLines?: PosTableLine[];
+  posTargetType?: 'customer' | 'supplier' | 'employee';
+  selectedCustomerId?: string;
+  customerCode?: string;
+  customerName?: string;
+  pricingTier?: 'retail' | 'wholesale' | 'special';
+  transactionType?: 'cash' | 'credit';
+  customCustomerText?: string;
+  subCustomerId?: string;
+  subCustomerName?: string;
+  subCustomerPhone?: string;
+  branch?: string;
+  warehouse?: string;
+  invoiceDate?: string;
+  representative?: string;
+  taxRate?: number;
+  taxEnabled?: boolean;
+  additionalCharges?: number;
+  overallDiscount?: number;
+  discountType?: 'amount' | 'percent';
+  invoiceNotes?: string;
+  shippingDetails?: { carrier: string; tracking: string; address: string };
+  cashAmountInput?: string;
+  bankAmountInput?: string;
+  activeRowId?: string | null;
+  focusedInputId?: string | null;
+  timestamp?: number;
+}
+
+const getInitialPosDraft = (): PosFullDraftData => {
+  try {
+    const raw = localStorage.getItem(POS_FULL_DRAFT_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch {}
+  return {};
+};
+
   // Active top tab in POS window
   const [activeWindowTab, setActiveWindowTab] = useState<'pos' | 'items' | 'parties' | 'ledger' | 'home'>('pos');
+
+  // Load persistent draft on initialization (لضمان بقاء كافة الإدخالات والبيانات عند التحديث F5)
+  const savedPosDraft = useMemo(() => getInitialPosDraft(), []);
 
   // Customer & Invoice Header State (Strictly main customers, sub-customers are completely separate)
   const customers = useMemo(() => parties.filter(p => (p.type === 'customer' || p.type === 'both') && !p.isSubCustomer), [parties]);
@@ -340,16 +459,28 @@ export const PosView: React.FC = () => {
   const defaultCustomer = customers.find(c => c.name.includes('وقف فلسطين') || c.name.includes('أبو يوسف')) || customers[0];
 
   // الطرف المستهدف في الكاشير: عميل أو مورد أو موظف
-  const [posTargetType, setPosTargetType] = useState<'customer' | 'supplier' | 'employee'>('customer');
+  const [posTargetType, setPosTargetType] = useState<'customer' | 'supplier' | 'employee'>(() => {
+    return savedPosDraft.posTargetType || 'customer';
+  });
 
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
-  const [customerCode, setCustomerCode] = useState<string>('');
-  const [customerName, setCustomerName] = useState<string>('عميل كاشير نقدي');
-  const [pricingTier, setPricingTier] = useState<'retail' | 'wholesale' | 'special'>('retail');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(() => {
+    return savedPosDraft.selectedCustomerId || '';
+  });
+  const [customerCode, setCustomerCode] = useState<string>(() => {
+    return savedPosDraft.customerCode || '';
+  });
+  const [customerName, setCustomerName] = useState<string>(() => {
+    return savedPosDraft.customerName !== undefined ? savedPosDraft.customerName : 'عميل كاشير نقدي';
+  });
+  const [pricingTier, setPricingTier] = useState<'retail' | 'wholesale' | 'special'>(() => {
+    return savedPosDraft.pricingTier || 'retail';
+  });
 
-  // تعيين العميل الافتراضي (CUST-0001) كزبون كاشير رئيسي
+  // تعيين العميل الافتراضي (CUST-0001) كزبون كاشير رئيسي فقط إذا لم تكن هناك مسودة سابقة محفوظة
   useEffect(() => {
-    if (!selectedCustomerId && !editingPosInvoiceId && posTargetType === 'customer' && customerName === 'عميل كاشير نقدي') {
+    if (savedPosDraft.customerName && savedPosDraft.customerName !== 'عميل كاشير نقدي') return;
+    if (savedPosDraft.selectedCustomerId) return;
+    if (!selectedCustomerId && !customerCode && !editingPosInvoiceId && posTargetType === 'customer' && customerName === 'عميل كاشير نقدي') {
       const defaultCashCust = customers.find(c => c.code === 'CUST-0001' || c.code === '1');
       if (defaultCashCust) {
         setSelectedCustomerId(defaultCashCust.id);
@@ -357,7 +488,7 @@ export const PosView: React.FC = () => {
         setCustomerCode(defaultCashCust.code);
       }
     }
-  }, [customers, posTargetType]); // Removed selectedCustomerId and editingPosInvoiceId to prevent blocking manual clear
+  }, [customers, posTargetType, savedPosDraft]);
 
 
   // خيارات البحث والمطابقة الذكية حسب نوع الطرف المختار (عميل - مورد - موظف)
@@ -412,11 +543,21 @@ export const PosView: React.FC = () => {
       setPricingTier('special');
     }
   }, [userPricePolicy.allowedTier, pricingTier]);
-  const [transactionType, setTransactionType] = useState<'cash' | 'credit'>('cash');
-  const [customCustomerText, setCustomCustomerText] = useState<string>('');
-  const [subCustomerId, setSubCustomerId] = useState<string>('');
-  const [subCustomerName, setSubCustomerName] = useState<string>('');
-  const [subCustomerPhone, setSubCustomerPhone] = useState<string>('');
+  const [transactionType, setTransactionType] = useState<'cash' | 'credit'>(() => {
+    return savedPosDraft.transactionType || 'cash';
+  });
+  const [customCustomerText, setCustomCustomerText] = useState<string>(() => {
+    return savedPosDraft.customCustomerText || '';
+  });
+  const [subCustomerId, setSubCustomerId] = useState<string>(() => {
+    return savedPosDraft.subCustomerId || '';
+  });
+  const [subCustomerName, setSubCustomerName] = useState<string>(() => {
+    return savedPosDraft.subCustomerName || '';
+  });
+  const [subCustomerPhone, setSubCustomerPhone] = useState<string>(() => {
+    return savedPosDraft.subCustomerPhone || '';
+  });
 
   // Checkboxes from screenshot
   const [aggregateDuplicateItems, setAggregateDuplicateItems] = useState<boolean>(true);
@@ -429,6 +570,7 @@ export const PosView: React.FC = () => {
 
   // Left header metadata
   const [branch, setBranch] = useState<string>(() => {
+    if (savedPosDraft.branch) return savedPosDraft.branch;
     if (branches && branches.length > 0) {
       const b = branches.find(br => br.id === activeBranchId) || branches[0];
       return b.name;
@@ -436,6 +578,7 @@ export const PosView: React.FC = () => {
     return 'الفرع الرئيسي';
   });
   const [warehouse, setWarehouse] = useState<string>(() => {
+    if (savedPosDraft.warehouse) return savedPosDraft.warehouse;
     if (warehouses && warehouses.length > 0) {
       const w = warehouses.find(wh => wh.id === activeWarehouseId) || warehouses[0];
       return w.name;
@@ -445,20 +588,38 @@ export const PosView: React.FC = () => {
   const [invoiceSeqNumber, setInvoiceSeqNumber] = useState<string>(() => {
     return getNextSequentialInvoiceNumber(invoices);
   });
-  const [invoiceDate, setInvoiceDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [invoiceDate, setInvoiceDate] = useState<string>(() => {
+    return savedPosDraft.invoiceDate || new Date().toISOString().split('T')[0];
+  });
 
   // Header Sub-tools State & Modals
-  const [representative, setRepresentative] = useState<string>('مندوب المبيعات الرئيسي');
-  const [taxRate, setTaxRate] = useState<number>(settings.vatRate || 0);
-  const [taxEnabled, setTaxEnabled] = useState<boolean>(true);
-  const [additionalCharges, setAdditionalCharges] = useState<number>(0);
-  const [overallDiscount, setOverallDiscount] = useState<number>(0);
-  const [discountType, setDiscountType] = useState<'amount' | 'percent'>('amount');
-  const [invoiceNotes, setInvoiceNotes] = useState<string>('');
-  const [shippingDetails, setShippingDetails] = useState<{ carrier: string; tracking: string; address: string }>({
-    carrier: 'توصيل محلي',
-    tracking: '',
-    address: 'الرياض'
+  const [representative, setRepresentative] = useState<string>(() => {
+    return savedPosDraft.representative || 'مندوب المبيعات الرئيسي';
+  });
+  const [taxRate, setTaxRate] = useState<number>(() => {
+    return typeof savedPosDraft.taxRate === 'number' ? savedPosDraft.taxRate : (settings.vatRate || 0);
+  });
+  const [taxEnabled, setTaxEnabled] = useState<boolean>(() => {
+    return typeof savedPosDraft.taxEnabled === 'boolean' ? savedPosDraft.taxEnabled : true;
+  });
+  const [additionalCharges, setAdditionalCharges] = useState<number>(() => {
+    return typeof savedPosDraft.additionalCharges === 'number' ? savedPosDraft.additionalCharges : 0;
+  });
+  const [overallDiscount, setOverallDiscount] = useState<number>(() => {
+    return typeof savedPosDraft.overallDiscount === 'number' ? savedPosDraft.overallDiscount : 0;
+  });
+  const [discountType, setDiscountType] = useState<'amount' | 'percent'>(() => {
+    return savedPosDraft.discountType || 'amount';
+  });
+  const [invoiceNotes, setInvoiceNotes] = useState<string>(() => {
+    return savedPosDraft.invoiceNotes || '';
+  });
+  const [shippingDetails, setShippingDetails] = useState<{ carrier: string; tracking: string; address: string }>(() => {
+    return savedPosDraft.shippingDetails || {
+      carrier: 'توصيل محلي',
+      tracking: '',
+      address: ''
+    };
   });
 
   // Modals for Header Sub-tools
@@ -466,36 +627,202 @@ export const PosView: React.FC = () => {
     'representative' | 'tax' | 'additional' | 'discount' | 'notes' | 'shipping' | 'details' | 'currency' | null
   >(null);
 
-  // Table Lines State - تصفير شاشة الكاشير عند فتحها كل مرة
-  const [tableLines, setTableLines] = useState<PosTableLine[]>([
-    {
-      id: generateUniqueLineId(),
-      barcode: '',
-      itemName: '',
-      description: '',
-      notes: '',
-      hasDimensions: false,
-      length: 1,
-      width: 1,
-      count: 1,
-      quantity: 1,
-      unit: 'حبة',
-      unitPrice: 0,
-      discount: 0,
-      tax: 0,
-      total: 0,
-      attachments: []
+  // Table Lines State - حفظ واسترجاع مسودة الكاشير لضمان عدم ضياع الأصناف عند التحديث
+  const [tableLines, setTableLines] = useState<PosTableLine[]>(() => {
+    if (Array.isArray(savedPosDraft.tableLines) && savedPosDraft.tableLines.length > 0) {
+      return savedPosDraft.tableLines;
     }
+    try {
+      const saved = localStorage.getItem('pos_active_draft_lines');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [
+      {
+        id: generateUniqueLineId(),
+        itemCode: '',
+        barcode: '',
+        itemName: '',
+        description: '',
+        notes: '',
+        hasDimensions: false,
+        length: 0,
+        width: 0,
+        count: 1,
+        quantity: 1,
+        unit: 'حبة',
+        unitPrice: 0,
+        discount: 0,
+        tax: 0,
+        total: 0,
+        attachments: []
+      }
+    ];
+  });
+
+  const [activeRowId, setActiveRowId] = useState<string | null>(() => {
+    return savedPosDraft.activeRowId || null;
+  });
+  const [activeLineForAttachments, setActiveLineForAttachments] = useState<PosTableLine | null>(null);
+
+  // 1. Cash Payment State (المبلغ، العملة، سعر الصرف، الصندوق)
+  const [cashAmountInput, setCashAmountInput] = useState<string>(() => {
+    return savedPosDraft.cashAmountInput || '0';
+  });
+
+  // 2. Bank Payment State (المبلغ، عملة الدفع، سعر الصرف، الصندوق)
+  const [bankAmountInput, setBankAmountInput] = useState<string>(() => {
+    return savedPosDraft.bankAmountInput || '0';
+  });
+
+  // حفظ مسودة الكاشير الكاملة تلقائياً عند أي تعديل (لضمان عدم ضياع أي إدخال أو حقل عند التحديث F5)
+  useEffect(() => {
+    try {
+      const draft: PosFullDraftData = {
+        tableLines,
+        posTargetType,
+        selectedCustomerId,
+        customerCode,
+        customerName,
+        pricingTier,
+        transactionType,
+        customCustomerText,
+        subCustomerId,
+        subCustomerName,
+        subCustomerPhone,
+        branch,
+        warehouse,
+        invoiceDate,
+        representative,
+        taxRate,
+        taxEnabled,
+        additionalCharges,
+        overallDiscount,
+        discountType,
+        invoiceNotes,
+        shippingDetails,
+        cashAmountInput,
+        bankAmountInput,
+        activeRowId,
+        timestamp: Date.now()
+      };
+      localStorage.setItem(POS_FULL_DRAFT_KEY, JSON.stringify(draft));
+      localStorage.setItem('pos_active_draft_lines', JSON.stringify(tableLines));
+    } catch (e) {
+      console.warn('Failed to auto-save POS draft', e);
+    }
+  }, [
+    tableLines,
+    posTargetType,
+    selectedCustomerId,
+    customerCode,
+    customerName,
+    pricingTier,
+    transactionType,
+    customCustomerText,
+    subCustomerId,
+    subCustomerName,
+    subCustomerPhone,
+    branch,
+    warehouse,
+    invoiceDate,
+    representative,
+    taxRate,
+    taxEnabled,
+    additionalCharges,
+    overallDiscount,
+    discountType,
+    invoiceNotes,
+    shippingDetails,
+    cashAmountInput,
+    bankAmountInput,
+    activeRowId
   ]);
 
-  const [activeRowId, setActiveRowId] = useState<string | null>(null);
-  const [activeLineForAttachments, setActiveLineForAttachments] = useState<PosTableLine | null>(null);
+  // حفظ عند إغلاق أو رفرش الصفحة فوراً
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      try {
+        const activeEl = document.activeElement as HTMLElement | null;
+        const focusedId = activeEl?.id || '';
+        const draft: PosFullDraftData = {
+          tableLines,
+          posTargetType,
+          selectedCustomerId,
+          customerCode,
+          customerName,
+          pricingTier,
+          transactionType,
+          customCustomerText,
+          subCustomerId,
+          subCustomerName,
+          subCustomerPhone,
+          branch,
+          warehouse,
+          invoiceDate,
+          representative,
+          taxRate,
+          taxEnabled,
+          additionalCharges,
+          overallDiscount,
+          discountType,
+          invoiceNotes,
+          shippingDetails,
+          cashAmountInput,
+          bankAmountInput,
+          activeRowId,
+          focusedInputId: focusedId,
+          timestamp: Date.now()
+        };
+        localStorage.setItem(POS_FULL_DRAFT_KEY, JSON.stringify(draft));
+        localStorage.setItem('pos_active_draft_lines', JSON.stringify(tableLines));
+        if (focusedId) {
+          localStorage.setItem('alnoor_last_focused_element', JSON.stringify({
+            id: focusedId,
+            timestamp: Date.now()
+          }));
+        }
+      } catch {}
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [
+    tableLines,
+    posTargetType,
+    selectedCustomerId,
+    customerCode,
+    customerName,
+    pricingTier,
+    transactionType,
+    customCustomerText,
+    subCustomerId,
+    subCustomerName,
+    subCustomerPhone,
+    branch,
+    warehouse,
+    invoiceDate,
+    representative,
+    taxRate,
+    taxEnabled,
+    additionalCharges,
+    overallDiscount,
+    discountType,
+    invoiceNotes,
+    shippingDetails,
+    cashAmountInput,
+    bankAmountInput,
+    activeRowId
+  ]);
 
   // Add delivery service item automatically to table (يحدد له ملاحظات وسعر فقط)
   const handleAddDeliveryServiceLine = useCallback(() => {
     posSound.beep();
     const deliveryLine: PosTableLine = {
       id: generateUniqueLineId(),
+      itemCode: 'DELIVERY',
       barcode: 'DELIVERY',
       itemName: 'خدمة توصيل',
       description: '',
@@ -515,7 +842,7 @@ export const PosView: React.FC = () => {
     };
 
     setTableLines(prev => {
-      if (prev.length === 1 && !prev[0].itemName.trim() && prev[0].unitPrice === 0) {
+      if (prev.length === 1 && !(prev[0].itemName || '').trim() && prev[0].unitPrice === 0) {
         return [{ ...deliveryLine, id: prev[0].id }];
       }
       return [deliveryLine, ...prev];
@@ -527,8 +854,7 @@ export const PosView: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [selectedTreasuryCode, setSelectedTreasuryCode] = useState<string>('1101');
 
-  // 1. Cash Payment State (المبلغ، العملة، سعر الصرف، الصندوق)
-  const [cashAmountInput, setCashAmountInput] = useState<string>('0');
+  // 1. Cash Payment State (العملة، سعر الصرف، الصندوق)
   const currentEditingInvoiceIdRef = useRef<string | null>(null);
   
   useEffect(() => {
@@ -541,8 +867,7 @@ export const PosView: React.FC = () => {
     return def?.accountCode || '1101';
   });
 
-  // 2. Bank Payment State (المبلغ، عملة الدفع، سعر الصرف، الصندوق)
-  const [bankAmountInput, setBankAmountInput] = useState<string>('0');
+  // 2. Bank Payment State (عملة الدفع، سعر الصرف، الصندوق)
   const [bankCurrencyCode, setBankCurrencyCode] = useState<string>('ILS');
   const [bankExchangeRate, setBankExchangeRate] = useState<number>(1.0);
   const [bankTreasuryCode, setBankTreasuryCode] = useState<string>(() => {
@@ -566,6 +891,7 @@ export const PosView: React.FC = () => {
   const [isFavoritesOpen, setIsFavoritesOpen] = useState(false);
   const [isInvoicesReviewOpen, setIsInvoicesReviewOpen] = useState(false);
   const [isHeldInvoicesOpen, setIsHeldInvoicesOpen] = useState(false);
+  const [isDraftQueueOpen, setIsDraftQueueOpen] = useState(false);
   const [isItemSearchOpen, setIsItemSearchOpen] = useState(false);
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
 
@@ -597,8 +923,13 @@ export const PosView: React.FC = () => {
   // Customer Special Prices Modal
   const [isSpecialPricesModalOpen, setIsSpecialPricesModalOpen] = useState(false);
 
+  // Quick Add Party Modal (شاشة إضافة عميل / مورد / موظف جديد)
+  const [isAddPartyModalOpen, setIsAddPartyModalOpen] = useState(false);
+  const [partyToEditInPos, setPartyToEditInPos] = useState<Party | null>(null);
+
   // Daily Invoices & Statuses Sidebar
   const [isDailyInvoicesOpen, setIsDailyInvoicesOpen] = useState(false);
+  const [isDailyInvoicesExpanded, setIsDailyInvoicesExpanded] = useState(false);
 
   // Refs for auto-focusing inputs and 5-second inactivity timer
   const barcodeInputRef = useRef<HTMLInputElement | null>(null);
@@ -606,52 +937,240 @@ export const PosView: React.FC = () => {
   const customerInputRef = useRef<HTMLInputElement | null>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // POS Buttons & UI Customization State (خاصة بكل مستخدم)
-  const [posButtons, setPosButtons] = useState<PosCustomButton[]>(() => loadPosCustomButtons(currentUser?.id));
+  // POS Buttons & UI Customization State (خاصة بكل مستخدم، مع التوريث من إعدادات مدير النظام كمرجعية أولى)
+  const adminDefaultButtons = settings?.defaultPosButtons;
+  const adminDefaultLayout = settings?.defaultPosLayout;
+  const adminDefaultWidths = settings?.defaultPosColumnWidths;
+
+  const [posButtons, setPosButtons] = useState<PosCustomButton[]>(() =>
+    loadPosCustomButtons(currentUser?.id, adminDefaultButtons)
+  );
   const [isLiveCustomizing, setIsLiveCustomizing] = useState<boolean>(false);
   const [isButtonCustomizerOpen, setIsButtonCustomizerOpen] = useState<boolean>(false);
 
-  // POS Screen Layout & Designer State (خاصة بكل مستخدم)
+  // POS Screen Layout & Designer State (خاصة بكل مستخدم مع التوريث من شاشة مدير النظام)
   const [posLayoutConfig, setPosLayoutConfig] = useState<PosLayoutConfig>(() => {
-    try {
-      if (settings?.defaultPosLayout && typeof settings.defaultPosLayout === 'object') {
-        return {
-          ...DEFAULT_POS_LAYOUT_CONFIG,
-          ...settings.defaultPosLayout,
-          showFavoritesSidebar: settings.defaultPosLayout.showFavoritesSidebar !== undefined ? Boolean(settings.defaultPosLayout.showFavoritesSidebar) : true,
-          tableColumns: {
-            ...DEFAULT_POS_LAYOUT_CONFIG.tableColumns,
-            ...(settings.defaultPosLayout.tableColumns || {}),
-            showCount: settings.defaultPosLayout.tableColumns?.showCount !== undefined ? Boolean(settings.defaultPosLayout.tableColumns.showCount) : true
-          }
-        };
-      }
-      const cfg = loadPosLayoutConfig(currentUser?.id);
-      return cfg && typeof cfg === 'object' ? cfg : DEFAULT_POS_LAYOUT_CONFIG;
-    } catch {
-      return DEFAULT_POS_LAYOUT_CONFIG;
-    }
+    return loadPosLayoutConfig(currentUser?.id, adminDefaultLayout);
   });
 
-  // Re-sync layout and buttons if user switches
+  // Excel-like Column Widths State (التحكم بعرض الأعمدة يدوياً بالماوس كشيت إكسل)
+  const [columnWidths, setColumnWidths] = useState<Record<PosColumnKey, number>>(() =>
+    loadPosColumnWidths(currentUser?.id, adminDefaultWidths)
+  );
+  const [activeResizingCol, setActiveResizingCol] = useState<PosColumnKey | null>(null);
+  const [resizingGuideX, setResizingGuideX] = useState<number | null>(null);
+
+  // Re-sync layout, buttons, and column widths if user switches or admin updates global baseline
   useEffect(() => {
     if (currentUser?.id) {
-      const userButtons = loadPosCustomButtons(currentUser.id);
+      const userButtons = loadPosCustomButtons(currentUser.id, settings?.defaultPosButtons);
       setPosButtons(userButtons);
-      const userConfig = loadPosLayoutConfig(currentUser.id);
+      const userConfig = loadPosLayoutConfig(currentUser.id, settings?.defaultPosLayout);
       setPosLayoutConfig(userConfig);
+      const userWidths = loadPosColumnWidths(currentUser.id, settings?.defaultPosColumnWidths);
+      setColumnWidths(userWidths);
       if (userConfig.isDateLocked && userConfig.lockedDate) {
         setInvoiceDate(userConfig.lockedDate);
       }
     }
-  }, [currentUser?.id]);
+  }, [currentUser?.id, settings?.defaultPosLayout, settings?.defaultPosButtons, settings?.defaultPosColumnWidths]);
+
+  // Excel-like Column Resizing Drag Handler (RTL aware)
+  const handleResizeMouseDown = (colKey: PosColumnKey, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const startWidth = columnWidths[colKey] || DEFAULT_POS_COLUMN_WIDTHS[colKey];
+    const minWidth = MIN_POS_COLUMN_WIDTHS[colKey] || 32;
+
+    setActiveResizingCol(colKey);
+    setResizingGuideX(e.clientX);
+
+    const prevCursor = document.body.style.cursor;
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    let currentWidth = startWidth;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      // In RTL table, moving mouse to the left (decreasing clientX) expands column width.
+      const deltaX = startX - moveEvent.clientX;
+      const newWidth = Math.max(minWidth, Math.round(startWidth + deltaX));
+      currentWidth = newWidth;
+      setResizingGuideX(moveEvent.clientX);
+
+      setColumnWidths(prev => ({
+        ...prev,
+        [colKey]: newWidth
+      }));
+    };
+
+    const onMouseUp = () => {
+      setActiveResizingCol(null);
+      setResizingGuideX(null);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevUserSelect;
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+
+      setColumnWidths(prev => {
+        const updated = { ...prev, [colKey]: currentWidth };
+        savePosColumnWidths(updated, currentUser?.id);
+        return updated;
+      });
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  const handleResetSingleColumn = (colKey: PosColumnKey, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    setColumnWidths(prev => {
+      const updated = { ...prev, [colKey]: DEFAULT_POS_COLUMN_WIDTHS[colKey] };
+      savePosColumnWidths(updated, currentUser?.id);
+      return updated;
+    });
+  };
+
+  const handleResetAllColumns = () => {
+    const defaultWidths = resetPosColumnWidthsToDefault(currentUser?.id);
+    setColumnWidths(defaultWidths);
+  };
+
+  // Calculate total visible table columns width
+  const totalVisibleColsWidth = (
+    (posLayoutConfig.tableColumns.showIndex ? (columnWidths.index || DEFAULT_POS_COLUMN_WIDTHS.index) : 0) +
+    (posLayoutConfig.tableColumns.showItemCode ? (columnWidths.itemCode || DEFAULT_POS_COLUMN_WIDTHS.itemCode) : 0) +
+    (columnWidths.itemName || DEFAULT_POS_COLUMN_WIDTHS.itemName) +
+    (posLayoutConfig.tableColumns.showNotes ? (columnWidths.notes || DEFAULT_POS_COLUMN_WIDTHS.notes) : 0) +
+    (posLayoutConfig.tableColumns.showDimensions ? ((columnWidths.length || DEFAULT_POS_COLUMN_WIDTHS.length) + (columnWidths.width || DEFAULT_POS_COLUMN_WIDTHS.width)) : 0) +
+    (posLayoutConfig.tableColumns.showCount ? (columnWidths.count || DEFAULT_POS_COLUMN_WIDTHS.count) : 0) +
+    (posLayoutConfig.tableColumns.showQuantity ? (columnWidths.quantity || DEFAULT_POS_COLUMN_WIDTHS.quantity) : 0) +
+    (posLayoutConfig.tableColumns.showUnit ? (columnWidths.unit || DEFAULT_POS_COLUMN_WIDTHS.unit) : 0) +
+    (posLayoutConfig.tableColumns.showUnitPrice ? (columnWidths.unitPrice || DEFAULT_POS_COLUMN_WIDTHS.unitPrice) : 0) +
+    (posLayoutConfig.tableColumns.showDiscount ? (columnWidths.discount || DEFAULT_POS_COLUMN_WIDTHS.discount) : 0) +
+    (posLayoutConfig.tableColumns.showTax ? (columnWidths.tax || DEFAULT_POS_COLUMN_WIDTHS.tax) : 0) +
+    (columnWidths.total || DEFAULT_POS_COLUMN_WIDTHS.total) +
+    (posLayoutConfig.tableColumns.showAttachments ? (columnWidths.attachments || DEFAULT_POS_COLUMN_WIDTHS.attachments) : 0) +
+    (posLayoutConfig.tableColumns.showImageThumbnail ? (columnWidths.imageThumbnail || DEFAULT_POS_COLUMN_WIDTHS.imageThumbnail) : 0) +
+    (posLayoutConfig.tableColumns.showDeleteButton ? (columnWidths.delete || DEFAULT_POS_COLUMN_WIDTHS.delete) : 0)
+  );
+
+  const renderResizeHandle = (colKey: PosColumnKey) => (
+    <div
+      onMouseDown={(e) => handleResizeMouseDown(colKey, e)}
+      onDoubleClick={(e) => handleResetSingleColumn(colKey, e)}
+      className={`pos-table-col-resizer transition-colors group/resizer ${
+        activeResizingCol === colKey ? 'bg-blue-600/40' : 'hover:bg-blue-500/25'
+      }`}
+      title="اسحب بالماوس لتكبير أو تصغير العمود كالإكسل (نقر مزدوج للاستعادة)"
+    >
+      <div
+        className={`w-[2px] h-full transition-all ${
+          activeResizingCol === colKey
+            ? 'bg-blue-700'
+            : 'bg-transparent group-hover/resizer:bg-blue-600'
+        }`}
+      />
+    </div>
+  );
 
   const [isLayoutDesignerOpen, setIsLayoutDesignerOpen] = useState<boolean>(false);
+
+  const isCurrentUserAdmin = Boolean(
+    currentUser?.roleId === 'role-admin' ||
+    currentUser?.id === 'usr-1' ||
+    currentUser?.email === 'raid.salha@gmail.com' ||
+    currentUser?.email === 'lobnanprint@gmail.com'
+  );
 
   const handleSavePosLayoutConfig = (newConfig: PosLayoutConfig) => {
     const safeConfig = newConfig && typeof newConfig === 'object' ? newConfig : DEFAULT_POS_LAYOUT_CONFIG;
     setPosLayoutConfig(safeConfig);
     savePosLayoutConfig(safeConfig, currentUser?.id);
+
+    // If current user is system administrator, update system default baseline
+    if (isCurrentUserAdmin) {
+      updateSettings({
+        ...settings,
+        defaultPosLayout: safeConfig,
+        userScreenConfigs: {
+          ...(settings.userScreenConfigs || {}),
+          [currentUser?.id || 'usr-1']: {
+            ...(settings.userScreenConfigs?.[currentUser?.id || 'usr-1'] || {}),
+            posLayout: safeConfig
+          }
+        }
+      });
+    } else if (currentUser?.id) {
+      updateSettings({
+        ...settings,
+        userScreenConfigs: {
+          ...(settings.userScreenConfigs || {}),
+          [currentUser.id]: {
+            ...(settings.userScreenConfigs?.[currentUser.id] || {}),
+            posLayout: safeConfig
+          }
+        }
+      });
+    }
+  };
+
+  const handleApplyAsSystemDefault = (layoutToApply: PosLayoutConfig) => {
+    const safeConfig = layoutToApply && typeof layoutToApply === 'object' ? layoutToApply : DEFAULT_POS_LAYOUT_CONFIG;
+    setPosLayoutConfig(safeConfig);
+    savePosLayoutConfig(safeConfig, currentUser?.id);
+    
+    updateSettings({
+      ...settings,
+      defaultPosLayout: safeConfig,
+      defaultPosButtons: posButtons,
+      defaultPosColumnWidths: columnWidths,
+      userScreenConfigs: {
+        ...(settings.userScreenConfigs || {}),
+        [currentUser?.id || 'usr-1']: {
+          ...(settings.userScreenConfigs?.[currentUser?.id || 'usr-1'] || {}),
+          posLayout: safeConfig,
+          posButtons: posButtons,
+          posColumnWidths: columnWidths
+        }
+      }
+    });
+  };
+
+  const handleResetToAdminDefaults = () => {
+    const adminLayout = settings?.defaultPosLayout || DEFAULT_POS_LAYOUT_CONFIG;
+    const adminButtons = settings?.defaultPosButtons || DEFAULT_POS_BUTTONS;
+    const adminWidths = settings?.defaultPosColumnWidths || DEFAULT_POS_COLUMN_WIDTHS;
+
+    setPosLayoutConfig(adminLayout);
+    setPosButtons(adminButtons);
+    setColumnWidths(adminWidths);
+
+    savePosLayoutConfig(adminLayout, currentUser?.id);
+    savePosCustomButtons(adminButtons, currentUser?.id);
+    savePosColumnWidths(adminWidths, currentUser?.id);
+
+    if (currentUser?.id) {
+      updateSettings({
+        ...settings,
+        userScreenConfigs: {
+          ...(settings.userScreenConfigs || {}),
+          [currentUser.id]: {
+            ...(settings.userScreenConfigs?.[currentUser.id] || {}),
+            posLayout: adminLayout,
+            posButtons: adminButtons,
+            posColumnWidths: adminWidths
+          }
+        }
+      });
+    }
   };
 
   const handleToggleLayoutSection = (key: keyof PosLayoutConfig) => {
@@ -669,6 +1188,30 @@ export const PosView: React.FC = () => {
   const handleSavePosButtons = (newButtons: PosCustomButton[]) => {
     setPosButtons(newButtons);
     savePosCustomButtons(newButtons, currentUser?.id);
+    if (isCurrentUserAdmin) {
+      updateSettings({
+        ...settings,
+        defaultPosButtons: newButtons,
+        userScreenConfigs: {
+          ...(settings.userScreenConfigs || {}),
+          [currentUser?.id || 'usr-1']: {
+            ...(settings.userScreenConfigs?.[currentUser?.id || 'usr-1'] || {}),
+            posButtons: newButtons
+          }
+        }
+      });
+    } else if (currentUser?.id) {
+      updateSettings({
+        ...settings,
+        userScreenConfigs: {
+          ...(settings.userScreenConfigs || {}),
+          [currentUser.id]: {
+            ...(settings.userScreenConfigs?.[currentUser.id] || {}),
+            posButtons: newButtons
+          }
+        }
+      });
+    }
   };
 
   // Live in-place button reordering (swap with adjacent button)
@@ -696,7 +1239,7 @@ export const PosView: React.FC = () => {
       const updatedSection = reordered.map((btn, idx) => ({ ...btn, order: idx + 1 }));
       const others = prev.filter(b => b.location !== targetBtn.location);
       const combined = [...others, ...updatedSection];
-      savePosCustomButtons(combined);
+      savePosCustomButtons(combined, currentUser?.id);
       return combined;
     });
   };
@@ -705,7 +1248,7 @@ export const PosView: React.FC = () => {
     if (confirm('هل ترغب في إخفاء أو حذف هذا الزر من الواجهة؟')) {
       setPosButtons(prev => {
         const filtered = prev.filter(b => b.id !== buttonId);
-        savePosCustomButtons(filtered);
+        savePosCustomButtons(filtered, currentUser?.id);
         return filtered;
       });
     }
@@ -757,8 +1300,24 @@ export const PosView: React.FC = () => {
         handleNavLast();
         break;
       case 'delete_invoice':
-        if (invoices.length > 0 && confirm('هل ترغب في حذف آخر فاتورة مسجلة؟')) {
-          deleteInvoice(invoices[0].id);
+        if (editingPosInvoiceId) {
+          const invToDelete = invoices.find(inv => inv.id === editingPosInvoiceId);
+          const nameToDisplay = invToDelete ? invToDelete.invoiceNumber : `INV-${invoiceSeqNumber.padStart(4, '0')}`;
+          if (confirm(`هل ترغب في حذف الفاتورة المفتوحة حالياً (${nameToDisplay}) نهائياً؟`)) {
+            deleteInvoice(editingPosInvoiceId);
+            handleClearInvoiceDirect(true);
+            posSound.beep();
+          }
+        } else {
+          if (invoices.length > 0) {
+            const lastInv = invoices[0];
+            if (confirm(`هل ترغب في حذف آخر فاتورة مسجلة في النظام (${lastInv.invoiceNumber})؟`)) {
+              deleteInvoice(lastInv.id);
+              posSound.beep();
+            }
+          } else {
+            alert('لا توجد فواتير مسجلة لحذفها.');
+          }
         }
         break;
       case 'refresh_data':
@@ -861,7 +1420,7 @@ export const PosView: React.FC = () => {
   }, [tableLines]);
 
   const activeTableLines = useMemo(() => {
-    return tableLines.filter(l => (l.itemName && l.itemName.trim() !== '') || l.unitPrice > 0 || l.total > 0);
+    return tableLines.filter(l => ((l.itemName || '').trim() !== '') || l.unitPrice > 0 || l.total > 0);
   }, [tableLines]);
 
   const activeItemsCount = activeTableLines.length;
@@ -911,76 +1470,6 @@ export const PosView: React.FC = () => {
     paymentMethod: parsedPaidAmount <= 0 ? 'credit' : (bankPaidBase > 0 ? 'card' : 'cash'),
   });
   const currentPaymentStatusMeta = getInvoicePaymentStatusMeta(currentPaymentStatus);
-
-  // Track latest state in a ref for safe auto-hold when cashier leaves, switches screens or closes tab
-  const latestPosStateRef = useRef({
-    tableLines,
-    customerName,
-    selectedCustomerId,
-    customCustomerText,
-    calculatedTotalAmount,
-    invoiceNotes,
-    invoiceSeqNumber
-  });
-
-  useEffect(() => {
-    latestPosStateRef.current = {
-      tableLines,
-      customerName,
-      selectedCustomerId,
-      customCustomerText,
-      calculatedTotalAmount,
-      invoiceNotes,
-      invoiceSeqNumber
-    };
-  });
-
-  // Auto-hold current invoice if screen is closed/unmounted with items present (حال إغلاق شاشة الكاشير لأي سبب ووجود أصناف مدرجة يتم وضع الفاتورة كمعلقة)
-  const autoHoldIfItemsPresent = useCallback(() => {
-    const s = latestPosStateRef.current;
-    const activeLines = (s.tableLines || []).filter(
-      l => (l.itemName && l.itemName.trim() !== '') || l.unitPrice > 0 || l.total > 0
-    );
-
-    if (activeLines.length > 0) {
-      const autoHeld: HeldInvoiceData = {
-        id: 'held-' + Date.now(),
-        heldAt: new Date().toLocaleTimeString('ar-SA'),
-        customerName: s.customerName || s.customCustomerText || 'عميل كاشير',
-        customerId: s.selectedCustomerId,
-        customCustomerText: s.customCustomerText,
-        lines: activeLines,
-        totalAmount: s.calculatedTotalAmount,
-        notes: s.invoiceNotes ? `معلقة تلقائياً: ${s.invoiceNotes}` : 'معلقة تلقائياً عند إغلاق أو مغادرة شاشة الكاشير'
-      };
-
-      try {
-        const raw = localStorage.getItem('pos_held_invoices');
-        const list: HeldInvoiceData[] = raw ? JSON.parse(raw) : [];
-        const isDuplicate = list.some(
-          h => h.totalAmount === autoHeld.totalAmount && h.lines.length === autoHeld.lines.length
-        );
-        if (!isDuplicate) {
-          list.unshift(autoHeld);
-          localStorage.setItem('pos_held_invoices', JSON.stringify(list));
-        }
-      } catch (e) {
-        console.error('Error auto-holding on close', e);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      autoHoldIfItemsPresent();
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      autoHoldIfItemsPresent();
-    };
-  }, [autoHoldIfItemsPresent]);
 
   // Quick Action Helpers - زر كامل يضع قيمة المتبقي مع الاحتفاظ بأي قيمة دفع أخرى موجودة
   const handleQuickFullCash = () => {
@@ -1105,13 +1594,14 @@ export const PosView: React.FC = () => {
   const handleAddNewRow = () => {
     const newLine: PosTableLine = {
       id: generateUniqueLineId(),
+      itemCode: '',
       barcode: '',
       itemName: '',
       description: '',
       notes: '',
       hasDimensions: false,
-      length: 1,
-      width: 1,
+      length: 0,
+      width: 0,
       count: 1,
       quantity: 1,
       unit: 'حبة',
@@ -1127,13 +1617,14 @@ export const PosView: React.FC = () => {
   };
 
   const isCashCustomer = useMemo(() => {
+    const trimmedName = (customerName || '').trim();
     return !selectedCustomerId ||
       selectedCustomerId === 'pt-cust-1' ||
       customerCode === '1' ||
       customerCode === 'CUST-0001' ||
-      customerName.trim() === 'عميل كاشير نقدي' ||
-      customerName.trim() === 'عميل نقدي' ||
-      customerName.trim() === 'زبون عام';
+      trimmedName === 'عميل كاشير نقدي' ||
+      trimmedName === 'عميل نقدي' ||
+      trimmedName === 'زبون عام';
   }, [selectedCustomerId, customerCode, customerName]);
 
   const effectivePricingCustomerId = useMemo(() => {
@@ -1262,33 +1753,71 @@ export const PosView: React.FC = () => {
       prev.map(line => {
         if (line.id !== id) return line;
 
+        const isSqCurrently = isSquareMeterUnit(line.unit);
+
+        // إذا كانت وحدة الصنف ليست متر مربع فتغلق الطول والعرض والعدد
+        if (!isSqCurrently && (field === 'length' || field === 'width' || field === 'count')) {
+          return line;
+        }
+
         const updated = { ...line, [field]: value };
 
-        // If user enters length or width and hasDimensions was false, auto-enable hasDimensions
-        if ((field === 'length' || field === 'width') && Number(value) > 0 && !line.hasDimensions) {
-          updated.hasDimensions = true;
-          if (!updated.unit || updated.unit === 'حبة' || updated.unit === 'قطعة') {
-            updated.unit = 'م²';
+        // عند تعديل الوحدة: إذا كانت ليست متر مربع فتلقائياً تلغى وتغلق الأبعاد
+        if (field === 'unit') {
+          const isSqNew = isSquareMeterUnit(String(value || ''));
+          if (!isSqNew) {
+            updated.hasDimensions = false;
+            updated.length = 0;
+            updated.width = 0;
+            updated.count = 1;
+          } else {
+            updated.hasDimensions = true;
+            if (!updated.length || updated.length <= 0) updated.length = 1;
+            if (!updated.width || updated.width <= 0) updated.width = 1;
+            if (!updated.count || updated.count <= 0) updated.count = 1;
           }
         }
 
-        // If toggling hasDimensions on, ensure length/width/count have reasonable defaults
-        if (field === 'hasDimensions' && value === true) {
-          if (!updated.length || updated.length <= 0) updated.length = 1;
-          if (!updated.width || updated.width <= 0) updated.width = 1;
-          if (!updated.count || updated.count <= 0) updated.count = 1;
-          if (!updated.unit || updated.unit === 'حبة' || updated.unit === 'قطعة') {
+        // عند التبديل اليدوي لحساب الأبعاد
+        if (field === 'hasDimensions') {
+          if (value === true) {
+            updated.hasDimensions = true;
             updated.unit = 'م²';
+            if (!updated.length || updated.length <= 0) updated.length = 1;
+            if (!updated.width || updated.width <= 0) updated.width = 1;
+            if (!updated.count || updated.count <= 0) updated.count = 1;
+          } else {
+            updated.hasDimensions = false;
+            updated.length = 0;
+            updated.width = 0;
+            updated.count = 1;
+            if (isSquareMeterUnit(updated.unit)) {
+              updated.unit = 'حبة';
+            }
           }
+        }
+
+        // If user enters length or width and unit is square meter, auto-enable hasDimensions
+        if ((field === 'length' || field === 'width') && Number(value) > 0 && isSquareMeterUnit(updated.unit) && !updated.hasDimensions) {
+          updated.hasDimensions = true;
         }
 
         // Recalculate line totals and dimensional quantities
-        if (['length', 'width', 'count', 'quantity', 'unitPrice', 'discount', 'tax', 'hasDimensions'].includes(field)) {
-          const isQtyDirectEdit = field === 'quantity' && !updated.hasDimensions;
-          const rawQty = isQtyDirectEdit ? (Number(value) || 1) : updated.quantity;
+        if (['length', 'width', 'count', 'quantity', 'unitPrice', 'discount', 'tax', 'hasDimensions', 'unit'].includes(field)) {
+          const isSq = isSquareMeterUnit(updated.unit);
+          const effectiveHasDims = isSq && updated.hasDimensions;
+          updated.hasDimensions = effectiveHasDims;
+          if (!effectiveHasDims) {
+            updated.length = 0;
+            updated.width = 0;
+            updated.count = 1;
+          }
+
+          const isQtyDirectEdit = field === 'quantity' || !effectiveHasDims;
+          const rawQty = isQtyDirectEdit ? (Number(updated.quantity) || 1) : updated.quantity;
 
           const calc = calculateLineValues(
-            updated.hasDimensions,
+            effectiveHasDims,
             Number(updated.length) || 0,
             Number(updated.width) || 0,
             Number(updated.count) || 1,
@@ -1335,19 +1864,7 @@ export const PosView: React.FC = () => {
     posSound.beep();
     const price = getItemEffectivePrice(item);
 
-    const isDimensionItem = Boolean(
-      item.unitCalculationType === 'area' || 
-      item.unitCalculationType === 'linear' ||
-      item.category === 'print_raw' || 
-      item.category === 'print_service' ||
-      item.name.includes('متر') || 
-      item.name.includes('بنر') || 
-      item.name.includes('فلكس') || 
-      item.name.includes('لوحة') || 
-      item.name.includes('استيكر') ||
-      item.unit === 'م²' || 
-      item.unit === 'متر مربع'
-    );
+    const isDimensionItem = isSquareMeterUnit(item.unit, item.unitCalculationType);
 
     if (aggregateDuplicateItems) {
       const existingLine = tableLines.find(
@@ -1399,6 +1916,7 @@ export const PosView: React.FC = () => {
 
     const newLine: PosTableLine = {
       id: generateUniqueLineId(),
+      itemCode: item.code || '',
       barcode: item.barcode || '',
       itemName: item.name,
       description: item.category === 'shields_gifts' ? 'شكر وعرفان وتكريم' : '',
@@ -1418,7 +1936,7 @@ export const PosView: React.FC = () => {
     };
 
     // If table currently has only one empty line, replace it with the chosen item
-    if (tableLines.length === 1 && !tableLines[0].itemName.trim() && tableLines[0].unitPrice === 0) {
+    if (tableLines.length === 1 && !(tableLines[0].itemName || '').trim() && tableLines[0].unitPrice === 0) {
       setTableLines([{ ...newLine, id: tableLines[0].id }]);
       setActiveRowId(tableLines[0].id);
       return;
@@ -1453,6 +1971,70 @@ export const PosView: React.FC = () => {
     }
   }, [inventory, handleAddItemToTable, isBarcodeHandMode, resetInactivityTimer]);
 
+  // Reusable selector to bind a registered inventory item to a specific line
+  const handleSelectItemForLine = useCallback((lineId: string, item: InventoryItem) => {
+    posSound.beep();
+    const price = pricingTier === 'wholesale'
+      ? Number((item.sellingPrice * 0.9).toFixed(2))
+      : item.sellingPrice;
+
+    const isDimensionItem = isSquareMeterUnit(item.unit, item.unitCalculationType);
+
+    setTableLines(prev =>
+      prev.map(row => {
+        if (row.id !== lineId) return row;
+        const hasDims = isDimensionItem;
+        const l = hasDims ? (row.length > 0 ? row.length : 1) : 0;
+        const w = hasDims ? (row.width > 0 ? row.width : 1) : 0;
+        const c = 1;
+        const calc = calculateLineValues(
+          hasDims,
+          l,
+          w,
+          c,
+          row.quantity || 1,
+          price,
+          row.discount,
+          (taxEnabled && taxRate > 0) ? undefined : row.tax
+        );
+
+        return {
+          ...row,
+          itemCode: item.code || '',
+          inventoryItemId: item.id,
+          itemName: item.name,
+          barcode: item.barcode || '',
+          unitPrice: price,
+          hasDimensions: hasDims,
+          length: l,
+          width: w,
+          count: c,
+          quantity: calc.quantity,
+          tax: calc.tax,
+          total: calc.total,
+          unit: item.unit || (hasDims ? 'م²' : 'حبة'),
+          description: item.category === 'shields_gifts' ? 'شكر وعرفان وتكريم' : (row.description || ''),
+          imageThumbnail: item.imageUrl || row.imageThumbnail || ''
+        };
+      })
+    );
+  }, [pricingTier, calculateLineValues, taxEnabled, taxRate]);
+
+  // Handle direct item code input in row (بحث وتعيين الصنف عبر رقمه/كوده مباشرة)
+  const handleItemCodeChangeInRow = (id: string, codeInput: string) => {
+    handleUpdateLine(id, 'itemCode', codeInput);
+    const trimmed = codeInput.trim();
+    if (!trimmed) return;
+    const item = inventory.find(i => 
+      (i.code && i.code.toLowerCase() === trimmed.toLowerCase()) ||
+      (i.id && i.id.toLowerCase() === trimmed.toLowerCase()) ||
+      (i.barcode && i.barcode.toLowerCase() === trimmed.toLowerCase())
+    );
+    if (item) {
+      handleSelectItemForLine(id, item);
+    }
+  };
+
   // Barcode Lookup in row (supports primary & multi-barcodes)
   const handleBarcodeChangeInRow = (id: string, code: string) => {
     handleUpdateLine(id, 'barcode', code);
@@ -1465,35 +2047,24 @@ export const PosView: React.FC = () => {
       setTableLines(prev =>
         prev.map(line => {
           if (line.id !== id) return line;
-          const isDimensionItem = Boolean(
-            item.unitCalculationType === 'area' || 
-            item.unitCalculationType === 'linear' ||
-            item.category === 'print_raw' || 
-            item.category === 'print_service' ||
-            item.name.includes('متر') || 
-            item.name.includes('بنر') || 
-            item.name.includes('فلكس') || 
-            item.name.includes('لوحة') || 
-            item.name.includes('استيكر') ||
-            item.unit === 'م²' || 
-            item.unit === 'متر مربع'
-          );
-          const hasDims = line.hasDimensions || isDimensionItem;
-          const length = hasDims ? (line.length > 0 ? line.length : 1) : line.length;
-          const width = hasDims ? (line.width > 0 ? line.width : 1) : line.width;
-          const count = line.count || 1;
+          const isDimensionItem = isSquareMeterUnit(item.unit, item.unitCalculationType);
+          const hasDims = isDimensionItem;
+          const length = hasDims ? (line.length > 0 ? line.length : 1) : 0;
+          const width = hasDims ? (line.width > 0 ? line.width : 1) : 0;
+          const count = 1;
           const calc = calculateLineValues(
             hasDims,
             length,
             width,
             count,
-            line.quantity,
+            line.quantity || 1,
             price,
             line.discount,
             (taxEnabled && taxRate > 0) ? undefined : line.tax
           );
           return {
             ...line,
+            itemCode: item.code || '',
             itemName: item.name,
             unitPrice: price,
             inventoryItemId: item.id,
@@ -1504,7 +2075,7 @@ export const PosView: React.FC = () => {
             quantity: calc.quantity,
             tax: calc.tax,
             total: calc.total,
-            unit: item.unit || (hasDims ? 'م²' : line.unit || 'حبة')
+            unit: item.unit || (hasDims ? 'م²' : 'حبة')
           };
         })
       );
@@ -1537,53 +2108,73 @@ export const PosView: React.FC = () => {
 
   // Save Invoice Action
   const handleSaveInvoice = (printMode: 'none' | 'prompt' | 'thermal-direct' | 'a4-direct' | 'a4-custom-direct' = 'none', isExplicitSave: boolean = false) => {
-    if (tableLines.length === 0 || calculatedTotalAmount <= 0) {
+    // 0. Active non-empty lines filter
+    const activeLines = tableLines.filter(l => (l.itemName && l.itemName.trim() !== '') || l.unitPrice > 0 || l.quantity > 0);
+    if (activeLines.length === 0 || calculatedTotalAmount <= 0) {
       alert('الرجاء إدراج أصناف في الفاتورة قبل الحفظ.');
       return;
     }
 
-    // 1. Validation for cash customers without sub-customer name:
+    // 1. التحقق الصارم: لا يعتمد إدخال أي بند لا يندرج تحت رقم صنف معتمد
+    const invalidLine = activeLines.find(line => {
+      const isDelivery = line.inventoryItemId === 'srv-delivery' || line.barcode === 'DELIVERY' || line.itemName === 'خدمة توصيل' || line.itemName?.trim().startsWith('توصيل');
+      if (isDelivery) return false;
+      const matched = inventory.find(i => 
+        (line.inventoryItemId && i.id === line.inventoryItemId) || 
+        (line.itemCode && i.code && i.code.toLowerCase() === line.itemCode.trim().toLowerCase()) ||
+        (line.barcode && i.barcode === line.barcode)
+      );
+      return !matched;
+    });
+
+    if (invalidLine) {
+      posSound.error();
+      setActiveRowId(invalidLine.id);
+      alert(
+        `تنبيه نظامي صارم:\nالبند [${invalidLine.itemName || 'غير محدد'}] لا يندرج تحت رقم صنف معتمد في النظام!\n\nلا يعتبر هذا الإدخال صحيحاً؛ يجب اختيار الصنف من قائمة الأصناف لاعتماد رقمه المخزني أولاً، وبعدها يمكنك تعديل مسمى الصنف في الشاشة بحرية دون التأثير على قائمة الأصناف الأصلية.`
+      );
+      return;
+    }
+
+    // 2. Validation for cash customers without sub-customer name when invoice is unpaid (آجل):
     const hasSubCustomerName = !!(subCustomerName?.trim() || customCustomerText?.trim());
 
-    if (isExplicitSave && isCashCustomer && !hasSubCustomerName) {
+    if (isCashCustomer && !hasSubCustomerName && calculatedRemaining > 0.05) {
       posSound.error();
       alert(
-        'تنبيه نظامي: لا يمكن الحفظ المباشر إذا كان العميل نقدي ولا يوجد اسم للعميل الفرعي.\nيرجى تسديد المبلغ أو تحديد اسم العميل الفرعي.'
+        'تنبيه نظامي: الزبون نقدي عام ولا يوجد اسم زبون فرعي.\nلا يمكن حفظ الفاتورة كـ (آجل) غير مدفوعة بالكامل.\nيرجى تسديد كامل المبلغ (نقداً أو بنكياً) أو تحديد اسم زبون فرعي / اختيار عميل مسجل في النظام.'
       );
       return;
     }
 
-    if (!isExplicitSave && isCashCustomer && !hasSubCustomerName && calculatedRemaining > 0.05) {
-      posSound.error();
-      alert(
-        'تنبيه نظامي: الزبون نقدي عام ولا يوجد اسم زبون فرعي.\nلا يمكن حفظ الفاتورة كـ (آجل) غير مدفوعة بالكامل.\nيرجى تسديد كامل المبلغ أو تحديد اسم زبون فرعي / اختيار عميل مسجل في النظام.'
-      );
-      return;
-    }
-
-    const itemsForContext = tableLines.map(line => {
+    const itemsForContext = activeLines.map(line => {
       const isDelivery = line.inventoryItemId === 'srv-delivery' || line.barcode === 'DELIVERY' || line.itemName === 'خدمة توصيل' || line.itemName?.trim().startsWith('توصيل');
-      const matchedInv: InventoryItem = inventory.find(i => i.id === line.inventoryItemId || (line.barcode && i.barcode === line.barcode)) || {
+      const matchedInv: InventoryItem = inventory.find(i => 
+        (line.inventoryItemId && i.id === line.inventoryItemId) || 
+        (line.itemCode && i.code && i.code.toLowerCase() === line.itemCode.trim().toLowerCase()) ||
+        (line.barcode && i.barcode === line.barcode)
+      ) || {
         id: line.inventoryItemId || (isDelivery ? 'srv-delivery' : 'custom-' + Date.now()),
-        code: isDelivery ? 'DELIVERY' : ('ITM-' + line.id),
+        code: line.itemCode || (isDelivery ? 'DELIVERY' : ('ITM-' + line.id)),
         name: line.itemName,
         category: isDelivery ? 'services' : 'stationery',
-        unit: isDelivery ? 'خدمة' : 'قطعة',
-        purchasePrice: isDelivery ? line.unitPrice : (line.unitPrice * 0.7), // خدمة التوصيل تحمل على الزبون بالتكلفة الأصلية دون مربح
+        unit: line.unit || (isDelivery ? 'خدمة' : 'قطعة'),
+        purchasePrice: isDelivery ? 0 : (line.unitPrice * 0.7), // خدمة التوصيل لا تتطلب مخزن وتكلفتها تسجل على الزبون لعامل التوصيل دون مربح
         sellingPrice: line.unitPrice,
-        stockQuantity: isDelivery ? 0 : 100, // ليس لها مخزن ولا رصيد
+        stockQuantity: 0, // ليس لها مخزن ولا رصيد
         minAlertQuantity: 0,
         barcode: line.barcode
       };
 
       if (isDelivery) {
-        matchedInv.purchasePrice = line.unitPrice;
+        matchedInv.purchasePrice = 0; // خدمة التوصيل لا تدخل في تكلفة البضاعة المباعة للمخازن
         matchedInv.sellingPrice = line.unitPrice;
         matchedInv.stockQuantity = 0;
       }
 
       return {
         item: matchedInv,
+        itemName: line.itemName, // المعدل يظهر في الكشف والمطبوعات
         quantity: line.quantity,
         unitPrice: line.unitPrice,
         description: line.description,
@@ -1596,7 +2187,8 @@ export const PosView: React.FC = () => {
         discount: line.discount,
         tax: line.tax,
         taxRate: line.taxRate,
-        attachments: line.attachments
+        attachments: line.attachments,
+        imageThumbnail: line.imageThumbnail
       };
     });
 
@@ -1766,6 +2358,11 @@ export const PosView: React.FC = () => {
     setCashAmountInput('0');
     setBankAmountInput('0');
     setInvoiceWorkflowStatus('new');
+
+    try {
+      localStorage.removeItem(POS_FULL_DRAFT_KEY);
+      localStorage.removeItem('pos_active_draft_lines');
+    } catch {}
 
     if (currentEditingInvoiceIdRef.current || editingPosInvoiceId) {
       setEditingPosInvoiceId(null);
@@ -1968,7 +2565,67 @@ export const PosView: React.FC = () => {
     posSound.success();
   };
 
-  // Navigation across previous invoices
+  // Load Draft Row to POS Screen
+  const handleLoadDraftToPos = (draft: SheetInvoiceRow) => {
+    // 1. Customer matching
+    const draftCustName = (draft.customerName || '').trim().toLowerCase();
+    const matchedParty = parties.find(
+      p => (p.name || '').trim().toLowerCase() === draftCustName
+    );
+    if (matchedParty) {
+      setSelectedCustomerId(matchedParty.id);
+      setCustomerName(matchedParty.name);
+      setCustomCustomerText('');
+    } else {
+      setSelectedCustomerId('');
+      setCustomerName(draft.customerName || 'عميل كاشير نقدي');
+      setCustomCustomerText(draft.customerName || '');
+    }
+
+    // 2. Inventory matching
+    const draftItemName = (draft.itemName || '').trim().toLowerCase();
+    const matchedItem = inventory.find(
+      i => (i.name || '').trim().toLowerCase() === draftItemName ||
+           (i.code || '').trim().toLowerCase() === draftItemName
+    );
+
+    const hasDims = (draft.length && draft.length > 0) || (draft.width && draft.width > 0);
+    const draftLine: PosTableLine = {
+      id: generateUniqueLineId(),
+      barcode: matchedItem?.code || '',
+      itemCode: matchedItem?.code,
+      itemName: draft.itemName,
+      description: draft.itemName,
+      notes: draft.notes || '',
+      hasDimensions: !!hasDims,
+      length: draft.length || 1,
+      width: draft.width || 1,
+      count: draft.count || 1,
+      quantity: draft.quantity > 0 ? draft.quantity : 1,
+      unit: matchedItem?.unit || 'متر',
+      unitPrice: draft.unitPrice >= 0 ? draft.unitPrice : 0,
+      discount: 0,
+      tax: 0,
+      total: draft.totalAmount >= 0 ? draft.totalAmount : Number(((draft.quantity || 1) * (draft.unitPrice || 0)).toFixed(2)),
+      attachments: [],
+      inventoryItemId: matchedItem?.id
+    };
+
+    setTableLines([draftLine]);
+    if (draft.notes) setInvoiceNotes(draft.notes);
+    if (draft.date) setInvoiceDate(draft.date);
+
+    if (draft.paymentMethod === 'credit') {
+      setPaymentMethod('credit');
+    } else if (draft.paymentMethod === 'bank_transfer') {
+      setPaymentMethod('bank_transfer');
+    } else {
+      setPaymentMethod('cash');
+    }
+
+    setIsDraftQueueOpen(false);
+    posSound.success();
+  };
   const [currentNavInvoiceIndex, setCurrentNavInvoiceIndex] = useState<number>(-1);
 
   const loadInvoiceToScreen = (inv: Invoice) => {
@@ -2008,26 +2665,32 @@ export const PosView: React.FC = () => {
       setCustomExchangeRate(inv.exchangeRate);
     }
 
-    const loadedLines: PosTableLine[] = inv.items.map((it, idx) => ({
-      id: 'loaded-' + idx,
-      barcode: it.barcode || '',
-      itemName: it.itemName,
-      description: it.description || '',
-      notes: it.notes || '',
-      hasDimensions: Boolean(it.hasDimensions || (it.length && it.width && (it.length !== 1 || it.width !== 1))),
-      length: it.length || 0,
-      width: it.width || 0,
-      count: it.count || 1,
-      quantity: it.quantity,
-      unit: it.unit || (it.hasDimensions ? 'م²' : 'حبة'),
-      unitPrice: it.unitPrice,
-      discount: it.discount || 0,
-      tax: it.tax || 0,
-      taxRate: it.taxRate,
-      total: it.total,
-      attachments: it.attachments || [],
-      inventoryItemId: it.itemId
-    }));
+    const loadedLines: PosTableLine[] = inv.items.map((it, idx) => {
+      const invItem = inventory.find(i => i.id === it.itemId || (it.itemCode && i.code === it.itemCode));
+      const isSq = isSquareMeterUnit(it.unit);
+      const hasDims = isSq && Boolean(it.hasDimensions || (it.length && it.width && (it.length > 0 && it.width > 0)));
+      return {
+        id: 'loaded-' + idx,
+        itemCode: it.itemCode || invItem?.code || '',
+        barcode: it.barcode || invItem?.barcode || '',
+        itemName: it.itemName,
+        description: it.description || '',
+        notes: it.notes || '',
+        hasDimensions: hasDims,
+        length: hasDims ? (it.length || 0) : 0,
+        width: hasDims ? (it.width || 0) : 0,
+        count: hasDims ? (it.count || 1) : 1,
+        quantity: it.quantity,
+        unit: it.unit || (hasDims ? 'م²' : 'حبة'),
+        unitPrice: it.unitPrice,
+        discount: it.discount || 0,
+        tax: it.tax || 0,
+        taxRate: it.taxRate,
+        total: it.total,
+        attachments: it.attachments || [],
+        inventoryItemId: it.itemId
+      };
+    });
 
     setTableLines(loadedLines);
     setEditingPosInvoiceId(inv.id);
@@ -2046,7 +2709,7 @@ export const PosView: React.FC = () => {
 
   const invoicesForDate = useMemo(() => {
     return (invoices || [])
-      .filter(inv => inv.date === invoiceDate)
+      .filter(inv => inv.date === invoiceDate || (inv.createdAt && inv.createdAt.split('T')[0] === invoiceDate))
       .sort((a, b) => {
         const numA = parseInt((a.invoiceNumber || '').replace(/\D/g, ''), 10) || 0;
         const numB = parseInt((b.invoiceNumber || '').replace(/\D/g, ''), 10) || 0;
@@ -2129,6 +2792,11 @@ export const PosView: React.FC = () => {
     setCashAmountInput('0');
     setBankAmountInput('0');
 
+    try {
+      localStorage.removeItem(POS_FULL_DRAFT_KEY);
+      localStorage.removeItem('pos_active_draft_lines');
+    } catch {}
+
     const defaultCashCust = customers.find(c => c.code === 'CUST-0001' || c.code === '1');
     if (defaultCashCust && posTargetType === 'customer') {
       setSelectedCustomerId(defaultCashCust.id);
@@ -2185,6 +2853,11 @@ export const PosView: React.FC = () => {
       setCashAmountInput('0');
       setBankAmountInput('0');
       
+      try {
+        localStorage.removeItem(POS_FULL_DRAFT_KEY);
+        localStorage.removeItem('pos_active_draft_lines');
+      } catch {}
+
       const defaultCashCust = customers.find(c => c.code === 'CUST-0001' || c.code === '1');
       if (defaultCashCust && posTargetType === 'customer') {
         setSelectedCustomerId(defaultCashCust.id);
@@ -2204,20 +2877,26 @@ export const PosView: React.FC = () => {
     }
   };
 
-  // Keyboard Shortcuts (F5, F9, F10 and custom button shortcuts)
+  // Keyboard Shortcuts (Ctrl+S, Alt+C, F2, F9, F10 and custom button shortcuts)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Dynamic button shortcut check
+      // Allow F5 to refresh page naturally, do not block or hijack it
+      if (e.key === 'F5' || e.code === 'F5') {
+        return;
+      }
+
+      // 1. Dynamic button shortcut check
       const matchingBtn = posButtons.find(
-        b => b.isVisible && b.shortcut && b.shortcut.trim().toUpperCase() === e.key.toUpperCase()
+        b => b.isVisible && b.shortcut && matchKeyboardShortcut(e, b.shortcut)
       );
       if (matchingBtn) {
         e.preventDefault();
+        e.stopPropagation();
         handleExecuteButtonAction(matchingBtn);
         return;
       }
 
-      // Space key shortcut: Focus customer input and clear entered customer name
+      // 2. Space key shortcut: Focus customer input and clear entered customer name
       if (e.key === ' ' || e.code === 'Space') {
         const target = e.target as HTMLElement | null;
         const isTypingText =
@@ -2243,31 +2922,45 @@ export const PosView: React.FC = () => {
         }
       }
 
-      if (e.key === 'F2') {
+      // 3. Fallback standard shortcuts
+      if (matchKeyboardShortcut(e, 'Ctrl+S')) {
         e.preventDefault();
-        handleAddNewRow();
-      } else if (e.key === 'F5') {
-        e.preventDefault();
-        handleQuickPayCash('none');
-      } else if (e.ctrlKey && e.key === 'Enter') {
-        e.preventDefault();
-        handleQuickPayCash('thermal-direct');
-      } else if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
-        e.preventDefault();
+        e.stopPropagation();
         handleSaveInvoice('none', true);
-      } else if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
+      } else if (matchKeyboardShortcut(e, 'Alt+C')) {
         e.preventDefault();
-        handleSaveInvoice('a4-direct', true); // User said: وطباعة الفاتورة مباشرة دون شاشات منبثقة بحجم A4
-      } else if (e.altKey && (e.key === 'c' || e.key === 'C')) {
+        e.stopPropagation();
+        const thermalBtn = posButtons.find(b => b.actionType === 'save_and_print' || b.label === 'حراري');
+        if (thermalBtn) {
+          handleExecuteButtonAction(thermalBtn);
+        } else {
+          handleSaveInvoice('prompt', true);
+        }
+      } else if (matchKeyboardShortcut(e, 'Ctrl+Enter')) {
         e.preventDefault();
-        handleSaveInvoice('prompt', true); // User said: وطباعة الفاتورة بشاشة الاختيار حراري أو A4
-      } else if (e.key === 'F9') {
+        e.stopPropagation();
+        handleQuickPayCash('thermal-direct');
+      } else if (matchKeyboardShortcut(e, 'F2')) {
         e.preventDefault();
+        e.stopPropagation();
+        handleAddNewRow();
+      } else if (matchKeyboardShortcut(e, 'F9')) {
+        e.preventDefault();
+        e.stopPropagation();
         handleHoldInvoice();
+      } else if (matchKeyboardShortcut(e, 'F10')) {
+        e.preventDefault();
+        e.stopPropagation();
+        const thermalBtn = posButtons.find(b => b.actionType === 'save_and_print' || b.label === 'حراري');
+        if (thermalBtn) {
+          handleExecuteButtonAction(thermalBtn);
+        } else {
+          handleSaveInvoice('prompt', true);
+        }
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, [posButtons, handleSaveInvoice, handleHoldInvoice, handleExecuteButtonAction, handleAddNewRow, handleQuickPayCash, handleFocusAndClearCustomer, customerName, selectedCustomerId]);
 
   const isPhone = useIsMobile(768);
@@ -2425,6 +3118,17 @@ export const PosView: React.FC = () => {
                 <span>تفاصيل الفاتورة</span>
               </button>
 
+              {/* زر مسودات فواتير OneDrive / Excel - يفتح الشاشة المخصصة الكاملة */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('excel_drafts')}
+                className="h-8 px-2.5 py-1 bg-emerald-700 hover:bg-emerald-800 text-white border border-emerald-600 rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap active:scale-95"
+                title="فتح الشاشة المخصصة لإدارة واستيراد مسودات الفواتير من Excel و OneDrive وتعديلها واعتمادها بالتتابع"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200" />
+                <span>مسودات Excel / OneDrive</span>
+              </button>
+
               {/* زر سجل فواتير اليوم (مرفوع لشريط الأزرار العلوي) */}
               <button
                 type="button"
@@ -2569,13 +3273,16 @@ export const PosView: React.FC = () => {
         <div className="flex flex-col lg:flex-row gap-2.5 items-stretch w-full lg:h-full min-h-0">
           
           {isDailyInvoicesOpen && (
-            <div className="shrink-0 w-full lg:w-[20%] lg:min-w-[20%] lg:max-w-[20%] min-w-[320px] overflow-x-hidden order-first flex flex-col lg:h-full min-h-[500px] lg:min-h-0 border border-slate-300 rounded-xl overflow-hidden shadow-2xs z-10 bg-white">
+            <div className={`shrink-0 w-full ${isDailyInvoicesExpanded ? 'lg:w-[48%] xl:w-[42%] lg:min-w-[560px]' : 'lg:w-[32%] xl:w-[28%] lg:min-w-[400px]'} min-w-[320px] overflow-hidden order-first flex flex-col lg:h-full min-h-[500px] lg:min-h-0 border border-slate-300 rounded-xl shadow-2xs z-10 bg-white transition-all duration-200`}>
               <PosDailyInvoicesSidebar
                 isOpen={isDailyInvoicesOpen}
                 onClose={() => setIsDailyInvoicesOpen(false)}
+                isExpanded={isDailyInvoicesExpanded}
+                onToggleExpand={() => setIsDailyInvoicesExpanded(!isDailyInvoicesExpanded)}
+                currentCustomerId={selectedCustomerId}
+                currentCustomerName={customerName || customCustomerText || ''}
                 onSelectInvoiceToLoad={(inv) => {
                   loadInvoiceToScreen(inv);
-                  // setIsDailyInvoicesOpen(false); // Removed so sidebar stays open
                 }}
                 onPrintInvoice={(inv) => {
                   setSelectedInvoiceForPrint(inv);
@@ -2806,7 +3513,7 @@ export const PosView: React.FC = () => {
           </div>
 
         {/* Customer, Sub-Customer, Balance & Order Options - ALL IN ONE SINGLE ROW */}
-        <div className="bg-white/80 px-2 py-0.5 mb-1 rounded-xl border border-slate-300 flex items-center gap-4 flex-wrap text-sm shadow-sm w-fit">
+        <div className="bg-white/80 px-2 py-0.5 mb-1 rounded-xl border border-slate-300 flex items-center gap-4 flex-wrap text-sm shadow-sm w-[1350px] max-w-full">
           {/* 1. زر تبديل دائري لاختيار الطرف (عميل - مورد - موظف) */}
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="font-bold text-slate-700 text-[14px] shrink-0">الطرف:</span>
@@ -2838,6 +3545,7 @@ export const PosView: React.FC = () => {
                 value={customerName}
                 entityType={posTargetType}
                 showCode={false}
+                clearOnFocus={true}
                 inputRef={customerInputRef}
                 inputClassName="text-[14px] font-bold h-9 w-[324.631px]"
                 placeholder={
@@ -2852,6 +3560,7 @@ export const PosView: React.FC = () => {
                     setSelectedCustomerId('');
                     setCustomerName('');
                     setCustomerCode('');
+                    setCustomCustomerText('');
                     return;
                   }
                   setSelectedCustomerId(opt.id);
@@ -2880,69 +3589,50 @@ export const PosView: React.FC = () => {
             </div>
             <button
               type="button"
-              onClick={() => {
-                  const trimmed = customerName.trim();
-                  if (!trimmed) {
-                    alert('يرجى كتابة اسم لإضافته');
-                    return;
-                  }
-                  if (posTargetType === 'customer') {
-                    const created = addParty({
-                      name: trimmed,
-                      type: 'customer',
-                      phone: '',
-                      initialBalance: 0
-                    });
-                    setSelectedCustomerId(created.id);
-                    setCustomerName(created.name);
-                    setCustomerCode(created.code);
-                  } else if (posTargetType === 'supplier') {
-                    const created = addParty({
-                      name: trimmed,
-                      type: 'supplier',
-                      phone: '',
-                      initialBalance: 0
-                    });
-                    setSelectedCustomerId(created.id);
-                    setCustomerName(created.name);
-                    setCustomerCode(created.code);
-                  } else if (posTargetType === 'employee') {
-                    const created = addEmployee({
-                      name: trimmed,
-                      jobTitle: 'موظف',
-                      department: 'عام',
-                      salaryType: 'monthly',
-                      salaryAmount: 0,
-                      status: 'active',
-                      hireDate: new Date().toISOString().split('T')[0]
-                    });
-                    setSelectedCustomerId(created.id);
-                    setCustomerName(created.name);
-                    setCustomerCode(created.id);
-                  }
-              }}
+              onClick={() => setIsAddPartyModalOpen(true)}
               className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm shrink-0 cursor-pointer transition-colors"
-              title="إضافة جديد بالاسم المكتوب"
+              title={
+                posTargetType === 'customer'
+                  ? 'فتح شاشة إضافة عميل جديد'
+                  : posTargetType === 'supplier'
+                  ? 'فتح شاشة إضافة مورد جديد'
+                  : 'فتح شاشة إضافة موظف جديد'
+              }
             >
               <Plus className="w-[14.5px] h-[17.5px] ml-[1px] pr-[-5px] -mr-[9px] -ml-[2px] pl-[-1px] pt-[-7px]" />
             </button>
             {selectedCustomerId && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (posTargetType === 'employee') {
-                    const emp = employees.find(e => e.id === selectedCustomerId);
-                    if (emp) setSelectedEmployeeForStatement(emp);
-                  } else {
-                    const p = parties.find(pt => pt.id === selectedCustomerId);
-                    if (p) setSelectedPartyForStatement(p);
-                  }
-                }}
-                title="كشف حساب"
-                className="p-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-blue-700 rounded-lg cursor-pointer shrink-0 transition-colors"
-              >
-                <Search className="w-[16.2437px] h-[19.2437px] pl-[3px] ml-[6px]" />
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (posTargetType === 'employee') {
+                      const emp = employees.find(e => e.id === selectedCustomerId);
+                      if (emp) setSelectedEmployeeForStatement(emp);
+                    } else {
+                      const p = parties.find(pt => pt.id === selectedCustomerId);
+                      if (p) setSelectedPartyForStatement(p);
+                    }
+                  }}
+                  title="كشف حساب"
+                  className="p-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-blue-700 rounded-lg cursor-pointer shrink-0 transition-colors"
+                >
+                  <Search className="w-[16.2437px] h-[19.2437px] pl-[3px] ml-[6px]" />
+                </button>
+                {currentCustomer && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPartyToEditInPos(currentCustomer);
+                      setIsAddPartyModalOpen(true);
+                    }}
+                    title="تعديل بيانات العميل الحالي"
+                    className="p-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-300 text-blue-700 rounded-lg cursor-pointer shrink-0 transition-colors"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </>
             )}
           </div>
 
@@ -3010,44 +3700,23 @@ export const PosView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                    const trimmedName = subCustomerName.trim() || customCustomerText.trim();
-                    if (!trimmedName) {
-                       alert('يرجى كتابة اسم الزبون الفرعي أولاً لإضافته');
-                       return;
-                    }
-                    if (!selectedCustomerId) {
-                        alert('يرجى اختيار العميل الرئيسي أولاً قبل إضافة زبون فرعي له');
-                        return;
-                    }
-                    const createdSub = addParty({
-                        name: trimmedName,
-                        type: 'customer',
-                        phone: subCustomerPhone || '',
-                        isSubCustomer: true,
-                        parentCustomerId: selectedCustomerId,
-                        parentCustomerName: customerName,
-                        initialBalance: 0
-                    });
-                    setSubCustomerId(createdSub.id);
-                    setSubCustomerName(createdSub.name);
-                    setSubCustomerPhone(createdSub.phone || '');
-                    setTableLines(prev => applyCustomerPricingToLines(createdSub, prev));
+                  setIsAddPartyModalOpen(true);
                 }}
                 className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm shrink-0 cursor-pointer transition-colors"
-                title="إضافة وحفظ الزبون الفرعي"
+                title="فتح شاشة إضافة عميل جديد"
               >
                 <Plus className="w-[14.5px] h-[17.5px] ml-[1px] pr-[-5px] -mr-[9px] -ml-[2px] pl-[-1px] pt-[-7px]" />
               </button>
             </div>
           </div>
 
-          {/* 4. الرصيد المستحق */}
+          {/* 4. الرصيد */}
           <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-lg shrink-0 shadow-2xs">
             <span className="text-[14px] text-red-600 font-bold shrink-0">
-              {subCustomerId ? 'رصيد الفرعي:' : 'الرصيد المستحق:'}
+              {subCustomerId ? 'رصيد الفرعي:' : 'الرصيد:'}
             </span>
-            <span className="font-mono font-black text-red-600 text-[14px] sm:text-base">
-              {((subCustomerId ? parties.find(p => p.id === subCustomerId)?.balance : currentCustomer?.balance) ?? currentCustomer?.balance ?? 380).toFixed(2)} ₪
+            <span className="font-mono font-black text-red-600 text-[14px] sm:text-base w-[113.2px]">
+              {((subCustomerId ? parties.find(p => p.id === subCustomerId)?.balance : currentCustomer?.balance) ?? currentCustomer?.balance ?? 0).toFixed(2)} ₪
             </span>
             {subCustomerId && (
               <button
@@ -3071,7 +3740,7 @@ export const PosView: React.FC = () => {
             <div className="flex items-center gap-2 flex-nowrap flex-1 min-w-0">
               {/* خانة ملاحظات الفاتورة ككل (تظهر في كشف حساب العميل) */}
               <div
-                className="flex items-center gap-2 bg-white border border-slate-300 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-400 rounded-xl px-3 py-1.5 transition-all shadow-sm flex-1 min-w-[320px] lg:min-w-[420px] max-w-3xl"
+                className="flex items-center gap-2 bg-white border border-slate-300 hover:border-blue-400 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-400 rounded-xl px-3 py-1.5 transition-all shadow-sm w-[559.994px] max-w-full"
                 title="ملاحظة عامة خاصة بالفاتورة ككل وتظهر في كشف حساب العميل"
               >
                 <FileText className="w-4 h-4 text-blue-600 shrink-0" />
@@ -3216,69 +3885,238 @@ export const PosView: React.FC = () => {
               {/* ========================================================= */}
               {/* 3B. CENTER ITEMS TABLE (جدول أصناف الفاتورة بالمطابع) */}
               {/* ========================================================= */}
-              <div className="flex-1 min-h-0 flex flex-col bg-white overflow-hidden border border-slate-300 rounded-xl shadow-2xs">
+              <div className="flex-1 min-h-0 flex flex-col bg-white overflow-hidden border border-slate-400 rounded-none shadow-none pos-table-container">
           {/* The Data Table */}
-          <div className="flex-1 overflow-x-auto overflow-y-auto min-h-0 w-full">
-            <table className="w-full text-right border-collapse text-xs min-w-[980px] lg:min-w-full">
-              {/* Table Header matching user specifications:
-                  الصنف - الوصف - الملاحظات - الطول - العرض - العدد - الكمية - الوحدة - السعر - الخصم - الضريبة - الإجمالي - المرفقات - حذف */}
-              <thead className="bg-[#b3cbe3] text-slate-900 font-black border-b border-slate-400 sticky top-0 z-10 select-none shadow-2xs">
+          <div className="flex-1 overflow-x-auto overflow-y-auto min-h-0 w-full relative">
+            <table
+              className="w-full text-right border-collapse text-xs pos-table-grid"
+              style={{
+                tableLayout: 'fixed',
+                minWidth: `${totalVisibleColsWidth}px`
+              }}
+            >
+              {/* Colgroup defining each column's exact width for Excel-like resizing */}
+              <colgroup>
+                {posLayoutConfig.tableColumns.showIndex && (
+                  <col style={{ width: `${columnWidths.index || DEFAULT_POS_COLUMN_WIDTHS.index}px` }} />
+                )}
+                {posLayoutConfig.tableColumns.showItemCode && (
+                  <col style={{ width: `${columnWidths.itemCode || DEFAULT_POS_COLUMN_WIDTHS.itemCode}px` }} />
+                )}
+                <col style={{ width: `${columnWidths.itemName || DEFAULT_POS_COLUMN_WIDTHS.itemName}px` }} />
+                {posLayoutConfig.tableColumns.showImageThumbnail && (
+                  <col style={{ width: `${columnWidths.imageThumbnail || DEFAULT_POS_COLUMN_WIDTHS.imageThumbnail}px` }} />
+                )}
+                {posLayoutConfig.tableColumns.showNotes && (
+                  <col style={{ width: `${columnWidths.notes || DEFAULT_POS_COLUMN_WIDTHS.notes}px` }} />
+                )}
+                {posLayoutConfig.tableColumns.showDimensions && (
+                  <>
+                    <col style={{ width: `${columnWidths.length || DEFAULT_POS_COLUMN_WIDTHS.length}px` }} />
+                    <col style={{ width: `${columnWidths.width || DEFAULT_POS_COLUMN_WIDTHS.width}px` }} />
+                  </>
+                )}
+                {posLayoutConfig.tableColumns.showCount && (
+                  <col style={{ width: `${columnWidths.count || DEFAULT_POS_COLUMN_WIDTHS.count}px` }} />
+                )}
+                {posLayoutConfig.tableColumns.showQuantity && (
+                  <col style={{ width: `${columnWidths.quantity || DEFAULT_POS_COLUMN_WIDTHS.quantity}px` }} />
+                )}
+                {posLayoutConfig.tableColumns.showUnit && (
+                  <col style={{ width: `${columnWidths.unit || DEFAULT_POS_COLUMN_WIDTHS.unit}px` }} />
+                )}
+                {posLayoutConfig.tableColumns.showUnitPrice && (
+                  <col style={{ width: `${columnWidths.unitPrice || DEFAULT_POS_COLUMN_WIDTHS.unitPrice}px` }} />
+                )}
+                {posLayoutConfig.tableColumns.showDiscount && (
+                  <col style={{ width: `${columnWidths.discount || DEFAULT_POS_COLUMN_WIDTHS.discount}px` }} />
+                )}
+                {posLayoutConfig.tableColumns.showTax && (
+                  <col style={{ width: `${columnWidths.tax || DEFAULT_POS_COLUMN_WIDTHS.tax}px` }} />
+                )}
+                <col style={{ width: `${columnWidths.total || DEFAULT_POS_COLUMN_WIDTHS.total}px` }} />
+                {posLayoutConfig.tableColumns.showAttachments && (
+                  <col style={{ width: `${columnWidths.attachments || DEFAULT_POS_COLUMN_WIDTHS.attachments}px` }} />
+                )}
+                {posLayoutConfig.tableColumns.showDeleteButton && (
+                  <col style={{ width: `${columnWidths.delete || DEFAULT_POS_COLUMN_WIDTHS.delete}px` }} />
+                )}
+                {/* Trailing flexible filler col for wide displays */}
+                <col />
+              </colgroup>
+
+              {/* Table Header matching user specifications with Excel-like mouse drag column resize handles */}
+              <thead className="bg-[#b3cbe3] text-slate-900 font-bold border-b border-slate-400 sticky top-0 z-10 select-none">
                 <tr>
                   {posLayoutConfig.tableColumns.showIndex && (
-                    <th className="p-2 w-8 text-center border-l border-slate-300">#</th>
+                    <th
+                      style={{ width: `${columnWidths.index || DEFAULT_POS_COLUMN_WIDTHS.index}px` }}
+                      className="relative py-1.5 px-1 text-center border-l border-b border-slate-400 group/th"
+                    >
+                      <div className="flex items-center justify-center gap-0.5">
+                        <span>#</span>
+                        <button
+                          type="button"
+                          onClick={handleResetAllColumns}
+                          className="opacity-0 group-hover/th:opacity-100 hover:text-blue-700 transition-opacity p-0.5 rounded cursor-pointer"
+                          title="استعادة عرض كافة الأعمدة للافتراضي"
+                        >
+                          <RotateCcw className="w-2.5 h-2.5 text-slate-500 hover:text-blue-600" />
+                        </button>
+                      </div>
+                      {renderResizeHandle('index')}
+                    </th>
+                  )}
+                  {/* رقم الصنف */}
+                  {posLayoutConfig.tableColumns.showItemCode && (
+                    <th
+                      style={{ width: `${columnWidths.itemCode || DEFAULT_POS_COLUMN_WIDTHS.itemCode}px` }}
+                      className="relative py-1.5 px-2 text-center border-l border-b border-slate-400 group/th"
+                    >
+                      <div className="truncate">رقم الصنف</div>
+                      {renderResizeHandle('itemCode')}
+                    </th>
                   )}
                   {/* 1. الصنف */}
-                  <th className="p-2 min-w-[200px] border-l border-slate-300">الصنف</th>
-                  {/* 3. الملاحظات */}
+                  <th
+                    style={{ width: `${columnWidths.itemName || DEFAULT_POS_COLUMN_WIDTHS.itemName}px` }}
+                    className="relative py-1.5 px-2 text-right border-l border-b border-slate-400 group/th"
+                  >
+                    <div className="truncate">الصنف</div>
+                    {renderResizeHandle('itemName')}
+                  </th>
+                  {/* صورة البند */}
+                  {posLayoutConfig.tableColumns.showImageThumbnail && (
+                    <th
+                      style={{ width: `${columnWidths.imageThumbnail || DEFAULT_POS_COLUMN_WIDTHS.imageThumbnail}px` }}
+                      className="relative py-1.5 px-1 text-center border-l border-b border-slate-400 group/th"
+                    >
+                      <div className="truncate">صورة</div>
+                      {renderResizeHandle('imageThumbnail')}
+                    </th>
+                  )}
+                  {/* 3. البيان / الملاحظات */}
                   {posLayoutConfig.tableColumns.showNotes && (
-                    <th className="p-2 w-full min-w-[250px] border-l border-slate-300">الملاحظات</th>
+                    <th
+                      style={{ width: `${columnWidths.notes || DEFAULT_POS_COLUMN_WIDTHS.notes}px` }}
+                      className="relative py-1.5 px-2 text-right border-l border-b border-slate-400 group/th"
+                    >
+                      <div className="truncate">البيان / الملاحظات</div>
+                      {renderResizeHandle('notes')}
+                    </th>
                   )}
                   {/* 4 & 5. الطول والعرض */}
                   {posLayoutConfig.tableColumns.showDimensions && (
                     <>
-                      <th className="p-2 w-14 text-center border-l border-slate-300">الطول</th>
-                      <th className="p-2 w-14 text-center border-l border-slate-300">العرض</th>
+                      <th
+                        style={{ width: `${columnWidths.length || DEFAULT_POS_COLUMN_WIDTHS.length}px` }}
+                        className="relative py-1.5 px-1 text-center border-l border-b border-slate-400 group/th"
+                      >
+                        <div className="truncate">الطول</div>
+                        {renderResizeHandle('length')}
+                      </th>
+                      <th
+                        style={{ width: `${columnWidths.width || DEFAULT_POS_COLUMN_WIDTHS.width}px` }}
+                        className="relative py-1.5 px-1 text-center border-l border-b border-slate-400 group/th"
+                      >
+                        <div className="truncate">العرض</div>
+                        {renderResizeHandle('width')}
+                      </th>
                     </>
                   )}
                   {/* 6. العدد */}
                   {posLayoutConfig.tableColumns.showCount && (
-                    <th className="p-2 w-14 text-center border-l border-slate-300">العدد</th>
+                    <th
+                      style={{ width: `${columnWidths.count || DEFAULT_POS_COLUMN_WIDTHS.count}px` }}
+                      className="relative py-1.5 px-1 text-center border-l border-b border-slate-400 group/th"
+                    >
+                      <div className="truncate">العدد</div>
+                      {renderResizeHandle('count')}
+                    </th>
                   )}
                   {/* 7. الكمية */}
                   {posLayoutConfig.tableColumns.showQuantity && (
-                    <th className="p-2 w-20 text-center border-l border-slate-300">الكمية</th>
+                    <th
+                      style={{ width: `${columnWidths.quantity || DEFAULT_POS_COLUMN_WIDTHS.quantity}px` }}
+                      className="relative py-1.5 px-1 text-center border-l border-b border-slate-400 group/th"
+                    >
+                      <div className="truncate">الكمية</div>
+                      {renderResizeHandle('quantity')}
+                    </th>
                   )}
                   {/* 8. الوحدة */}
                   {posLayoutConfig.tableColumns.showUnit && (
-                    <th className="p-2 w-16 text-center border-l border-slate-300">الوحدة</th>
+                    <th
+                      style={{ width: `${columnWidths.unit || DEFAULT_POS_COLUMN_WIDTHS.unit}px` }}
+                      className="relative py-1.5 px-1 text-center border-l border-b border-slate-400 group/th"
+                    >
+                      <div className="truncate">الوحدة</div>
+                      {renderResizeHandle('unit')}
+                    </th>
                   )}
                   {/* 9. السعر */}
                   {posLayoutConfig.tableColumns.showUnitPrice && (
-                    <th className="p-2 w-20 text-left border-l border-slate-300">السعر</th>
+                    <th
+                      style={{ width: `${columnWidths.unitPrice || DEFAULT_POS_COLUMN_WIDTHS.unitPrice}px` }}
+                      className="relative py-1.5 px-2 text-left border-l border-b border-slate-400 group/th"
+                    >
+                      <div className="truncate">السعر</div>
+                      {renderResizeHandle('unitPrice')}
+                    </th>
                   )}
                   {/* 10. الخصم */}
                   {posLayoutConfig.tableColumns.showDiscount && (
-                    <th className="p-2 w-16 text-left border-l border-slate-300">الخصم</th>
+                    <th
+                      style={{ width: `${columnWidths.discount || DEFAULT_POS_COLUMN_WIDTHS.discount}px` }}
+                      className="relative py-1.5 px-1.5 text-left border-l border-b border-slate-400 group/th"
+                    >
+                      <div className="truncate">الخصم</div>
+                      {renderResizeHandle('discount')}
+                    </th>
                   )}
                   {/* 11. الضريبة */}
                   {posLayoutConfig.tableColumns.showTax && (
-                    <th className="p-2 w-20 text-left border-l border-slate-300">الضريبة</th>
+                    <th
+                      style={{ width: `${columnWidths.tax || DEFAULT_POS_COLUMN_WIDTHS.tax}px` }}
+                      className="relative py-1.5 px-1.5 text-left border-l border-b border-slate-400 group/th"
+                    >
+                      <div className="truncate">الضريبة</div>
+                      {renderResizeHandle('tax')}
+                    </th>
                   )}
                   {/* 12. الإجمالي */}
-                  <th className="p-2 w-24 text-left border-l border-slate-300">الإجمالي</th>
+                  <th
+                    style={{ width: `${columnWidths.total || DEFAULT_POS_COLUMN_WIDTHS.total}px` }}
+                    className="relative py-1.5 px-2 text-left border-l border-b border-slate-400 group/th"
+                  >
+                    <div className="truncate">الإجمالي</div>
+                    {renderResizeHandle('total')}
+                  </th>
                   {/* 13. المرفقات */}
                   {posLayoutConfig.tableColumns.showAttachments && (
-                    <th className="p-2 w-20 text-center border-l border-slate-300">
-                      <span className="flex items-center justify-center gap-1">
-                        <Paperclip className="w-3.5 h-3.5 text-blue-600" />
+                    <th
+                      style={{ width: `${columnWidths.attachments || DEFAULT_POS_COLUMN_WIDTHS.attachments}px` }}
+                      className="relative py-1.5 px-1 text-center border-l border-b border-slate-400 group/th"
+                    >
+                      <div className="flex items-center justify-center gap-1 truncate">
+                        <Paperclip className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                         <span>مرفق</span>
-                      </span>
+                      </div>
+                      {renderResizeHandle('attachments')}
                     </th>
                   )}
                   {/* 14. حذف */}
                   {posLayoutConfig.tableColumns.showDeleteButton && (
-                    <th className="p-2 w-12 text-center">حذف</th>
+                    <th
+                      style={{ width: `${columnWidths.delete || DEFAULT_POS_COLUMN_WIDTHS.delete}px` }}
+                      className="relative py-1.5 px-1 text-center border-l border-b border-slate-400 group/th"
+                    >
+                      <div className="truncate">حذف</div>
+                      {renderResizeHandle('delete')}
+                    </th>
                   )}
+                  {/* Filler column header to cleanly expand on wide displays */}
+                  <th className="p-0 border-b border-slate-400 bg-linear-to-b from-[#edf3f9] to-[#cbdceb]" />
                 </tr>
               </thead>
 
@@ -3313,25 +4151,86 @@ export const PosView: React.FC = () => {
               >
                 {[...tableLines].reverse().map((line, idx) => {
                   const isActive = activeRowId === line.id;
+                  const isLineSqMeter = isSquareMeterUnit(line.unit);
                   return (
                     <tr
                       key={line.id}
                       onClick={() => setActiveRowId(line.id)}
                       className={`transition-colors ${
-                        isActive ? 'bg-[#ebf4ff] font-semibold ring-1 ring-blue-300' : 'hover:bg-slate-50'
+                        isActive ? 'bg-[#ebf4ff] font-semibold active-row' : 'hover:bg-slate-50'
                       }`}
                     >
                       {/* Row Index */}
                       {posLayoutConfig.tableColumns.showIndex && (
-                        <td className="p-1 text-center font-mono text-slate-500 border-l border-slate-200">
+                        <td className="p-1 text-center font-mono text-slate-600 border-l border-b border-slate-300 bg-slate-50/70 font-bold select-none">
                           {tableLines.length - idx}
                         </td>
                       )}
 
+                      {/* رقم الصنف - Item Code */}
+                      {posLayoutConfig.tableColumns.showItemCode && (
+                        <td className="p-0 border-l border-b border-slate-300">
+                          {line.inventoryItemId === 'srv-delivery' || line.itemName === 'خدمة توصيل' ? (
+                            <div className="px-1 text-center font-mono text-[11px] font-bold text-emerald-700 bg-emerald-50/50 py-1 select-none">
+                              DLV
+                            </div>
+                          ) : line.inventoryItemId ? (
+                            // صنف معتمد ومختار: عرض رقم الصنف مغلقاً تماماً كعنصر ثابت غير قابل للفوكس أو حركة المؤشر إليه
+                            <div
+                              tabIndex={-1}
+                              className="relative flex items-center justify-center h-full px-1 py-1 font-mono text-xs font-black text-blue-950 bg-slate-100/90 border border-slate-300/80 rounded select-none cursor-default mx-0.5 pointer-events-none"
+                              title={`رقم الصنف المعتمد: ${line.itemCode || ''} (مغلق للتعديل - يعتمد تلقائياً عند اختيار الصنف ولا يتغير إلا باختيار صنف آخر من عمود الصنف)`}
+                            >
+                              <Lock className="w-3 h-3 text-slate-400 absolute left-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                              <span className="truncate pl-3">{line.itemCode || '—'}</span>
+                            </div>
+                          ) : (
+                            // صنف لم يتم اختياره بعد: حقل إدخال للبحث برقم الصنف
+                            <div className="relative flex items-center h-full px-1">
+                              <input
+                                id={`item-code-input-${line.id}`}
+                                type="text"
+                                value={line.itemCode || ''}
+                                onChange={e => {
+                                  handleUpdateLine(line.id, 'itemCode', e.target.value);
+                                }}
+                                onBlur={e => {
+                                  handleItemCodeChangeInRow(line.id, e.target.value);
+                                }}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleItemCodeChangeInRow(line.id, (e.target as HTMLInputElement).value);
+                                    const nextInput = document.getElementById(`item-input-${line.id}`) || document.getElementById(`notes-input-${line.id}`);
+                                    if (nextInput) nextInput.focus();
+                                  }
+                                }}
+                                placeholder="رقم الصنف"
+                                className={`w-full text-center font-mono text-xs font-bold py-1 px-1 rounded transition-colors focus:outline-hidden ${
+                                  line.itemCode
+                                    ? 'text-blue-700 bg-blue-50/40 font-black focus:ring-1 focus:ring-blue-500'
+                                    : line.itemName?.trim()
+                                    ? 'text-rose-600 bg-rose-50 border border-rose-300 placeholder-rose-400 font-semibold focus:ring-1 focus:ring-rose-500'
+                                    : 'text-slate-700 bg-transparent placeholder-slate-400 hover:bg-slate-100/60 focus:ring-1 focus:ring-blue-500'
+                                }`}
+                                title={
+                                  line.itemName?.trim()
+                                    ? '⚠️ تحذير: هذا البند غير معتمد مخزنياً لأنه لا يندرج تحت رقم صنف! اختر الصنف من القائمة.'
+                                    : 'أدخل رقم الصنف أو اختر الصنف من عمود الصنف'
+                                }
+                              />
+                              {line.itemName?.trim() && !line.itemCode && (
+                                <span className="absolute left-1.5 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-rose-500 animate-pulse pointer-events-none" title="غير معتمد - يلزم رقم صنف" />
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      )}
+
                       {/* 1. الصنف - Item Name with autocomplete + dimension toggle badge */}
-                      <td className="p-1 border-l border-slate-200">
+                      <td className="p-0 border-l border-b border-slate-300">
                         {line.inventoryItemId === 'srv-delivery' || line.itemName === 'خدمة توصيل' ? (
-                          <div className="flex items-center gap-1.5 px-1.5 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded font-bold text-xs">
+                          <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 text-emerald-900 font-bold text-xs">
                             <Truck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                             <span>خدمة توصيل</span>
                             <span className="text-[10px] text-emerald-700 bg-emerald-100 px-1 py-0.5 rounded font-normal mr-auto">
@@ -3339,7 +4238,7 @@ export const PosView: React.FC = () => {
                             </span>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1 px-1">
                             <div className="flex-1">
                               <ItemAutocompleteInput
                                 value={line.itemName}
@@ -3352,68 +4251,23 @@ export const PosView: React.FC = () => {
                                 isActiveRow={isActive}
                                 onChangeText={text => handleUpdateLine(line.id, 'itemName', text)}
                                 onSelectItem={item => {
-                                  posSound.beep();
-                                  const price = pricingTier === 'wholesale'
-                                    ? Number((item.sellingPrice * 0.9).toFixed(2))
-                                    : item.sellingPrice;
-
-                                  const isDimensionItem = Boolean(
-                                    item.unitCalculationType === 'area' || 
-                                    item.unitCalculationType === 'linear' ||
-                                    item.category === 'print_raw' || 
-                                    item.category === 'print_service' ||
-                                    item.name.includes('متر') || 
-                                    item.name.includes('بنر') || 
-                                    item.name.includes('فلكس') || 
-                                    item.name.includes('لوحة') || 
-                                    item.name.includes('استيكر') ||
-                                    item.unit === 'م²' || 
-                                    item.unit === 'متر مربع'
-                                  );
-
-                                  const hasDims = line.hasDimensions || isDimensionItem;
-                                  const l = hasDims ? (line.length > 0 ? line.length : 1) : line.length;
-                                  const w = hasDims ? (line.width > 0 ? line.width : 1) : line.width;
-                                  const c = line.count || 1;
-                                  const calc = calculateLineValues(
-                                    hasDims,
-                                    l,
-                                    w,
-                                    c,
-                                    line.quantity,
-                                    price,
-                                    line.discount,
-                                    (taxEnabled && taxRate > 0) ? undefined : line.tax
-                                  );
-
-                                  setTableLines(prev =>
-                                    prev.map(row => {
-                                      if (row.id !== line.id) return row;
-                                      return {
-                                        ...row,
-                                        itemName: item.name,
-                                        barcode: item.barcode || '',
-                                        inventoryItemId: item.id,
-                                        unitPrice: price,
-                                        hasDimensions: hasDims,
-                                        length: l,
-                                        width: w,
-                                        count: c,
-                                        quantity: calc.quantity,
-                                        tax: calc.tax,
-                                        total: calc.total,
-                                        unit: item.unit || (hasDims ? 'م²' : 'حبة'),
-                                        description: item.category === 'shields_gifts' ? 'شكر وعرفان وتكريم' : (row.description || '')
-                                      };
-                                    })
-                                  );
-
+                                  handleSelectItemForLine(line.id, item);
                                   setTimeout(() => {
-                                    const notesInput = document.getElementById(`notes-input-${line.id}`);
-                                    if (notesInput) {
-                                      notesInput.focus();
+                                    const notesInput = document.getElementById(`notes-input-${line.id}`) as HTMLInputElement | null;
+                                    const lengthInput = document.getElementById(`length-input-${line.id}`) as HTMLInputElement | null;
+                                    const widthInput = document.getElementById(`width-input-${line.id}`) as HTMLInputElement | null;
+                                    const countInput = document.getElementById(`count-input-${line.id}`) as HTMLInputElement | null;
+                                    const qtyInput = (document.getElementById(`quantity-input-${line.id}`) || document.getElementById(`dim-quantity-input-${line.id}`)) as HTMLInputElement | null;
+                                    const priceInput = document.getElementById(`price-input-${line.id}`) as HTMLInputElement | null;
+
+                                    const targetInput = notesInput || lengthInput || widthInput || countInput || qtyInput || priceInput;
+                                    if (targetInput) {
+                                      targetInput.focus();
+                                      if (typeof targetInput.select === 'function') {
+                                        targetInput.select();
+                                      }
                                     }
-                                  }, 50);
+                                  }, 80);
                                 }}
                                 onQuickAdd={nameQuery => {
                                   setQuickAddInitialName(nameQuery);
@@ -3428,31 +4282,113 @@ export const PosView: React.FC = () => {
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleUpdateLine(line.id, 'hasDimensions', !line.hasDimensions);
+                                if (!isLineSqMeter) {
+                                  handleUpdateLine(line.id, 'unit', 'م²');
+                                } else {
+                                  handleUpdateLine(line.id, 'unit', 'حبة');
+                                }
                               }}
                               className={`shrink-0 p-1 rounded transition-colors cursor-pointer ${
-                                line.hasDimensions
+                                isLineSqMeter
                                   ? 'text-blue-600 bg-blue-50 hover:bg-blue-100'
-                                  : 'text-slate-400 bg-slate-50 hover:bg-slate-100'
+                                  : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
                               }`}
-                              title={line.hasDimensions ? 'حساب أبعاد (طول×عرض×عدد)' : 'كمية مباشرة'}
+                              title={isLineSqMeter ? 'وحدة متر مربع (م²): طول×عرض×عدد مفعل (انقر للتحويل إلى كمية مباشرة)' : 'انقر للتحويل إلى وحدة متر مربع (م²) وفتح الطول والعرض والعدد'}
                             >
-                              {line.hasDimensions ? <Ruler className="w-4 h-4" /> : <Package className="w-4 h-4" />}
+                              {isLineSqMeter ? <Ruler className="w-3.5 h-3.5" /> : <Package className="w-3.5 h-3.5" />}
                             </button>
                           </div>
                         )}
                       </td>
 
+                      {/* صورة البند - Image Thumbnail */}
+                      {posLayoutConfig.tableColumns.showImageThumbnail && (
+                        <td className="p-0 border-l border-b border-slate-300 text-center bg-slate-50/50">
+                          <div className="flex items-center justify-center h-full min-h-[36px] relative group/imgcell py-1 gap-1">
+                            {line.imageThumbnail ? (
+                              <div className="flex items-center gap-1 px-1">
+                                {/* Green Checkmark representing successful upload */}
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" title="تم رفع وإرفاق الصور بنجاح" />
+                                
+                                {/* Thumbnails Gallery */}
+                                <div className="flex -space-x-1.5 rtl:space-x-reverse overflow-hidden">
+                                  {parseThumbnails(line.imageThumbnail).slice(0, 3).map((imgStr, imgIdx) => (
+                                    <div key={imgIdx} className="relative w-6 h-6 rounded-full overflow-hidden border border-white ring-1 ring-slate-200">
+                                      <img src={imgStr} alt="" className="w-full h-full object-cover" />
+                                    </div>
+                                  ))}
+                                  {parseThumbnails(line.imageThumbnail).length > 3 && (
+                                    <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-800 text-[8px] font-bold flex items-center justify-center border border-white ring-1 ring-slate-200">
+                                      +{parseThumbnails(line.imageThumbnail).length - 3}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Delete Action */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleUpdateLine(line.id, 'imageThumbnail', '');
+                                  }}
+                                  className="text-slate-400 hover:text-rose-600 p-0.5 rounded hover:bg-rose-50 cursor-pointer"
+                                  title="حذف كافة الصور المرفقة للبند"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <label
+                                className="w-8 h-8 rounded-md border border-dashed border-slate-300 hover:border-blue-500 hover:bg-blue-50 flex items-center justify-center cursor-pointer transition-all text-slate-400 hover:text-blue-600"
+                                title="رفع صورة أو عدة صور للبند"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  className="hidden"
+                                  onChange={async (e) => {
+                                    const files = e.target.files;
+                                    if (files && files.length > 0) {
+                                      const promises = Array.from(files).map((file: File) => compressToThumbnail(file));
+                                      const compressedImages = await Promise.all(promises);
+                                      const validImages = compressedImages.filter(img => img !== '');
+                                      if (validImages.length > 0) {
+                                        handleUpdateLine(line.id, 'imageThumbnail', JSON.stringify(validImages));
+                                      }
+                                    }
+                                  }}
+                                />
+                              </label>
+                            )}
+                          </div>
+                        </td>
+                      )}
+
                       {/* 3. الملاحظات */}
                       {posLayoutConfig.tableColumns.showNotes && (
-                        <td className="p-1 border-l border-slate-200">
+                        <td className="p-0 border-l border-b border-slate-300">
                           <input
                             id={`notes-input-${line.id}`}
                             type="text"
                             value={line.notes}
                             onChange={e => handleUpdateLine(line.id, 'notes', e.target.value)}
-                            placeholder="ملاحظات البند..."
-                            className="w-full px-1.5 py-1 bg-transparent border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white rounded text-xs text-slate-700"
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                const lengthInput = document.getElementById(`length-input-${line.id}`) as HTMLInputElement | null;
+                                const countInput = document.getElementById(`count-input-${line.id}`) as HTMLInputElement | null;
+                                const qtyInput = (document.getElementById(`quantity-input-${line.id}`) || document.getElementById(`dim-quantity-input-${line.id}`)) as HTMLInputElement | null;
+                                const target = (isLineSqMeter && lengthInput) ? lengthInput : (qtyInput || countInput);
+                                if (target) {
+                                  target.focus();
+                                  if (typeof target.select === 'function') target.select();
+                                }
+                              }
+                            }}
+                            placeholder="البيان أو ملاحظات البند..."
+                            className="w-full px-2 py-1.5 bg-transparent border-0 rounded-none focus:outline-none text-xs text-slate-800"
                           />
                         </td>
                       )}
@@ -3460,40 +4396,66 @@ export const PosView: React.FC = () => {
                       {/* 4 & 5. الطول والعرض */}
                       {posLayoutConfig.tableColumns.showDimensions && (
                         <>
-                          <td className="p-1 border-l border-slate-200 text-center">
-                            {line.inventoryItemId === 'srv-delivery' || line.itemName === 'خدمة توصيل' ? (
-                              <span className="text-slate-400 font-bold select-none text-xs">—</span>
+                          <td className="p-0 border-l border-b border-slate-300 text-center">
+                            {line.inventoryItemId === 'srv-delivery' || line.itemName === 'خدمة توصيل' || !isLineSqMeter ? (
+                              <div
+                                className="w-full h-8 flex items-center justify-center bg-slate-100/75 text-slate-400 font-mono text-xs select-none cursor-not-allowed"
+                                title="مغلق: يتطلب وحدة متر مربع (م²)"
+                              >
+                                —
+                              </div>
                             ) : (
                               <input
+                                id={`length-input-${line.id}`}
                                 type="number"
                                 step="0.01"
                                 min="0"
                                 value={line.length}
                                 onChange={e => handleUpdateLine(line.id, 'length', parseFloat(e.target.value) || 0)}
-                                className={`w-full px-1 py-1 text-center rounded font-mono text-xs font-bold ${
-                                  line.hasDimensions
-                                    ? 'bg-blue-50/50 border border-blue-200 focus:bg-white focus:border-blue-500 text-blue-900'
-                                    : 'bg-transparent border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white text-slate-700'
-                                }`}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    const widthInput = document.getElementById(`width-input-${line.id}`) as HTMLInputElement | null;
+                                    if (widthInput) {
+                                      widthInput.focus();
+                                      if (typeof widthInput.select === 'function') widthInput.select();
+                                    }
+                                  }
+                                }}
+                                className="w-full px-1 py-1.5 text-center bg-transparent border-0 rounded-none focus:outline-none font-mono text-xs font-bold text-slate-800"
                                 placeholder="الطول"
                               />
                             )}
                           </td>
-                          <td className="p-1 border-l border-slate-200 text-center">
-                            {line.inventoryItemId === 'srv-delivery' || line.itemName === 'خدمة توصيل' ? (
-                              <span className="text-slate-400 font-bold select-none text-xs">—</span>
+                          <td className="p-0 border-l border-b border-slate-300 text-center">
+                            {line.inventoryItemId === 'srv-delivery' || line.itemName === 'خدمة توصيل' || !isLineSqMeter ? (
+                              <div
+                                className="w-full h-8 flex items-center justify-center bg-slate-100/75 text-slate-400 font-mono text-xs select-none cursor-not-allowed"
+                                title="مغلق: يتطلب وحدة متر مربع (م²)"
+                              >
+                                —
+                              </div>
                             ) : (
                               <input
+                                id={`width-input-${line.id}`}
                                 type="number"
                                 step="0.01"
                                 min="0"
                                 value={line.width}
                                 onChange={e => handleUpdateLine(line.id, 'width', parseFloat(e.target.value) || 0)}
-                                className={`w-full px-1 py-1 text-center rounded font-mono text-xs font-bold ${
-                                  line.hasDimensions
-                                    ? 'bg-blue-50/50 border border-blue-200 focus:bg-white focus:border-blue-500 text-blue-900'
-                                    : 'bg-transparent border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white text-slate-700'
-                                }`}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    const countInput = document.getElementById(`count-input-${line.id}`) as HTMLInputElement | null;
+                                    const dimQtyInput = document.getElementById(`dim-quantity-input-${line.id}`) as HTMLInputElement | null;
+                                    const target = countInput || dimQtyInput;
+                                    if (target) {
+                                      target.focus();
+                                      if (typeof target.select === 'function') target.select();
+                                    }
+                                  }
+                                }}
+                                className="w-full px-1 py-1.5 text-center bg-transparent border-0 rounded-none focus:outline-none font-mono text-xs font-bold text-slate-800"
                                 placeholder="العرض"
                               />
                             )}
@@ -3503,25 +4465,48 @@ export const PosView: React.FC = () => {
 
                       {/* 6. العدد */}
                       {posLayoutConfig.tableColumns.showCount && (
-                        <td className="p-1 border-l border-slate-200 text-center">
-                          <input
-                            type="number"
-                            min="1"
-                            step="1"
-                            value={line.count || 1}
-                            onChange={e => handleUpdateLine(line.id, 'count', parseInt(e.target.value, 10) || 1)}
-                            className="w-full px-1 py-1 text-center bg-transparent border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white rounded font-mono text-xs font-bold text-slate-800"
-                            placeholder="العدد"
-                          />
+                        <td className="p-0 border-l border-b border-slate-300 text-center">
+                          {!isLineSqMeter ? (
+                            <div
+                              className="w-full h-8 flex items-center justify-center bg-slate-100/75 text-slate-400 font-mono text-xs select-none cursor-not-allowed"
+                              title="مغلق: يتطلب وحدة متر مربع (م²)"
+                            >
+                              —
+                            </div>
+                          ) : (
+                            <input
+                              id={`count-input-${line.id}`}
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={line.count || 1}
+                              onChange={e => handleUpdateLine(line.id, 'count', parseInt(e.target.value, 10) || 1)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  const qtyInput = (document.getElementById(`quantity-input-${line.id}`) || document.getElementById(`dim-quantity-input-${line.id}`)) as HTMLInputElement | null;
+                                  const priceInput = document.getElementById(`price-input-${line.id}`) as HTMLInputElement | null;
+                                  const target = qtyInput || priceInput;
+                                  if (target) {
+                                    target.focus();
+                                    target.select?.();
+                                  }
+                                }
+                              }}
+                              className="w-full px-1 py-1.5 text-center bg-transparent border-0 rounded-none focus:outline-none font-mono text-xs font-bold text-slate-800"
+                              placeholder="العدد"
+                            />
+                          )}
                         </td>
                       )}
 
                       {/* 7. الكمية */}
                       {posLayoutConfig.tableColumns.showQuantity && (
-                        <td className="p-1 border-l border-slate-200">
-                          {line.hasDimensions ? (
+                        <td className="p-0 border-l border-b border-slate-300 text-center">
+                          {isLineSqMeter && line.hasDimensions ? (
                             <div className="relative flex flex-col items-center">
                               <input
+                                id={`dim-quantity-input-${line.id}`}
                                 ref={isActive ? quantityInputRef : undefined}
                                 type="number"
                                 step="0.001"
@@ -3534,45 +4519,50 @@ export const PosView: React.FC = () => {
                                 onKeyDown={e => {
                                   if (e.key === 'Enter') {
                                     e.preventDefault();
-                                    if (inactivityTimerRef.current) {
-                                      clearTimeout(inactivityTimerRef.current);
-                                    }
-                                    if (barcodeInputRef.current) {
+                                    const priceInput = document.getElementById(`price-input-${line.id}`) as HTMLInputElement | null;
+                                    if (priceInput && canUserEditPrices) {
+                                      priceInput.focus();
+                                      priceInput.select?.();
+                                    } else if (barcodeInputRef.current) {
                                       barcodeInputRef.current.focus();
                                       barcodeInputRef.current.select();
                                     }
                                   }
                                 }}
-                                className="w-full px-1 py-1 text-center bg-blue-50/80 border border-blue-200 hover:border-blue-400 focus:border-blue-600 focus:bg-white rounded font-mono text-xs font-black text-blue-900"
-                                title={`حساب الأبعاد: ${line.length} × ${line.width} × ${line.count || 1} = ${line.quantity}`}
+                                className="w-full px-1 py-1.5 text-center bg-transparent border-0 rounded-none focus:outline-none font-mono text-xs font-black text-blue-900"
+                                title={`حساب الأبعاد: ${line.length} × ${line.width} × ${line.count || 1} = ${line.quantity} م²`}
                               />
-                              <span className="text-[9px] text-blue-700 font-mono font-bold scale-90 whitespace-nowrap mt-0.5">
+                              <span className="text-[9px] text-blue-700 font-mono font-bold scale-90 whitespace-nowrap -mt-1 mb-0.5">
                                 {line.length}×{line.width}×{line.count || 1}
                               </span>
                             </div>
                           ) : (
                             <input
+                              id={`quantity-input-${line.id}`}
                               ref={isActive ? quantityInputRef : undefined}
                               type="number"
-                              min="1"
+                              min="0.01"
+                              step="any"
                               value={line.quantity}
                               onChange={e => {
-                                handleUpdateLine(line.id, 'quantity', parseInt(e.target.value, 10) || 1);
+                                handleUpdateLine(line.id, 'quantity', parseFloat(e.target.value) || 0);
                                 resetInactivityTimer();
                               }}
                               onKeyDown={e => {
                                 if (e.key === 'Enter') {
                                   e.preventDefault();
-                                  if (inactivityTimerRef.current) {
-                                    clearTimeout(inactivityTimerRef.current);
-                                  }
-                                  if (barcodeInputRef.current) {
+                                  const priceInput = document.getElementById(`price-input-${line.id}`) as HTMLInputElement | null;
+                                  if (priceInput && canUserEditPrices) {
+                                    priceInput.focus();
+                                    priceInput.select?.();
+                                  } else if (barcodeInputRef.current) {
                                     barcodeInputRef.current.focus();
                                     barcodeInputRef.current.select();
                                   }
                                 }
                               }}
-                              className="w-full px-1 py-1 text-center bg-transparent border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white rounded font-mono text-xs font-black text-blue-800"
+                              className="w-full px-1 py-1.5 text-center bg-transparent border-0 rounded-none focus:outline-none font-mono text-xs font-bold text-slate-800"
+                              placeholder="الكمية"
                             />
                           )}
                         </td>
@@ -3580,13 +4570,13 @@ export const PosView: React.FC = () => {
 
                       {/* 8. الوحدة */}
                       {posLayoutConfig.tableColumns.showUnit && (
-                        <td className="p-1 border-l border-slate-200 text-center">
+                        <td className="p-0 border-l border-b border-slate-300 text-center">
                           <input
                             list="pos-units-datalist"
                             type="text"
-                            value={line.unit || (line.hasDimensions ? 'م²' : 'حبة')}
+                            value={line.unit || (isLineSqMeter ? 'م²' : 'حبة')}
                             onChange={e => handleUpdateLine(line.id, 'unit', e.target.value)}
-                            className="w-full px-1 py-1 text-center bg-transparent border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white rounded text-xs text-slate-700 font-medium"
+                            className="w-full px-1 py-1.5 text-center bg-transparent border-0 rounded-none focus:outline-none text-xs text-slate-800 font-medium"
                             placeholder="الوحدة"
                             title="اختيار أو كتابة الوحدة المناسبة"
                           />
@@ -3594,69 +4584,77 @@ export const PosView: React.FC = () => {
                       )}
 
                       {/* 9. السعر */}
-                      {posLayoutConfig.tableColumns.showUnitPrice && (
-                        <td className="p-1 border-l border-slate-200">
-                          <div className="flex items-center gap-1">
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              readOnly={!canUserEditPrices}
-                              disabled={!canUserEditPrices}
-                              value={line.unitPrice}
-                              onChange={e => {
-                                if (canUserEditPrices) {
-                                  handleUpdateLine(line.id, 'unitPrice', parseFloat(e.target.value) || 0);
+                      {posLayoutConfig.tableColumns.showUnitPrice && (() => {
+                        const matchedItem = inventory.find(i => 
+                          (line.inventoryItemId && i.id === line.inventoryItemId) || 
+                          (line.barcode && matchItemByBarcode(i, line.barcode)) || 
+                          i.name === line.itemName
+                        );
+                        const specialFromCustomer = effectivePricingCustomerObj?.specialPrices && line.inventoryItemId && effectivePricingCustomerObj.specialPrices[line.inventoryItemId] !== undefined;
+                        const specialFromItem = Boolean(matchedItem?.customerSpecialPrices && effectivePricingCustomerId && matchedItem.customerSpecialPrices.some(p => p.customerId === effectivePricingCustomerId));
+                        const isSpecialPrice = Boolean(specialFromCustomer || specialFromItem || pricingTier === 'special');
+                        const specialTooltip = specialFromItem ? "سعر خاص معتمد لهذا العميل في كارتة الصنف" : specialFromCustomer ? "سعر خاص مسجل في ملف العميل" : "سعر خاص";
+
+                        return (
+                          <td className={`p-0 border-l border-b border-slate-300 ${isSpecialPrice ? 'bg-amber-100/60' : ''}`}>
+                            <div className="flex items-center gap-1 px-1">
+                              <input
+                                id={`price-input-${line.id}`}
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                readOnly={!canUserEditPrices}
+                                disabled={!canUserEditPrices}
+                                value={line.unitPrice}
+                                onChange={e => {
+                                  if (canUserEditPrices) {
+                                    handleUpdateLine(line.id, 'unitPrice', parseFloat(e.target.value) || 0);
+                                  }
+                                }}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    if (barcodeInputRef.current) {
+                                      barcodeInputRef.current.focus();
+                                      barcodeInputRef.current.select();
+                                    }
+                                  }
+                                }}
+                                className={`w-full px-1.5 py-1.5 text-left border-0 rounded-none focus:outline-none font-mono text-xs font-bold transition-colors ${
+                                  isSpecialPrice
+                                    ? "bg-amber-100 text-amber-950 font-black"
+                                    : !canUserEditPrices
+                                    ? "bg-slate-100 text-slate-500 cursor-not-allowed"
+                                    : line.inventoryItemId === 'srv-delivery' || line.itemName === 'خدمة توصيل'
+                                    ? "bg-emerald-50 text-emerald-900 font-black text-sm"
+                                    : "bg-transparent text-slate-800"
+                                }`}
+                                title={
+                                  isSpecialPrice
+                                    ? specialTooltip
+                                    : !canUserEditPrices
+                                    ? "تعديل السعر مقفل وغير مسموح به لصلاحية هذا المستخدم"
+                                    : "سعر الوحدة"
                                 }
-                              }}
-                              className={`w-full px-1.5 py-1 text-left rounded font-mono text-xs font-bold ${
-                                !canUserEditPrices
-                                  ? "bg-slate-100/90 text-slate-500 cursor-not-allowed border border-slate-200"
-                                  : line.inventoryItemId === 'srv-delivery' || line.itemName === 'خدمة توصيل'
-                                  ? "bg-emerald-50 border border-emerald-400 text-emerald-900 focus:bg-white focus:border-emerald-600 font-black text-sm"
-                                  : "bg-transparent border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white text-slate-800"
-                              }`}
-                              title={!canUserEditPrices ? "تعديل السعر مقفل وغير مسموح به لصلاحية هذا المستخدم" : "سعر الوحدة"}
-                            />
-                            {!canUserEditPrices && (
-                              <Lock className="w-3 h-3 text-slate-400 shrink-0" title="تعديل السعر مقفل للمستخدم" />
-                            )}
-                            {(() => {
-                              const matchedItem = inventory.find(i => 
-                                (line.inventoryItemId && i.id === line.inventoryItemId) || 
-                                (line.barcode && matchItemByBarcode(i, line.barcode)) || 
-                                i.name === line.itemName
-                              );
-                              const specialFromCustomer = effectivePricingCustomerObj?.specialPrices && line.inventoryItemId && effectivePricingCustomerObj.specialPrices[line.inventoryItemId] !== undefined;
-                              const specialFromItem = Boolean(matchedItem?.customerSpecialPrices && effectivePricingCustomerId && matchedItem.customerSpecialPrices.some(p => p.customerId === effectivePricingCustomerId));
-                              
-                              if (specialFromCustomer || specialFromItem) {
-                                return (
-                                  <span 
-                                    className="shrink-0 text-[9px] bg-amber-100 text-amber-900 border border-amber-300 px-1 py-0.5 rounded font-bold whitespace-nowrap flex items-center gap-0.5" 
-                                    title={specialFromItem ? "سعر خاص معتمد لهذا العميل في كارتة الصنف" : "سعر خاص مسجل في ملف العميل"}
-                                  >
-                                    <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-600" />
-                                    خاص
-                                  </span>
-                                );
-                              }
-                              return null;
-                            })()}
-                          </div>
-                        </td>
-                      )}
+                              />
+                              {!canUserEditPrices && (
+                                <Lock className="w-3 h-3 text-slate-400 shrink-0" title="تعديل السعر مقفل للمستخدم" />
+                              )}
+                            </div>
+                          </td>
+                        );
+                      })()}
 
                       {/* 10. الخصم */}
                       {posLayoutConfig.tableColumns.showDiscount && (
-                        <td className="p-1 border-l border-slate-200">
+                        <td className="p-0 border-l border-b border-slate-300">
                           <input
                             type="number"
                             step="0.01"
                             min="0"
                             value={line.discount || 0}
                             onChange={e => handleUpdateLine(line.id, 'discount', parseFloat(e.target.value) || 0)}
-                            className="w-full px-1.5 py-1 text-left bg-transparent border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white rounded font-mono text-xs font-medium text-rose-600"
+                            className="w-full px-1.5 py-1.5 text-left bg-transparent border-0 rounded-none focus:outline-none font-mono text-xs font-medium text-rose-600"
                             placeholder="0.00"
                           />
                         </td>
@@ -3664,39 +4662,39 @@ export const PosView: React.FC = () => {
 
                       {/* 11. الضريبة */}
                       {posLayoutConfig.tableColumns.showTax && (
-                        <td className="p-1 border-l border-slate-200">
+                        <td className="p-0 border-l border-b border-slate-300">
                           <input
                             type="number"
                             step="0.01"
                             min="0"
                             value={line.tax || 0}
                             onChange={e => handleUpdateLine(line.id, 'tax', parseFloat(e.target.value) || 0)}
-                            className="w-full px-1.5 py-1 text-left bg-transparent border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white rounded font-mono text-xs font-medium text-indigo-700"
+                            className="w-full px-1.5 py-1.5 text-left bg-transparent border-0 rounded-none focus:outline-none font-mono text-xs font-medium text-indigo-700"
                             placeholder="0.00"
                           />
                         </td>
                       )}
 
                       {/* 12. الإجمالي */}
-                      <td className="p-2 text-left font-mono font-black text-sm text-[#1f4a7c] border-l border-slate-200">
+                      <td className="px-2 py-1.5 text-left font-mono font-black text-sm text-[#1f4a7c] border-l border-b border-slate-300 bg-slate-50/70 select-none">
                         {line.total.toFixed(2)}
                       </td>
 
                       {/* 13. المرفقات */}
                       {posLayoutConfig.tableColumns.showAttachments && (
-                        <td className="p-1 text-center border-l border-slate-200">
+                        <td className="p-1 text-center border-l border-b border-slate-300">
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               setActiveLineForAttachments(line);
                             }}
-                            className={`px-1.5 py-0.5 rounded-lg border text-xs font-bold flex items-center justify-center gap-1 mx-auto cursor-pointer transition-all shadow-2xs ${
+                            className={`px-1.5 py-0.5 rounded border text-xs font-bold flex items-center justify-center gap-1 mx-auto cursor-pointer transition-all ${
                               line.attachments && line.attachments.length > 0
-                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700 ring-2 ring-emerald-300'
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700'
                                 : 'bg-white hover:bg-blue-50 text-slate-700 hover:text-blue-700 border-slate-300 hover:border-blue-400'
                             }`}
-                            title={`مرفقات البند (${line.attachments?.length || 0}) - رفع ملف خاص بالبند (PDF, JPG, PNG, AI, PSD, EPS, SVG)`}
+                            title={`مرفقات البند (${line.attachments?.length || 0})`}
                           >
                             <Paperclip className="w-3.5 h-3.5 shrink-0" />
                             <span className="whitespace-nowrap">مرفق</span>
@@ -3711,7 +4709,7 @@ export const PosView: React.FC = () => {
 
                       {/* 14. حذف */}
                       {posLayoutConfig.tableColumns.showDeleteButton && (
-                        <td className="p-1 text-center">
+                        <td className="p-1 text-center border-b border-slate-300">
                           <button
                             type="button"
                             onClick={() => handleDeleteLine(line.id)}
@@ -3722,11 +4720,27 @@ export const PosView: React.FC = () => {
                           </button>
                         </td>
                       )}
+
+                      {/* Filler cell matching header filler col */}
+                      <td className="p-0 border-b border-slate-300 bg-white" />
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+
+            {/* Excel-like Floating Vertical Guideline while dragging column boundary */}
+            {activeResizingCol && resizingGuideX !== null && (
+              <div
+                className="fixed top-0 bottom-0 pointer-events-none z-[99999] border-r-2 border-dashed border-blue-600 shadow-[0_0_10px_rgba(37,99,235,0.7)]"
+                style={{ left: `${resizingGuideX}px` }}
+              >
+                <div className="absolute top-4 -translate-x-1/2 bg-blue-700 text-white font-mono text-xs px-2 py-0.5 rounded shadow-lg whitespace-nowrap flex items-center gap-1 font-bold">
+                  <span>عرض العمود:</span>
+                  <span>{columnWidths[activeResizingCol]}px</span>
+                </div>
+              </div>
+            )}
 
             {/* Datalist for Units based on all adopted program units */}
             <datalist id="pos-units-datalist">
@@ -3851,8 +4865,18 @@ export const PosView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Right: Hide Button */}
-              <div className="flex items-center gap-2">
+              {/* Right: Reset Columns & Customization Buttons */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleResetAllColumns}
+                  className="bg-white/90 hover:bg-white text-slate-700 hover:text-blue-800 px-1.5 py-0.5 rounded border border-slate-300 shadow-2xs flex items-center gap-1 cursor-pointer text-[10px] font-sans font-bold transition-colors"
+                  title="إعادة ضبط عرض كافة أعمدة الجدول إلى الوضع الافتراضي"
+                >
+                  <RotateCcw className="w-2.5 h-2.5 text-blue-600" />
+                  <span>ضبط عرض الأعمدة</span>
+                </button>
+
                 {isLiveCustomizing && (
                   <button
                     type="button"
@@ -4346,6 +5370,7 @@ export const PosView: React.FC = () => {
                   l.id === activeRowId
                     ? {
                         ...l,
+                        itemCode: item.code || '',
                         itemName: item.name,
                         barcode: item.barcode || '',
                         inventoryItemId: item.id,
@@ -4413,6 +5438,12 @@ export const PosView: React.FC = () => {
         onDeleteHeldInvoice={id => setHeldInvoices(prev => prev.filter(h => h.id !== id))}
       />
 
+      <DraftInvoicesQueueModal
+        isOpen={isDraftQueueOpen}
+        onClose={() => setIsDraftQueueOpen(false)}
+        onOpenInPos={draft => handleLoadDraftToPos(draft)}
+      />
+
       <ItemSearchModal
         isOpen={isItemSearchOpen}
         onClose={() => setIsItemSearchOpen(false)}
@@ -4448,6 +5479,7 @@ export const PosView: React.FC = () => {
         onToggleLiveEdit={() => setIsLiveCustomizing(prev => !prev)}
         isLiveEditActive={isLiveCustomizing}
         inventory={inventory}
+        onResetToAdminDefaults={handleResetToAdminDefaults}
       />
 
       {/* POS Full Layout Designer Drawer */}
@@ -4466,6 +5498,11 @@ export const PosView: React.FC = () => {
         isLiveCustomizing={isLiveCustomizing}
         onToggleLiveEdit={() => setIsLiveCustomizing(prev => !prev)}
         onToggleLiveCustomizing={() => setIsLiveCustomizing(prev => !prev)}
+        onResetColumnWidths={handleResetAllColumns}
+        userName={currentUser?.fullName || currentUser?.username}
+        isAdmin={isCurrentUserAdmin}
+        onApplyAsSystemDefault={handleApplyAsSystemDefault}
+        onResetToAdminDefaults={handleResetToAdminDefaults}
       />
 
       {/* Customer Special Prices Modal */}
@@ -4480,6 +5517,28 @@ export const PosView: React.FC = () => {
             });
             setTableLines(prev => applyCustomerPricingToLines({ ...effectivePricingCustomerObj, specialPrices: prices }, prev));
           }
+        }}
+      />
+
+      {/* Quick Add / Edit Party Modal (شاشة إضافة أو تعديل عميل / مورد / موظف) */}
+      <QuickAddPartyModal
+        isOpen={isAddPartyModalOpen}
+        onClose={() => {
+          setIsAddPartyModalOpen(false);
+          setPartyToEditInPos(null);
+        }}
+        initialType={posTargetType}
+        partyToEdit={partyToEditInPos}
+        onSuccess={(created) => {
+          setSelectedCustomerId(created.id);
+          setCustomerName(created.name);
+          setCustomerCode(created.code);
+          // Reset sub-customer
+          setSubCustomerId('');
+          setSubCustomerName('');
+          setSubCustomerPhone('');
+          setCustomCustomerText('');
+          posSound.playSuccessBeep();
         }}
       />
 

@@ -147,23 +147,15 @@ export const WorkshopAttachmentModal: React.FC<WorkshopAttachmentModalProps> = (
   };
 
   const handleDelete = (att: LineAttachment) => {
-    // Check if original attachment: strictly forbidden to delete!
-    if (att.isOriginal) {
-      posSound.error();
-      setFeedbackMsg({
-        type: 'error',
-        text: 'محظور: لا يمكن حذف المرفقات الأصلية المعتمدة للفاتورة!'
-      });
-      setTimeout(() => setFeedbackMsg(null), 4000);
-      return;
-    }
+    const confirmed = window.confirm(`هل أنت متأكد من حذف المرفق "${att.name}"؟`);
+    if (!confirmed) return;
 
     const res = onRemoveAttachment(itemIndex, att.id);
     if (res.success) {
       posSound.click();
       setFeedbackMsg({
         type: 'success',
-        text: 'تم حذف النسخة المعدلة'
+        text: 'تم حذف المرفق بنجاح'
       });
       if (selectedPreview?.id === att.id) {
         setSelectedPreview(null);

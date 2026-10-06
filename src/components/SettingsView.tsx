@@ -6,6 +6,7 @@ import { OfflineSqlSettings } from './settings/OfflineSqlSettings';
 import { UnitsOfMeasureSettings } from './settings/UnitsOfMeasureSettings';
 import { DatabaseZeroingSettings } from './settings/DatabaseZeroingSettings';
 import { TelegramSettings } from './settings/TelegramSettings';
+import { GoogleDriveBackupSettings } from './settings/GoogleDriveBackupSettings';
 import { PrintHeader, ThermalReceiptHeader } from './common/PrintHeader';
 import { OfficialStamp } from './common/OfficialStamp';
 import {
@@ -53,15 +54,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
     return !role || role.code === 'SYS_ADMIN' || role.code === 'GEN_MGR';
   }, [currentUser, roles]);
 
-  const [activeTab, setActiveTab] = useState<'general' | 'units' | 'shortcuts' | 'currency' | 'sql' | 'backup' | 'reset_db' | 'telegram'>(initialTab as any);
+  const [activeTab, setActiveTabState] = useState<'general' | 'units' | 'shortcuts' | 'currency' | 'sql' | 'backup' | 'reset_db' | 'telegram'>(() => {
+    try {
+      const saved = localStorage.getItem('settings_subtab');
+      if (saved && ['general', 'units', 'shortcuts', 'currency', 'sql', 'backup', 'reset_db', 'telegram'].includes(saved)) {
+        return saved as any;
+      }
+    } catch {}
+    return (initialTab as any) || 'general';
+  });
+
+  const setActiveTab = React.useCallback((tab: 'general' | 'units' | 'shortcuts' | 'currency' | 'sql' | 'backup' | 'reset_db' | 'telegram') => {
+    setActiveTabState(tab);
+    try {
+      localStorage.setItem('settings_subtab', tab);
+    } catch {}
+  }, []);
 
   React.useEffect(() => {
-    if (initialTab) {
-      setActiveTab(initialTab);
+    if (initialTab && !localStorage.getItem('settings_subtab')) {
+      setActiveTab(initialTab as any);
     }
-  }, [initialTab]);
+  }, [initialTab, setActiveTab]);
 
-  const [businessName, setBusinessName] = useState(settings.businessName || '');
+  const [appTitle, setAppTitle] = useState(settings.appTitle || 'برنامج الأيهم المحاسبي - مطبعة ومكتبة لبنان - م.رائد صالحة');
+  const [businessName, setBusinessName] = useState(settings.businessName || 'مطبعة ومكتبة لبنان');
   const [businessNameEn, setBusinessNameEn] = useState(settings.businessNameEn || '');
   const [activityType, setActivityType] = useState(settings.activityType || '');
   const [taxNumber, setTaxNumber] = useState(settings.taxNumber || '');
@@ -165,6 +182,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
 
     updateSettings({
       ...settings,
+      appTitle: appTitle.trim(),
       businessName,
       businessNameEn,
       activityType,
@@ -189,11 +207,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
     setTimeout(() => setIsSaved(false), 3000);
   };
 
+  const [isImporting, setIsImporting] = useState(false);
+
   const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const json = event.target?.result as string;
         
@@ -210,14 +230,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
            keepTelegramSettings = !replaceTelegram;
         }
         
-        const ok = importDataJSON(json, includeSettings, keepTelegramSettings, keepFacilitySettings);
+        setIsImporting(true);
+        const ok = await importDataJSON(json, includeSettings, keepTelegramSettings, keepFacilitySettings);
+        setIsImporting(false);
         if (ok) {
-          alert('تم استيراد البيانات بنجاح.');
+          alert('تم استيراد كافة البيانات ومزامنتها بنجاح مع قاعدة البيانات السحابية وحفظها محلياً.');
           window.location.reload();
         } else {
           alert('ملف النسخ الاحتياطي غير صالح أو تالف.');
         }
       } catch (err) {
+        setIsImporting(false);
         alert('ملف النسخ الاحتياطي غير صالح.');
       }
     };
@@ -378,6 +401,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="sm:col-span-2 lg:col-span-3 bg-blue-50/70 p-3 rounded-lg border border-blue-200">
+                <label className="block text-blue-950 font-bold mb-1 text-[11px] flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+                    مسمى وترويسة البرنامج في أعلى الشاشة (شريط العنوان العلوي وتبويب المتصفح):
+                  </span>
+                  <span className="text-[10px] text-blue-700 font-medium">يظهر في الشريط الأزرق العلوي وعنوان النافذة</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={appTitle}
+                  onChange={e => setAppTitle(e.target.value)}
+                  placeholder="برنامج الأيهم المحاسبي - مطبعة ومكتبة لبنان - م.رائد صالحة"
+                  className="w-full bg-white border border-blue-300 rounded-lg p-2.5 text-xs focus:bg-white focus:ring-2 focus:ring-blue-500 font-bold text-blue-950 shadow-xs"
+                />
+              </div>
+
               <div>
                 <label className="block text-slate-700 font-semibold mb-1 text-[11px]">اسم المطبعة والمكتبة التجاري (عربي):</label>
                 <input
@@ -385,7 +426,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
                   required
                   value={businessName}
                   onChange={e => setBusinessName(e.target.value)}
-                  placeholder="مكتبة ومطبعة النور الحديثة"
+                  placeholder="مطبعة ومكتبة لبنان"
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:bg-white focus:ring-1 focus:ring-blue-500 font-bold"
                 />
               </div>
@@ -1127,43 +1168,49 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ initialTab = 'genera
 
       {/* Tab 4: Backup and Data Maintenance */}
       {activeTab === 'backup' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 space-y-3 text-xs">
-          <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-            <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
-            <span>النسخ الاحتياطي وإدارة البيانات</span>
-          </h3>
-          <p className="text-[10px] text-slate-400 font-light">
-            يمكنك تصدير قاعدة البيانات المحاسبية كاملة بملف JSON للرجوع إليها في أي وقت أو نقلها لجهاز آخر، كما يمكنك استعادة البيانات الأولية للتجربة.
-          </p>
+        <div className="space-y-4">
+          {/* Main Google Drive Automated Hourly Backup & 7-Day Retention */}
+          <GoogleDriveBackupSettings />
 
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            <button
-              type="button"
-              onClick={exportDataJSON}
-              className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3 py-2 rounded-lg transition-colors cursor-pointer text-xs"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>تصدير نسخة احتياطية (JSON)</span>
-            </button>
+          {/* Local JSON Backup & Manual Reset */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 space-y-3 text-xs">
+            <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+              <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
+              <span>النسخ الاحتياطي المحلي واستعادة البيانات</span>
+            </h3>
+            <p className="text-[10px] text-slate-400 font-light">
+              يمكنك تصدير قاعدة البيانات المحاسبية كاملة كملف JSON محلي على جهازك للرجوع إليها في أي وقت أو نقلها لجهاز آخر، كما يمكنك استعادة البيانات الأولية للتجربة.
+            </p>
 
-            <label className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3 py-2 rounded-lg transition-colors cursor-pointer text-xs">
-              <Upload className="w-3.5 h-3.5" />
-              <span>استيراد نسخة احتياطية</span>
-              <input type="file" accept=".json" onChange={handleImportBackup} className="hidden" />
-            </label>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={exportDataJSON}
+                className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3 py-2 rounded-lg transition-colors cursor-pointer text-xs"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>تصدير نسخة احتياطية محلية (JSON)</span>
+              </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                if (confirm('هل أنت متأكد من إعادة ضبط البيانات إلى القيم الافتراضية؟')) {
-                  resetAllData();
-                }
-              }}
-              className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold px-3 py-2 rounded-lg border border-rose-200 transition-colors cursor-pointer mr-auto text-xs"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>إعادة ضبط البيانات الافتراضية</span>
-            </button>
+              <label className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3 py-2 rounded-lg transition-colors cursor-pointer text-xs">
+                <Upload className="w-3.5 h-3.5" />
+                <span>استيراد نسخة احتياطية من ملف</span>
+                <input type="file" accept=".json" onChange={handleImportBackup} className="hidden" />
+              </label>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm('هل أنت متأكد من إعادة ضبط البيانات إلى القيم الافتراضية؟')) {
+                    resetAllData();
+                  }
+                }}
+                className="flex items-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold px-3 py-2 rounded-lg border border-rose-200 transition-colors cursor-pointer mr-auto text-xs"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>إعادة ضبط البيانات الافتراضية</span>
+              </button>
+            </div>
           </div>
 
           {/* Quick link to Database Zeroing */}

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import {
   TrendingUp,
@@ -18,7 +18,16 @@ export const DashboardView: React.FC = () => {
   const { stats, settings, printOrders, invoices, inventory, setActiveTab, setSelectedInvoiceForPrint, setSelectedJobForTicket } = useAccounting();
 
   const inProgressJobs = (printOrders || []).filter(j => j && j.status !== 'delivered' && j.status !== 'cancelled').slice(0, 5);
-  const recentInvoices = (invoices || []).slice(0, 5);
+  const recentInvoices = useMemo(() => {
+    return [...(invoices || [])]
+      .sort((a, b) => {
+        const numA = parseInt((a.invoiceNumber || '').replace(/\D/g, ''), 10) || 0;
+        const numB = parseInt((b.invoiceNumber || '').replace(/\D/g, ''), 10) || 0;
+        if (numA !== numB) return numB - numA;
+        return (b.createdAt || '').localeCompare(a.createdAt || '');
+      })
+      .slice(0, 5);
+  }, [invoices]);
   const lowStockItems = (inventory || []).filter(i => i && i.category !== 'copy_scan' && (i.stockQuantity ?? 0) <= (i.minAlertQuantity ?? 0)).slice(0, 4);
 
   const getStatusBadge = (status: string) => {
@@ -181,7 +190,7 @@ export const DashboardView: React.FC = () => {
                       {inv.customerName}
                     </td>
                     <td className="p-2.5 text-slate-600">
-                      فاتورة نقطة بيع ({inv.paymentMethod === 'cash' ? 'نقدي' : inv.paymentMethod === 'card' ? 'شبكة مدى' : 'آجل'})
+                      فاتورة نقطة بيع ({inv.paymentMethod === 'cash' ? 'نقدي' : (inv.paymentMethod === 'card' || inv.paymentMethod === 'bank_transfer') ? (inv.paymentMethod === 'bank_transfer' ? 'تحويل بنكي' : 'شبكة مدى') : 'آجل'})
                     </td>
                     <td className="p-2.5 text-center">
                       <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full text-[10px] font-medium">

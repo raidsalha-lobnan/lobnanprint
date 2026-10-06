@@ -93,11 +93,33 @@ export function calculateItemLineTotal(
         total = l * w * q * p;
       } else {
         total = q * p;
-      }
-      break;
+    }
   }
 
   return Number(total.toFixed(2));
+}
+
+/**
+ * التحقق مما إذا كانت وحدة الصنف هي متر مربع (م² أو متر مربع أو m2 أو sqm أو فئة احتساب المساحة)
+ */
+export function isSquareMeterUnit(unit?: string, calculationType?: UnitCalculationType | string): boolean {
+  if (calculationType === 'area') return true;
+  if (!unit) return false;
+  const clean = unit.trim().toLowerCase();
+  return (
+    clean === 'م²' ||
+    clean === 'م2' ||
+    clean === 'متر مربع' ||
+    clean === 'متر مربع (م²)' ||
+    clean === 'متر²' ||
+    clean === 'متر2' ||
+    clean === 'م.م' ||
+    clean === 'sqm' ||
+    clean === 'm2' ||
+    clean === 'square meter' ||
+    clean.includes('متر مربع') ||
+    clean.includes('م²')
+  );
 }
 
 export function getUnitCalculationLabel(calcType: UnitCalculationType | undefined): string {

@@ -13,11 +13,27 @@ import {
   Cloud,
   CheckCircle2,
   Loader2,
-  HardDrive
+  HardDrive,
+  Edit2,
+  Users,
+  Share2,
+  FolderOpen
 } from 'lucide-react';
 import { LineAttachment } from '../../types';
 import { saveBinaryAttachment, getBinaryAttachment, downloadBlobFile } from '../../utils/fileStorage';
-import { uploadFileToGoogleDrive, getSavedDriveToken, requestDriveAccessToken } from '../../services/googleDriveService';
+import {
+  uploadFileToGoogleDrive,
+  getSavedDriveToken,
+  requestDriveAccessToken,
+  deleteFileFromGoogleDrive,
+  updateDriveFileName,
+  getSavedSharedDriveEmails,
+  saveSharedDriveEmail,
+  removeSharedDriveEmail,
+  shareDriveFolderWithEmail,
+  getDriveFolderUrl
+} from '../../services/googleDriveService';
+import { useAccounting } from '../../context/AccountingContext';
 
 interface LineAttachmentsModalProps {
   isOpen: boolean;
@@ -34,6 +50,7 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
   attachments,
   onSaveAttachments
 }) => {
+  const { users, currentUser } = useAccounting();
   const [items, setItems] = useState<LineAttachment[]>(attachments || []);
   const [linkInput, setLinkInput] = useState('');
   const [linkNameInput, setLinkNameInput] = useState('');
@@ -41,12 +58,28 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
   const [uploadingFiles, setUploadingFiles] = useState<Record<string, { name: string; progress: number }>>({});
   const [isDriveConnected, setIsDriveConnected] = useState<boolean>(Boolean(getSavedDriveToken()));
   const [isConnectingDrive, setIsConnectingDrive] = useState(false);
+  
+  // File edit state
+  const [editingAttId, setEditingAttId] = useState<string | null>(null);
+  const [editingAttName, setEditingAttName] = useState('');
+  const [isSavingName, setIsSavingName] = useState(false);
+
+  // Sharing Management state
+  const [showSharePanel, setShowSharePanel] = useState(false);
+  const [sharedEmails, setSharedEmails] = useState<string[]>([]);
+  const [newShareEmail, setNewShareEmail] = useState('');
+  const [isSharingEmail, setIsSharingEmail] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+  const [driveFolderUrl, setDriveFolderUrl] = useState<string>('https://drive.google.com/drive');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Sync state when opened
   useEffect(() => {
     setItems(attachments || []);
     setIsDriveConnected(Boolean(getSavedDriveToken()));
+    setSharedEmails(getSavedSharedDriveEmails());
+    getDriveFolderUrl().then(url => setDriveFolderUrl(url));
   }, [attachments, isOpen]);
 
   if (!isOpen) return null;
@@ -56,6 +89,8 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
     try {
       await requestDriveAccessToken();
       setIsDriveConnected(true);
+      const url = await getDriveFolderUrl();
+      setDriveFolderUrl(url);
     } catch (err) {
       console.warn('Google Drive token request deferred:', err);
     } finally {
@@ -93,12 +128,15 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
         data: previewDataUrl,
         localBlobId: attId,
         storageType: 'local',
-        uploadedAt: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })
+        uploadedAt: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }),
+        uploadedBy: currentUser?.fullName || currentUser?.username || 'مستخدم النظام',
+        uploadedByUserId: currentUser?.id,
+        isOriginal: true
       };
 
       setItems(prev => [...prev, newAttachment]);
 
-      // 3. Background upload to Google Drive (lobnanprint@gmail.com) if token available or requested
+      // 3. Background upload to Google Drive if connected or requested
       if (isDriveConnected || getSavedDriveToken()) {
         setUploadingFiles(prev => ({ ...prev, [attId]: { name: file.name, progress: 10 } }));
         try {
@@ -159,20 +197,96 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
     if (!linkInput.trim()) return;
     const newAttachment: LineAttachment = {
       id: 'att-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-      name: linkNameInput.trim() || 'رابط تصميم خارجي (Google Drive / Cloud)',
+      name: linkNameInput.trim() || 'رابط سحابي خارجي (Google Drive / Cloud)',
       data: linkInput.trim(),
       driveWebViewLink: linkInput.trim(),
       type: 'link',
       storageType: 'link',
-      uploadedAt: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })
+      uploadedAt: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }),
+      uploadedBy: currentUser?.fullName || currentUser?.username || 'مستخدم النظام'
     };
     setItems(prev => [...prev, newAttachment]);
     setLinkInput('');
     setLinkNameInput('');
   };
 
-  const handleDelete = (id: string) => {
+  const handleStartEdit = (att: LineAttachment) => {
+    setEditingAttId(att.id);
+    setEditingAttName(att.name);
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    if (!editingAttName.trim()) {
+      setEditingAttId(null);
+      return;
+    }
+    const cleanName = editingAttName.trim();
+    const target = items.find(a => a.id === id);
+    setIsSavingName(true);
+
+    if (target?.driveFileId) {
+      try {
+        await updateDriveFileName(target.driveFileId, cleanName);
+      } catch (err) {
+        console.warn('Google Drive rename sync note:', err);
+      }
+    }
+
+    setItems(prev =>
+      prev.map(a =>
+        a.id === id
+          ? {
+              ...a,
+              name: cleanName,
+              isModified: true,
+              modifiedAt: new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })
+            }
+          : a
+      )
+    );
+    setIsSavingName(false);
+    setEditingAttId(null);
+  };
+
+  const handleDelete = async (id: string) => {
+    const target = items.find(att => att.id === id);
+    const fileName = target?.name || 'المرفق';
+    const confirmed = window.confirm(`هل أنت متأكد من حذف المرفق "${fileName}"؟ سيتم حذفه من هذا البند ومن Google Drive.`);
+    if (!confirmed) return;
+
+    if (target?.driveFileId) {
+      try {
+        await deleteFileFromGoogleDrive(target.driveFileId);
+      } catch (err) {
+        console.warn('Could not delete file from Google Drive:', err);
+      }
+    }
     setItems(prev => prev.filter(att => att.id !== id));
+  };
+
+  const handleShareWithEmail = async (emailToShare: string) => {
+    const clean = emailToShare.trim().toLowerCase();
+    if (!clean) return;
+    setIsSharingEmail(true);
+    setShareFeedback(null);
+    try {
+      const res = await shareDriveFolderWithEmail(clean, 'writer');
+      saveSharedDriveEmail(clean);
+      setSharedEmails(getSavedSharedDriveEmails());
+      setShareFeedback(res.message || `تم تفعيل صلاحية الوصول والتعديل والحذف للإيميل: ${clean}`);
+      setNewShareEmail('');
+    } catch (err: any) {
+      setShareFeedback(`حدث خطأ أثناء المشاركة: ${err?.message || err}`);
+    } finally {
+      setIsSharingEmail(false);
+    }
+  };
+
+  const handleRemoveSharedEmail = (email: string) => {
+    if (window.confirm(`هل أنت متأكد من إلغاء تفعيل مشاركة المجلد مع (${email})؟`)) {
+      removeSharedDriveEmail(email);
+      setSharedEmails(getSavedSharedDriveEmails());
+    }
   };
 
   const handleSaveAndClose = () => {
@@ -206,7 +320,7 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
   return (
     <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
       <div
-        className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden text-slate-800 animate-in zoom-in-95 duration-200"
+        className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden text-slate-800 animate-in zoom-in-95 duration-200"
         dir="rtl"
       >
         {/* Header */}
@@ -217,13 +331,13 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold flex items-center gap-2">
-                <span>مرفقات البند والتصاميم عالية الدقة</span>
+                <span>مرفقات البند وتصاميم Google Drive</span>
                 <span className="text-xs bg-amber-400 text-amber-950 font-black px-2 py-0.5 rounded-full">
                   {items.length} مرفق
                 </span>
               </h2>
               <p className="text-xs text-blue-200 truncate max-w-md">
-                الصنف: <strong className="text-white">{itemName || 'بند الفاتورة'}</strong>
+                الصنف: <strong className="text-white">{itemName || 'بند أمر الطباعة'}</strong>
               </p>
             </div>
           </div>
@@ -238,34 +352,51 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
         </div>
 
         {/* Cloud & Quality Status Bar */}
-        <div className="bg-slate-800 text-white px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs border-b border-slate-700">
-          <div className="flex items-center gap-2">
+        <div className="bg-slate-800 text-white px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs border-b border-slate-700">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="inline-flex items-center gap-1 text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
               <CheckCircle2 className="w-3.5 h-3.5" />
-              جودة أصلية 100% بدون أي ضغط أو تقليل حجم
+              جودة أصلية 100% بدون أي ضغط
             </span>
             <span className="text-slate-400 hidden sm:inline">|</span>
             <span className="text-slate-300 flex items-center gap-1 text-[11px]">
               <HardDrive className="w-3.5 h-3.5 text-blue-400" />
-              تخزين ثنائي عالي السعة
+              تخزين عالي السعة
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-slate-300 flex items-center gap-1">
-              <Cloud className="w-3.5 h-3.5 text-blue-400" />
-              Google Drive (lobnanprint@gmail.com):
-            </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowSharePanel(!showSharePanel)}
+              className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border transition cursor-pointer flex items-center gap-1.5 ${
+                showSharePanel
+                  ? 'bg-amber-400 text-amber-950 border-amber-300 shadow-xs'
+                  : 'bg-slate-700 hover:bg-slate-600 text-amber-300 border-slate-600'
+              }`}
+              title="إدارة صلاحيات مشاركة مجلد الدرايف مع مستخدمي النظام"
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>مشاركة الصلاحيات ({sharedEmails.length})</span>
+            </button>
+
             {isDriveConnected ? (
-              <span className="text-[10px] bg-emerald-500 text-white font-black px-2 py-0.5 rounded-full">
-                متصل وجاهز
-              </span>
+              <a
+                href={driveFolderUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] bg-blue-600 hover:bg-blue-500 text-white font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition"
+                title="فتح المجلد في Google Drive"
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                <span>Google Drive</span>
+              </a>
             ) : (
               <button
                 type="button"
                 onClick={handleConnectDrive}
                 disabled={isConnectingDrive}
-                className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white font-bold px-2.5 py-0.5 rounded-full cursor-pointer transition-colors flex items-center gap-1"
+                className="text-[11px] bg-blue-600 hover:bg-blue-500 text-white font-bold px-2.5 py-1 rounded-lg cursor-pointer transition-colors flex items-center gap-1"
               >
                 {isConnectingDrive ? <Loader2 className="w-3 h-3 animate-spin" /> : 'تنشيط الربط السحابي'}
               </button>
@@ -273,8 +404,105 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
           </div>
         </div>
 
+        {/* Team Sharing & Access Management Accordion */}
+        {showSharePanel && (
+          <div className="bg-amber-50/70 border-b border-amber-200 p-4 animate-in slide-in-from-top-2 duration-200">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Share2 className="w-4 h-4 text-amber-700" />
+                <h3 className="text-xs font-bold text-amber-950">
+                  إدارة مشاركة مجلد الدرايف (صلاحية كاملة: وصول، تعديل، وحذف لكافة المستخدمين المفعّلين)
+                </h3>
+              </div>
+              <span className="text-[10px] text-amber-800 bg-amber-200/70 px-2 py-0.5 rounded-full font-bold">
+                Writer Role (محرر ومشارك)
+              </span>
+            </div>
+            
+            <p className="text-[11px] text-amber-900 mb-3 leading-relaxed">
+              كل مستخدم يتم تفعيله هنا يمتلك صلاحية كاملة على Google Drive لمعاينة وتعديل وتنزيل وحذف المرفقات والتصاميم الخاصة بأوامر الطباعة.
+            </p>
+
+            {/* Input to add email */}
+            <div className="flex flex-col sm:flex-row gap-2 mb-3">
+              <input
+                type="email"
+                value={newShareEmail}
+                onChange={e => setNewShareEmail(e.target.value)}
+                placeholder="أدخل البريد الإلكتروني لموظف أو مصمم أو فني (Gmail)..."
+                className="text-xs border border-amber-300 rounded-lg px-3 py-1.5 flex-1 bg-white focus:outline-hidden focus:ring-1 focus:ring-amber-500"
+              />
+              <button
+                type="button"
+                onClick={() => handleShareWithEmail(newShareEmail)}
+                disabled={isSharingEmail || !newShareEmail.trim()}
+                className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-xs px-4 py-1.5 rounded-lg flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-2xs"
+              >
+                {isSharingEmail ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                <span>تفعيل صلاحية الوصول والتعديل والحذف</span>
+              </button>
+            </div>
+
+            {/* Quick add from system users */}
+            {users && users.length > 0 && (
+              <div className="flex items-center gap-1.5 flex-wrap text-[11px] text-amber-900 mb-3">
+                <span className="font-bold">إضافة سريعة من مستخدمي النظام:</span>
+                {users
+                  .filter(u => u.email && !sharedEmails.includes(u.email.toLowerCase()))
+                  .slice(0, 5)
+                  .map(u => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => handleShareWithEmail(u.email || '')}
+                      className="bg-white hover:bg-amber-100 border border-amber-300 text-amber-950 font-bold px-2 py-0.5 rounded text-[10px] cursor-pointer flex items-center gap-1 transition"
+                    >
+                      <Plus className="w-2.5 h-2.5 text-amber-600" />
+                      <span>{u.fullName || u.username} ({u.email})</span>
+                    </button>
+                  ))}
+              </div>
+            )}
+
+            {/* Feedback message */}
+            {shareFeedback && (
+              <div className="mb-2 text-xs font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 p-2 rounded-lg flex items-center justify-between">
+                <span>{shareFeedback}</span>
+                <button type="button" onClick={() => setShareFeedback(null)} className="text-emerald-700 hover:text-emerald-950">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* Current Shared List */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] font-bold text-amber-950">المستخدمون المصرح لهم حالياً:</span>
+              {sharedEmails.length === 0 ? (
+                <span className="text-[11px] text-amber-700 italic">لم تتم إضافة إيميلات مخصصة بعد (المجلد متاح لمالك الحساب وجميع الروابط المباشرة).</span>
+              ) : (
+                sharedEmails.map(email => (
+                  <span
+                    key={email}
+                    className="inline-flex items-center gap-1.5 bg-white border border-amber-300 text-amber-950 px-2 py-0.5 rounded-lg text-[11px] font-mono shadow-2xs"
+                  >
+                    <span>{email}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveSharedEmail(email)}
+                      className="text-red-500 hover:text-red-700 cursor-pointer p-0.5"
+                      title="إلغاء التفعيل"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Content Body */}
-        <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto bg-slate-50/50">
+        <div className="p-5 space-y-4 max-h-[65vh] overflow-y-auto bg-slate-50/50">
           {/* Drag & Drop Upload Zone */}
           <div
             onDragOver={(e) => {
@@ -307,10 +535,10 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
                 <Upload className="w-6 h-6" />
               </div>
               <div className="font-bold text-slate-800 text-sm">
-                انقر لاختيار ملفات أو اسحب وأفلت ملفات الطباعة والتصاميم هنا
+                انقر لاختيار ملفات أو اسحب وأفلت ملفات الطباعة والتصاميم هنا (يمكن إرفاق أكثر من ملف للبند)
               </div>
               <div className="text-xs text-slate-600 font-medium">
-                يتم حفظ الملفات بحجمها الكامل وجودتها الأصلية دون التغيير فيها نهائياً
+                يتم رفع الملفات مباشرة إلى Google Drive وحفظها بجودتها الأصلية بدون أي ضغط
               </div>
               {/* Badges for Supported Print Formats */}
               <div className="flex flex-wrap items-center justify-center gap-1.5 mt-1">
@@ -377,11 +605,15 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
           {/* Attachments List */}
           <div>
             <div className="text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
-              <span>المرفقات المرفوعة ({items.length})</span>
+              <span>مرفقات هذا البند ({items.length})</span>
               {items.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => setItems([])}
+                  onClick={() => {
+                    if (window.confirm('هل أنت متأكد من حذف كافة المرفقات لهذا البند؟')) {
+                      setItems([]);
+                    }
+                  }}
                   className="text-red-500 hover:text-red-700 text-[11px] font-semibold cursor-pointer"
                 >
                   حذف الكل
@@ -391,7 +623,7 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
 
             {items.length === 0 ? (
               <div className="p-8 text-center bg-white rounded-xl border border-dashed border-slate-200 text-slate-400 text-xs">
-                لا توجد مرفقات مرفوعة لهذا البند حتى الآن.
+                لا توجد مرفقات مرفوعة لهذا البند حتى الآن. انقر بالأعلى لإرفاق ملف أو أكثر.
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -399,6 +631,7 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
                   const isImage = att.type?.startsWith('image/') || att.data?.startsWith('data:image/');
                   const isLink = att.type === 'link';
                   const badge = getFileBadge(att.name, att.type);
+                  const isEditingThis = editingAttId === att.id;
 
                   return (
                     <div
@@ -410,32 +643,68 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
                           <img
                             src={att.data}
                             alt={att.name}
-                            className="w-11 h-11 rounded-lg object-cover border border-slate-200 shrink-0 bg-slate-100"
+                            className="w-12 h-12 rounded-lg object-cover border border-slate-200 shrink-0 bg-slate-100"
                           />
                         ) : isLink ? (
-                          <div className="w-11 h-11 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 shrink-0">
+                          <div className="w-12 h-12 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 shrink-0">
                             <ExternalLink className="w-5 h-5" />
                           </div>
                         ) : (
-                          <div className="w-11 h-11 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 shrink-0">
+                          <div className="w-12 h-12 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 shrink-0">
                             <FileText className="w-5 h-5" />
                           </div>
                         )}
 
                         <div className="overflow-hidden flex-1">
-                          <div className="flex items-center gap-1.5 overflow-hidden">
-                            <span className={`text-[9px] font-mono font-black px-1.5 py-0.2 rounded border shrink-0 ${badge.bg}`}>
-                              {badge.label}
-                            </span>
-                            <span className="text-xs font-bold text-slate-800 truncate" title={att.name}>
-                              {att.name}
-                            </span>
-                          </div>
-                          <div className="text-[9px] text-slate-400 font-light flex items-center gap-2 mt-0.5">
+                          {isEditingThis ? (
+                            <div className="flex items-center gap-1 my-1">
+                              <input
+                                type="text"
+                                value={editingAttName}
+                                onChange={e => setEditingAttName(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') handleSaveEdit(att.id);
+                                  if (e.key === 'Escape') setEditingAttId(null);
+                                }}
+                                autoFocus
+                                className="text-xs font-bold border border-blue-400 rounded px-2 py-0.5 flex-1 bg-blue-50/50"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleSaveEdit(att.id)}
+                                disabled={isSavingName}
+                                className="bg-emerald-600 text-white p-1 rounded hover:bg-emerald-700 cursor-pointer"
+                                title="حفظ الاسم"
+                              >
+                                {isSavingName ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingAttId(null)}
+                                className="bg-slate-200 text-slate-700 p-1 rounded hover:bg-slate-300 cursor-pointer"
+                                title="إلغاء"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 overflow-hidden">
+                              <span className={`text-[9px] font-mono font-black px-1.5 py-0.2 rounded border shrink-0 ${badge.bg}`}>
+                                {badge.label}
+                              </span>
+                              <span className="text-xs font-bold text-slate-800 truncate" title={att.name}>
+                                {att.name}
+                              </span>
+                            </div>
+                          )}
+
+                          <div className="text-[9px] text-slate-400 font-light flex items-center gap-2 mt-0.5 flex-wrap">
                             {att.size && <span>{formatFileSize(att.size)}</span>}
                             {att.uploadedAt && <span>{att.uploadedAt}</span>}
+                            {att.uploadedBy && <span className="text-slate-500 font-medium">بواسطة: {att.uploadedBy}</span>}
+                            {att.isModified && <span className="text-amber-600 font-bold">(مُعدّل)</span>}
                             {att.driveFileId && (
-                              <span className="text-blue-600 font-medium flex items-center gap-0.5">
+                              <span className="text-blue-600 font-bold flex items-center gap-0.5">
                                 <Cloud className="w-2.5 h-2.5" /> Drive
                               </span>
                             )}
@@ -443,20 +712,33 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 shrink-0">
+                        {/* Edit Name Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(att)}
+                          className="p-1.5 hover:bg-slate-100 text-slate-500 hover:text-amber-600 rounded-lg transition-colors cursor-pointer"
+                          title="تعديل اسم أو مواصفة المرفق"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Download / Open Button */}
                         <button
                           type="button"
                           onClick={() => handleDownloadAttachment(att)}
-                          className="p-1.5 hover:bg-slate-100 text-slate-600 hover:text-blue-600 rounded-lg transition-colors cursor-pointer"
-                          title="فتح / تحميل الملف بالجودة الأصلية"
+                          className="p-1.5 hover:bg-blue-50 text-slate-600 hover:text-blue-600 rounded-lg transition-colors cursor-pointer"
+                          title="فتح أو تحميل المرفق بالجودة الأصلية"
                         >
                           {isLink ? <ExternalLink className="w-4 h-4" /> : <Download className="w-4 h-4" />}
                         </button>
+
+                        {/* Delete Button with confirmation */}
                         <button
                           type="button"
                           onClick={() => handleDelete(att.id)}
                           className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
-                          title="حذف المرفق"
+                          title="حذف المرفق من البند ومن Google Drive"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -473,7 +755,7 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
         <div className="p-4 bg-slate-100 border-t border-slate-200 flex items-center justify-between">
           <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1.5">
             <Info className="w-4 h-4 text-blue-500 shrink-0" />
-            <span>يتم حفظ المرفقات بجودتها الأصلية وربطها تلقائياً مع الفاتورة وأمر التشغيل</span>
+            <span>المرفقات مرتبطة تلقائياً بـ Google Drive وتُحفظ بجودتها الأصلية بدون أي ضغط</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -490,7 +772,7 @@ export const LineAttachmentsModal: React.FC<LineAttachmentsModalProps> = ({
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-md cursor-pointer transition-colors"
             >
               <Check className="w-4 h-4" />
-              <span>تأكيد وحفظ المرفقات</span>
+              <span>تأكيد وحفظ المرفقات للبند</span>
             </button>
           </div>
         </div>
