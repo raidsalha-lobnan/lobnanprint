@@ -17,20 +17,36 @@ import {
   CheckCircle2,
   ArrowLeft,
   History,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Trash2,
+  ShieldAlert,
+  Edit3
 } from 'lucide-react';
 import { InvoiceStatusHistoryModal } from './pos/InvoiceStatusHistoryModal';
 import { DraftInvoicesQueueModal } from './pos/DraftInvoicesQueueModal';
+import { DeletedInvoicesModal } from './pos/DeletedInvoicesModal';
+import { InvoiceAuditLogModal } from './pos/InvoiceAuditLogModal';
 import { getInvoiceWorkflowStatusMeta, getInvoicePaymentStatusMeta } from '../utils/invoiceStatusUtils';
 import { formatDateDisplay } from '../utils/dateUtils';
 
 export const InvoicesView: React.FC = () => {
-  const { invoices, setSelectedInvoiceForPrint, setSelectedInvoiceForLifecycle, settings, setActiveTab, setEditingPosInvoiceId } = useAccounting();
+  const {
+    invoices,
+    deletedInvoices,
+    setSelectedInvoiceForPrint,
+    setSelectedInvoiceForLifecycle,
+    settings,
+    setActiveTab,
+    setEditingPosInvoiceId,
+    deleteInvoice
+  } = useAccounting();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [selectedInvoiceForStatus, setSelectedInvoiceForStatus] = useState<Invoice | null>(null);
   const [isDraftQueueOpen, setIsDraftQueueOpen] = useState<boolean>(false);
+  const [isDeletedInvoicesOpen, setIsDeletedInvoicesOpen] = useState<boolean>(false);
+  const [isAuditLogOpen, setIsAuditLogOpen] = useState<boolean>(false);
 
   const filteredInvoices = invoices
     .filter(inv => {
@@ -71,7 +87,32 @@ export const InvoicesView: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setIsDeletedInvoicesOpen(true)}
+            className="px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer"
+            title="سلة فواتير المبيعات المحذوفة - استعراض وتعديل واسترجاع الفواتير المحذوفة"
+          >
+            <Trash2 className="w-4 h-4 text-amber-700" />
+            <span>سلة الفواتير المحذوفة</span>
+            {(deletedInvoices?.length || 0) > 0 && (
+              <span className="bg-amber-500 text-slate-950 text-[11px] font-black px-2 py-0.5 rounded-full font-mono">
+                {deletedInvoices.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsAuditLogOpen(true)}
+            className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-300 rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer"
+            title="سجل تدقيق الحذف من قاعدة البيانات السحابية (Audit Log)"
+          >
+            <ShieldAlert className="w-4 h-4 text-rose-600" />
+            <span>سجل الحذف (Audit Log)</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('excel_drafts')}
@@ -181,23 +222,16 @@ export const InvoicesView: React.FC = () => {
               {filteredInvoices.map(inv => (
                 <tr key={inv.id} className="hover:bg-slate-50/80 whitespace-nowrap transition-colors h-11">
                   <td className="py-2 px-3 whitespace-nowrap align-middle">
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => {
-                          setEditingPosInvoiceId(inv.id);
-                          setActiveTab('pos');
-                        }}
-                        className="font-mono font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1 cursor-pointer"
-                        title="فتح لتعديل الفاتورة المباشر في شاشة الكاشير"
-                      >
-                        {inv.invoiceNumber}
-                      </button>
-                      {inv.items && inv.items.some(it => it.imageThumbnail) && (
-                        <span className="text-[9px] bg-blue-50 text-blue-700 border border-blue-200 px-1 py-0.2 rounded font-bold inline-flex items-center" title="الفاتورة تحتوي على صور مرفقة">
-                          📷
-                        </span>
-                      )}
-                    </div>
+                    <button
+                      onClick={() => {
+                        setEditingPosInvoiceId(inv.id);
+                        setActiveTab('pos');
+                      }}
+                      className="font-mono font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1 cursor-pointer"
+                      title="فتح لتعديل الفاتورة المباشر في شاشة الكاشير"
+                    >
+                      {inv.invoiceNumber}
+                    </button>
                   </td>
                   <td className="py-2 px-3 text-slate-500 whitespace-nowrap font-mono text-[11px] align-middle">{formatDateDisplay(inv.date)}</td>
                    <td className="py-2 px-3 font-bold text-slate-900 whitespace-nowrap max-w-[200px] truncate align-middle" title={inv.subCustomerName ? `${inv.customerName} / ${inv.subCustomerName}` : inv.customerName}>
@@ -219,10 +253,10 @@ export const InvoicesView: React.FC = () => {
                           <Banknote className="w-3 h-3 text-emerald-600" />
                           <span>نقدي</span>
                         </>
-                      ) : (inv.paymentMethod === 'card' || inv.paymentMethod === 'bank_transfer') ? (
+                      ) : inv.paymentMethod === 'card' ? (
                         <>
                           <CreditCard className="w-3 h-3 text-blue-600" />
-                          <span>{inv.paymentMethod === 'bank_transfer' ? 'بنكي' : 'شبكة'}</span>
+                          <span>شبكة</span>
                         </>
                       ) : (
                         <>
@@ -290,6 +324,18 @@ export const InvoicesView: React.FC = () => {
                         <Printer className="w-3.5 h-3.5" />
                         <span>طباعة</span>
                       </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`هل أنت متأكد من حذف الفاتورة رقم (${inv.invoiceNumber}) ونقلها لسلة المحذوفات؟\n(يمكنك استعادتها وتعديلها في أي وقت لاحقاً)`)) {
+                            deleteInvoice(inv.id);
+                          }
+                        }}
+                        className="flex items-center gap-1 px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-xs font-semibold cursor-pointer transition-colors border border-rose-200"
+                        title="حذف الفاتورة ونقلها إلى سلة المحذوفات"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                        <span>حذف</span>
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -316,6 +362,24 @@ export const InvoicesView: React.FC = () => {
           setIsDraftQueueOpen(false);
           setActiveTab('pos');
         }}
+      />
+
+      {/* Deleted Invoices Modal (Recycle Bin / Restore & Edit) */}
+      <DeletedInvoicesModal
+        isOpen={isDeletedInvoicesOpen}
+        onClose={() => setIsDeletedInvoicesOpen(false)}
+        onLoadInvoiceToScreen={(inv) => {
+          setEditingPosInvoiceId(inv.id);
+          setActiveTab('pos');
+          setIsDeletedInvoicesOpen(false);
+        }}
+      />
+
+      {/* Delete Audit Log Modal */}
+      <InvoiceAuditLogModal
+        isOpen={isAuditLogOpen}
+        onClose={() => setIsAuditLogOpen(false)}
+        initialInvoiceId="29"
       />
     </div>
   );

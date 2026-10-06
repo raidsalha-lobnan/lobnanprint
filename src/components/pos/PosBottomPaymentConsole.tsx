@@ -45,7 +45,7 @@ export interface PosBottomPaymentConsoleProps {
   // Treasuries List
   treasuries: TreasuryAccount[];
 
-  // 4. Notes Line (سطر ملاحظة إيصال السداد / القبض)
+  // 4. Notes Line (سطر ملاحظة إيصال السداد / سند القبض)
   paymentNotes?: string;
   onChangePaymentNotes?: (notes: string) => void;
   invoiceNotes?: string;
@@ -120,10 +120,10 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
   // Treasuries List
   treasuries,
 
-  // 4. Payment Notes (ملاحظة إيصال السداد / سند القبض)
+  // 4. Notes
   paymentNotes,
   onChangePaymentNotes,
-  invoiceNotes = '',
+  invoiceNotes,
   onChangeInvoiceNotes,
 
   // 5. Discount
@@ -180,12 +180,8 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
     }
   };
 
-  const currentPaymentNotes = paymentNotes !== undefined ? paymentNotes : (invoiceNotes || '');
-
-  const handlePaymentNotesChange = (val: string) => {
-    if (onChangePaymentNotes) {
-      onChangePaymentNotes(val);
-    } else if (onChangeInvoiceNotes) {
+  const handleNotesChange = (val: string) => {
+    if (onChangeInvoiceNotes) {
       onChangeInvoiceNotes(val);
     } else if (onChangeNotes) {
       onChangeNotes(val);
@@ -355,19 +351,21 @@ export const PosBottomPaymentConsole: React.FC<PosBottomPaymentConsoleProps> = (
           )}
         </div>
 
-        {/* سطر ملاحظة إيصال السداد / سند القبض المرفقة مع الدفع */}
-        <div className="flex-1 min-w-[200px] flex items-center gap-1.5 bg-[#0f2845]/80 px-2 py-0.5 rounded-md ">
-          <div className="flex items-center gap-1 text-emerald-300 font-bold shrink-0" title="ملاحظة إيصال السداد / سند القبض المرفقة مع عملية الدفع">
-            <FileText className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-[11px]">ملاحظة السداد:</span>
+        {/* سطر ملاحظة إيصال السداد / سند القبض (منفصلة تماماً عن ملاحظات الفاتورة العامة بالأعلى) */}
+        <div className="flex-1 min-w-[220px] flex items-center gap-1.5 bg-[#0f2845]/80 px-2 py-0.5 rounded-md border border-amber-400/30">
+          <div className="flex items-center gap-1 text-amber-300 font-bold shrink-0">
+            <FileText className="w-3.5 h-3.5 text-amber-400" />
+            <span className="text-[11px]">ملاحظة إيصال السداد:</span>
           </div>
           <input
             type="text"
-            value={currentPaymentNotes}
-            onChange={e => handlePaymentNotesChange(e.target.value)}
-            placeholder="ملاحظة إيصال السداد أو سند القبض (مثل: محمد أحمد، تحويل بنكي، إيصال الشبكة)..."
-            className="flex-1 bg-white text-slate-900 placeholder-slate-400 font-medium border border-slate-300 px-2.5 py-0.5 rounded text-xs focus:ring-1 focus:ring-emerald-400 focus:outline-hidden"
-            title="ملاحظة إيصال السداد أو سند القبض - تظهر بجانب السداد في كشف الحساب وسند القبض"
+            value={paymentNotes !== undefined ? paymentNotes : (invoiceNotes || '')}
+            onChange={e => {
+              if (onChangePaymentNotes) onChangePaymentNotes(e.target.value);
+              else if (onChangeInvoiceNotes) onChangeInvoiceNotes(e.target.value);
+            }}
+            placeholder="ملاحظة إيصال السداد / سند القبض (مثال: تم السداد من حساب بنكي باسم محمد أحمد)..."
+            className="flex-1 bg-white text-slate-900 placeholder-slate-400 font-medium border border-slate-300 px-2.5 py-0.5 rounded text-xs focus:ring-1 focus:ring-amber-400 focus:outline-hidden"
           />
         </div>
       </div>

@@ -107,6 +107,8 @@ import { PosInlineBarcodeScanner } from './pos/PosInlineBarcodeScanner';
 import { CustomerSpecialPricesModal } from './pos/CustomerSpecialPricesModal';
 import { PosDailyInvoicesSidebar } from './pos/PosDailyInvoicesSidebar';
 import { LineAttachmentsModal } from './pos/LineAttachmentsModal';
+import { InvoiceAuditLogModal } from './pos/InvoiceAuditLogModal';
+import { DeletedInvoicesModal } from './pos/DeletedInvoicesModal';
 import { PosInvoiceWorkflowStatus, LineAttachment } from '../types';
 import {
   WORKFLOW_STATUS_OPTIONS,
@@ -358,6 +360,7 @@ export const PosView: React.FC = () => {
     settings,
     createPosSale,
     deleteInvoice,
+    deletedInvoices,
     setSelectedInvoiceForPrint,
     setDirectPrintOptions,
     setSelectedInvoiceForLifecycle,
@@ -428,6 +431,7 @@ interface PosFullDraftData {
   overallDiscount?: number;
   discountType?: 'amount' | 'percent';
   invoiceNotes?: string;
+  paymentNotes?: string;
   shippingDetails?: { carrier: string; tracking: string; address: string };
   cashAmountInput?: string;
   bankAmountInput?: string;
@@ -614,6 +618,11 @@ const getInitialPosDraft = (): PosFullDraftData => {
   const [invoiceNotes, setInvoiceNotes] = useState<string>(() => {
     return savedPosDraft.invoiceNotes || '';
   });
+  const [paymentNotes, setPaymentNotes] = useState<string>(() => {
+    return savedPosDraft.paymentNotes || '';
+  });
+  const [isAuditLogModalOpen, setIsAuditLogModalOpen] = useState(false);
+  const [isDeletedInvoicesOpen, setIsDeletedInvoicesOpen] = useState(false);
   const [shippingDetails, setShippingDetails] = useState<{ carrier: string; tracking: string; address: string }>(() => {
     return savedPosDraft.shippingDetails || {
       carrier: 'توصيل محلي',
@@ -702,6 +711,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
         overallDiscount,
         discountType,
         invoiceNotes,
+        paymentNotes,
         shippingDetails,
         cashAmountInput,
         bankAmountInput,
@@ -735,6 +745,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     overallDiscount,
     discountType,
     invoiceNotes,
+    paymentNotes,
     shippingDetails,
     cashAmountInput,
     bankAmountInput,
@@ -1325,6 +1336,9 @@ const getInitialPosDraft = (): PosFullDraftData => {
         break;
       case 'search_invoices':
         setIsInvoicesReviewOpen(true);
+        break;
+      case 'open_deleted_invoices':
+        setIsDeletedInvoicesOpen(true);
         break;
       case 'open_customer_ledger':
         setIsCustomerLedgerOpen(true);
@@ -2240,6 +2254,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
         bankCurrency: bankCurrencyCode,
         bankExchangeRate: bankExchangeRate,
         bankTreasuryCode: bankTreasuryCode,
+        paymentNotes: paymentNotes || undefined,
         workflowStatus: invoiceWorkflowStatus
       }
     );
@@ -2355,6 +2370,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     setAdditionalCharges(0);
     setOverallDiscount(0);
     setInvoiceNotes('');
+    setPaymentNotes('');
     setCashAmountInput('0');
     setBankAmountInput('0');
     setInvoiceWorkflowStatus('new');
@@ -2635,7 +2651,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
     if (inv.subCustomerId) setSubCustomerId(inv.subCustomerId);
     if (inv.subCustomerName) setSubCustomerName(inv.subCustomerName);
     if (inv.subCustomerPhone) setSubCustomerPhone(inv.subCustomerPhone);
-    if (inv.notes) setInvoiceNotes(inv.notes);
+    if (inv.notes) setInvoiceNotes(inv.notes); else setInvoiceNotes('');
+    if (inv.paymentNotes) setPaymentNotes(inv.paymentNotes); else setPaymentNotes('');
     if (inv.workflowStatus) setInvoiceWorkflowStatus(inv.workflowStatus);
     
     setInvoiceSeqNumber(inv.invoiceNumber.replace(/\D/g, '') || '1');
@@ -3138,6 +3155,33 @@ const getInitialPosDraft = (): PosFullDraftData => {
               >
                 <FileText className="w-3.5 h-3.5 text-blue-200" />
                 <span>سجل فواتير اليوم</span>
+              </button>
+
+              {/* زر مراجعة وسجل فواتير المبيعات */}
+              <button
+                type="button"
+                onClick={() => setIsInvoicesReviewOpen(true)}
+                className="h-8 px-2.5 py-1 bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap active:scale-95"
+                title="مراجعة وسجل كافة فواتير المبيعات السابقة والبحث والطباعة"
+              >
+                <Search className="w-3.5 h-3.5 text-indigo-200" />
+                <span>سجل المبيعات</span>
+              </button>
+
+              {/* زر سلة الفواتير المحذوفة */}
+              <button
+                type="button"
+                onClick={() => setIsDeletedInvoicesOpen(true)}
+                className="h-8 px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all whitespace-nowrap active:scale-95"
+                title="سلة فواتير المبيعات المحذوفة - استعراض وتعديل واسترجاع الفواتير المحذوفة فوراً"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-amber-200" />
+                <span>الفواتير المحذوفة</span>
+                {(deletedInvoices?.length || 0) > 0 && (
+                  <span className="bg-amber-300 text-slate-950 text-[10px] font-black px-1.5 py-0.2 rounded-full font-mono">
+                    {deletedInvoices.length}
+                  </span>
+                )}
               </button>
 
               {/* زر تخصيص الشاشة ومصمم الواجهة */}
@@ -4935,6 +4979,8 @@ const getInitialPosDraft = (): PosFullDraftData => {
             bankTreasuryCode={bankTreasuryCode}
             onChangeBankTreasury={setBankTreasuryCode}
             treasuries={treasuries}
+            paymentNotes={paymentNotes}
+            onChangePaymentNotes={setPaymentNotes}
             invoiceNotes={invoiceNotes}
             onChangeInvoiceNotes={setInvoiceNotes}
             calculatedTotalAmount={calculatedTotalAmount}
@@ -5557,6 +5603,20 @@ const getInitialPosDraft = (): PosFullDraftData => {
           }}
         />
       )}
+
+      {/* Delete Audit Log Modal */}
+      <InvoiceAuditLogModal
+        isOpen={isAuditLogModalOpen}
+        onClose={() => setIsAuditLogModalOpen(false)}
+        initialInvoiceId="29"
+      />
+
+      {/* Deleted Invoices Modal (Recycle Bin / Restore & Edit) */}
+      <DeletedInvoicesModal
+        isOpen={isDeletedInvoicesOpen}
+        onClose={() => setIsDeletedInvoicesOpen(false)}
+        onLoadInvoiceToScreen={inv => loadInvoiceToScreen(inv)}
+      />
     
     </div>
   </div></div>

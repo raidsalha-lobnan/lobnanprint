@@ -1,8 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Invoice } from '../../types';
-import { X, Search, Printer, Calendar, ArrowRight, Eye, Trash2, History } from 'lucide-react';
+import { X, Search, Printer, Calendar, ArrowRight, Eye, Trash2, History, ShieldAlert } from 'lucide-react';
 import { InvoiceStatusHistoryModal } from './InvoiceStatusHistoryModal';
+import { InvoiceAuditLogModal } from './InvoiceAuditLogModal';
+import { DeletedInvoicesModal } from './DeletedInvoicesModal';
 import { getInvoiceWorkflowStatusMeta } from '../../utils/invoiceStatusUtils';
 import { getAllStoredDraftsAsInvoices } from '../../utils/draftsHelper';
 import { formatDateDisplay } from '../../utils/dateUtils';
@@ -18,11 +20,14 @@ export const InvoicesReviewModal: React.FC<InvoicesReviewModalProps> = ({
   onClose,
   onLoadInvoiceToScreen
 }) => {
-  const { invoices, setSelectedInvoiceForPrint, deleteInvoice, settings } = useAccounting();
+  const { invoices, setSelectedInvoiceForPrint, deleteInvoice, settings, deletedInvoices } = useAccounting();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterPayment, setFilterPayment] = useState<string>('all');
   const [viewInvoiceDetails, setViewInvoiceDetails] = useState<Invoice | null>(null);
   const [statusModalInvoice, setStatusModalInvoice] = useState<Invoice | null>(null);
+  const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
+  const [isDeletedInvoicesOpen, setIsDeletedInvoicesOpen] = useState(false);
+  const [auditTargetInvoiceId, setAuditTargetInvoiceId] = useState('29');
 
   const [draftsVersion, setDraftsVersion] = useState(0);
 
@@ -120,6 +125,36 @@ export const InvoicesReviewModal: React.FC<InvoicesReviewModalProps> = ({
           <div className="text-slate-500 font-mono">
             العدد: <span className="font-bold text-slate-800">{filtered.length}</span>
           </div>
+
+          <div className="flex items-center gap-2 mr-auto">
+            <button
+              type="button"
+              onClick={() => setIsDeletedInvoicesOpen(true)}
+              className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 font-bold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+              title="عرض فواتير المبيعات المحذوفة مع إمكانية تعديلها واستعادتها فوراً"
+            >
+              <Trash2 className="w-4 h-4 text-amber-700" />
+              <span>الفواتير المحذوفة</span>
+              {(deletedInvoices?.length || 0) > 0 && (
+                <span className="bg-amber-500 text-slate-950 text-[11px] font-black px-1.5 py-0.2 rounded-full font-mono">
+                  {deletedInvoices.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setAuditTargetInvoiceId('29');
+                setIsAuditLogOpen(true);
+              }}
+              className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-300 text-rose-700 font-bold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+              title="استعراض سجلات حذف الفواتير في قاعدة البيانات (Audit Log)"
+            >
+              <ShieldAlert className="w-4 h-4 text-rose-600" />
+              <span>سجل الحذف (Audit Log)</span>
+            </button>
+          </div>
         </div>
 
         {/* Invoices Table */}
@@ -153,16 +188,7 @@ export const InvoicesReviewModal: React.FC<InvoicesReviewModalProps> = ({
                         <td className="p-2.5 font-bold text-blue-700">{inv.invoiceNumber}</td>
                         <td className="p-2.5 text-slate-600 font-sans text-[11px]">{formatDateDisplay(inv.date)}</td>
                         <td className="p-2.5 font-sans font-semibold text-slate-800">{inv.customerName}</td>
-                        <td className="p-2.5 text-slate-600">
-                          <div className="flex items-center gap-1">
-                            <span>{inv.items.length}</span>
-                            {inv.items && inv.items.some(it => it.imageThumbnail) && (
-                              <span className="text-[10px] bg-blue-50 text-blue-700 px-1 py-0.5 rounded border border-blue-200 font-bold" title="تحتوي صور مرفقة">
-                                📷
-                              </span>
-                            )}
-                          </div>
-                        </td>
+                        <td className="p-2.5 text-slate-600">{inv.items.length}</td>
                         <td className="p-2.5 text-left font-bold">{inv.totalAmount.toFixed(2)}</td>
                         <td className="p-2.5 text-left text-emerald-600">{inv.paidAmount.toFixed(2)}</td>
                         <td className="p-2.5 text-left text-rose-600 font-bold">{inv.remainingAmount.toFixed(2)}</td>
@@ -170,7 +196,7 @@ export const InvoicesReviewModal: React.FC<InvoicesReviewModalProps> = ({
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
                             inv.paymentMethod === 'credit' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
                           }`}>
-                            {inv.paymentMethod === 'cash' ? 'نقدي' : (inv.paymentMethod === 'card' || inv.paymentMethod === 'bank_transfer') ? (inv.paymentMethod === 'bank_transfer' ? 'بنكي' : 'شبكة') : 'آجل'}
+                            {inv.paymentMethod === 'cash' ? 'نقدي' : inv.paymentMethod === 'card' ? 'شبكة' : 'آجل'}
                           </span>
                         </td>
                         <td className="p-2.5 text-center font-sans">
@@ -246,7 +272,7 @@ export const InvoicesReviewModal: React.FC<InvoicesReviewModalProps> = ({
         </div>
       </div>
 
-      {/* Status History & Audit Log Modal */}
+      {/* Status History Modal */}
       {statusModalInvoice && (
         <InvoiceStatusHistoryModal
           invoice={statusModalInvoice}
@@ -254,6 +280,25 @@ export const InvoicesReviewModal: React.FC<InvoicesReviewModalProps> = ({
           onClose={() => setStatusModalInvoice(null)}
         />
       )}
+
+      {/* Delete Audit Log Modal */}
+      <InvoiceAuditLogModal
+        isOpen={isAuditLogOpen}
+        onClose={() => setIsAuditLogOpen(false)}
+        initialInvoiceId={auditTargetInvoiceId || '29'}
+      />
+
+      {/* Deleted Invoices Modal (Recycle Bin / Restore & Edit) */}
+      <DeletedInvoicesModal
+        isOpen={isDeletedInvoicesOpen}
+        onClose={() => setIsDeletedInvoicesOpen(false)}
+        onLoadInvoiceToScreen={inv => {
+          if (onLoadInvoiceToScreen) {
+            onLoadInvoiceToScreen(inv);
+            onClose();
+          }
+        }}
+      />
     </div>
   );
 };

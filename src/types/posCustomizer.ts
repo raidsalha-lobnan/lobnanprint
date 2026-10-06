@@ -30,6 +30,7 @@ export type PosButtonActionType =
   | 'held_invoices_list'     // قائمة الفواتير المعلقة
   | 'open_invoice_details'   // تفاصيل الفاتورة
   | 'open_daily_invoices'    // سجل فواتير اليوم
+  | 'open_deleted_invoices'   // سلة الفواتير المحذوفة
   | 'add_delivery_service';  // خدمة توصيل
 
 export type PosButtonLocation = 'bottom_bar' | 'top_toolbar' | 'quick_grid';

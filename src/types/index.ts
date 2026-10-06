@@ -330,8 +330,7 @@ export interface Invoice {
   paidAmount: number;
   remainingAmount: number;
   paymentMethod: PaymentMethod;
-  notes?: string; // ملاحظات الفاتورة العامة ككل
-  paymentNotes?: string; // ملاحظة إيصال السداد أو سند القبض المرفقة مع الدفع
+  notes?: string;
   status: 'paid' | 'partial' | 'unpaid' | 'delivered';
   paymentStatus?: InvoicePaymentStatus; // حالة الدفع المنفصلة
   workflowStatus?: PosInvoiceWorkflowStatus; // حالة الفاتورة التشغيلية
@@ -362,12 +361,31 @@ export interface Invoice {
   exchangeRate?: number;      // rate against base currency (ILS), e.g. 3.70 for USD, 1 for ILS
   baseTotalAmount?: number;   // Total converted to Palestinian Shekels (₪ ILS)
   basePaidAmount?: number;    // Paid amount converted to Palestinian Shekels (₪ ILS)
+  paymentNotes?: string;      // ملاحظة إيصال السداد / الدفعة (منفصلة تماماً عن ملاحظات الفاتورة)
   cashPaidAmount?: number;
   bankPaidAmount?: number;
   cashTreasuryCode?: string;
   bankTreasuryCode?: string;
   isAccountingPosted?: boolean; // هل تم ترحيل القيود وحركات المخزون؟
   postedAt?: string;
+  deletedAt?: string;          // وقت وتاريخ الحذف (في سلة المحذوفات)
+  deletedBy?: string;          // اسم المستخدم الذي حذف الفاتورة
+  deletedByUserId?: string;    // معرف المستخدم الذي حذف الفاتورة
+  deletionReason?: string;     // سبب الحذف
+}
+
+export interface AuditLogEntry {
+  id: string;
+  action: 'delete' | 'update' | 'create' | string;
+  entityType: 'invoice' | 'party' | 'inventory' | 'voucher' | string;
+  invoiceId: string;
+  invoiceNumber?: string;
+  user: string;
+  userId?: string;
+  timestamp: string;
+  reason: string;
+  details?: any;
+  createdAt?: string;
 }
 
 export interface PurchaseItem {

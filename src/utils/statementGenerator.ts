@@ -242,7 +242,7 @@ export function generateAccountStatement(params: {
           description: `سداد قيمة الفاتورة (${pmtMethodLabel})`,
           paymentMethod: inv.paymentMethod,
           paymentMethodLabel: pmtMethodLabel,
-          voucherNotes: inv.notes,
+          voucherNotes: inv.paymentNotes || (inv as any).receiptNotes || '',
           subCustomerName: inv.subCustomerName || inv.customCustomerText,
           debit: 0,
           credit: paidInInv

@@ -55,6 +55,22 @@
         "date": { "type": "string" }
       },
       "required": ["id", "voucherNumber", "type", "amount", "date"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Audit trail log for deleted invoices and operations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "action": { "type": "string" },
+        "entityType": { "type": "string" },
+        "invoiceId": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "user": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "reason": { "type": "string" }
+      },
+      "required": ["id", "action", "invoiceId", "user", "timestamp"]
     }
   },
   "firestore": {
@@ -73,6 +89,14 @@
     "/vouchers/{voucherId}": {
       "schema": "PaymentVoucher",
       "description": "Collection of payment and receipt vouchers"
+    },
+    "/auditLog/{auditLogId}": {
+      "schema": "AuditLog",
+      "description": "Collection of audit trail and delete logs"
+    },
+    "/deletedInvoices/{deletedInvoiceId}": {
+      "schema": "Invoice",
+      "description": "Recycle bin collection of deleted sales invoices for restore and review"
     }
   }
 }

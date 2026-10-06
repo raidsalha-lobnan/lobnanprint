@@ -8,6 +8,7 @@ import {
   Party,
   PrintJobOrder,
   Invoice,
+  AuditLogEntry,
   PurchaseInvoice,
   PurchaseReturn,
   SalesReturn,
@@ -293,6 +294,7 @@ interface AccountingContextType {
       branchId?: string;
       userId?: string;
       userName?: string;
+      paymentNotes?: string;
     }
   ) => Invoice;
   updateInvoice: (
@@ -300,7 +302,11 @@ interface AccountingContextType {
     updates: Partial<Invoice>,
     statusMeta?: { notes?: string; userName?: string; userId?: string }
   ) => void;
-  deleteInvoice: (id: string) => void;
+  deleteInvoice: (id: string, reason?: string) => void;
+  deletedInvoices: Invoice[];
+  restoreDeletedInvoice: (id: string) => Promise<Invoice | null>;
+  permanentlyDeleteInvoice: (id: string) => Promise<void>;
+  getInvoiceDeleteAuditLogs: (invoiceId?: string) => Promise<AuditLogEntry[]>;
   addInvoiceTechnicalNote: (invoiceId: string, text: string) => void;
   addInvoiceItemAttachment: (invoiceId: string, itemIndexOrId: string | number, attachment: LineAttachment) => void;
   removeInvoiceItemAttachment: (invoiceId: string, itemIndexOrId: string | number, attachmentId: string) => { success: boolean; message?: string };
@@ -798,6 +804,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [vouchers, setVouchers] = useState<PaymentVoucher[]>(() => {
     const loaded = safeLoadArray(`${STORAGE_KEY}_vouchers`, initialVouchers);
     return deduplicateById(loaded, 'vch');
+  });
+
+  const [deletedInvoices, setDeletedInvoices] = useState<Invoice[]>(() => {
+    try {
+      const r = localStorage.getItem(`${STORAGE_KEY}_deleted_invoices`);
+      return r ? JSON.parse(r) : [];
+    } catch {
+      return [];
+    }
   });
 
   const [employeeAdvances, setEmployeeAdvances] = useState<EmployeeAdvance[]>(() => {
@@ -1472,6 +1487,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         try { localStorage.setItem(`${STORAGE_KEY}_invoices`, JSON.stringify(docs)); } catch {}
       }, (e) => console.debug('Live invoices sync:', e));
       unsubs.push(unsubInvoices);
+
+      // 1B. Live Deleted Invoices (سلة فواتير المبيعات المحذوفة)
+      const unsubDeletedInvoices = onSnapshot(collection(db, 'deletedInvoices'), (snapshot) => {
+        if (snapshot.metadata.hasPendingWrites) return;
+        const docs = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Invoice));
+        docs.sort((a, b) => {
+          const timeA = new Date(a.deletedAt || a.date || 0).getTime() || 0;
+          const timeB = new Date(b.deletedAt || b.date || 0).getTime() || 0;
+          return timeB - timeA;
+        });
+        setDeletedInvoices(docs);
+        try { localStorage.setItem(`${STORAGE_KEY}_deleted_invoices`, JSON.stringify(docs)); } catch {}
+      }, (e) => console.debug('Live deleted invoices sync:', e));
+      unsubs.push(unsubDeletedInvoices);
 
       // 2. Live Print Orders (أوامر تشغيل ومطبوعات المطبعة لحظياً للجميع)
       const unsubPrintOrders = onSnapshot(collection(db, 'printOrders'), (snapshot) => {
@@ -4871,6 +4900,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       userId?: string;
       userName?: string;
       editingInvoiceId?: string;
+      paymentNotes?: string;
     }
   ): Invoice => {
     // ربط العميل النقدي برمز CUST-0001
@@ -5180,6 +5210,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       bankPaidAmount: isQuotation ? 0 : extraOptions?.bankPaidAmount,
       cashTreasuryCode: extraOptions?.cashTreasuryCode,
       bankTreasuryCode: extraOptions?.bankTreasuryCode,
+      paymentNotes: extraOptions?.paymentNotes,
       isAccountingPosted: isAccountingEligible,
       postedAt: isAccountingEligible ? new Date().toISOString() : undefined
     };
@@ -5746,10 +5777,171 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }, 100);
   };
 
-  const deleteInvoice = (id: string) => {
+  const deleteInvoice = (id: string, reason?: string) => {
+    const target = invoices.find(inv => inv.id === id);
+    const now = new Date();
+    const nowStr = now.toLocaleDateString('ar-EG') + ' ' + now.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    
+    const deletedSnapshot: Invoice = target ? {
+      ...target,
+      deletedAt: nowStr,
+      deletedBy: currentUser?.fullName || currentUser?.username || 'مستخدم النظام',
+      deletedByUserId: currentUser?.id,
+      deletionReason: reason || 'حذف يدوي من قبل المستخدم'
+    } : {
+      id,
+      invoiceNumber: `INV-${id}`,
+      date: new Date().toISOString().split('T')[0],
+      customerName: 'عميل',
+      type: 'pos',
+      items: [],
+      subtotal: 0,
+      discountTotal: 0,
+      taxRate: 0,
+      taxAmount: 0,
+      totalAmount: 0,
+      paidAmount: 0,
+      remainingAmount: 0,
+      paymentMethod: 'cash',
+      status: 'unpaid',
+      deletedAt: nowStr,
+      deletedBy: currentUser?.fullName || currentUser?.username || 'مستخدم النظام',
+      deletionReason: reason || 'حذف يدوي'
+    };
+
+    // 1. حفظ في سلة المحذوفات في Firestore
+    setDoc(doc(db, 'deletedInvoices', id), cleanDocForFirestore(deletedSnapshot)).catch(err => {
+      console.warn('Notice saving to deletedInvoices collection:', err);
+    });
+    setDeletedInvoices(prev => [deletedSnapshot, ...prev.filter(d => d.id !== id)]);
+
+    // 2. الحذف من الفواتير النشطة في Firestore
     setInvoices(prev => prev.filter(inv => inv.id !== id));
     registerDeletedDoc('invoices', id);
     deleteDoc(doc(db, 'invoices', id)).catch(err => console.warn('Direct cloud delete invoice notice:', err));
+
+    // 3. التوثيق في مجموعة auditLog بقاعدة بيانات Firestore
+    try {
+      const auditEntry: AuditLogEntry = {
+        id: 'audit-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+        action: 'delete',
+        entityType: 'invoice',
+        invoiceId: id,
+        invoiceNumber: target?.invoiceNumber || id,
+        user: currentUser?.fullName || currentUser?.username || 'مستخدم النظام',
+        userId: currentUser?.id,
+        timestamp: nowStr,
+        reason: reason || 'حذف الفاتورة من قبل المستخدم',
+        details: target ? {
+          customerName: target.customerName,
+          totalAmount: target.totalAmount,
+          itemsCount: target.items?.length || 0,
+          date: target.date
+        } : undefined,
+        createdAt: now.toISOString()
+      };
+      setDoc(doc(db, 'auditLog', auditEntry.id), cleanDocForFirestore(auditEntry)).catch(e => {
+        console.warn('Notice writing to auditLog collection:', e);
+      });
+    } catch (e) {
+      console.warn('Audit log write exception:', e);
+    }
+  };
+
+  const restoreDeletedInvoice = async (id: string): Promise<Invoice | null> => {
+    const target = deletedInvoices.find(inv => inv.id === id);
+    if (!target) return null;
+
+    const cleanRestored: Invoice = { ...target };
+    delete cleanRestored.deletedAt;
+    delete cleanRestored.deletedBy;
+    delete cleanRestored.deletedByUserId;
+    delete cleanRestored.deletionReason;
+
+    // 1. حذف من سلة المحذوفات في Firestore
+    deleteDoc(doc(db, 'deletedInvoices', id)).catch(() => {});
+    setDeletedInvoices(prev => prev.filter(d => d.id !== id));
+
+    // 2. إزالة المعرف من سجل الحذف المحظور
+    try {
+      const rawDel = localStorage.getItem(`${STORAGE_KEY}_deleted_docs_registry`);
+      if (rawDel) {
+        const arr = JSON.parse(rawDel);
+        if (Array.isArray(arr)) {
+          const filtered = arr.filter((x: string) => x !== `invoices_${id}` && x !== id);
+          localStorage.setItem(`${STORAGE_KEY}_deleted_docs_registry`, JSON.stringify(filtered));
+        }
+      }
+    } catch {}
+
+    // 3. إعادة الحفظ في الفواتير النشطة في Firestore
+    setDoc(doc(db, 'invoices', id), cleanDocForFirestore(cleanRestored)).catch(err => {
+      console.warn('Error writing restored invoice to Firestore:', err);
+    });
+    setInvoices(prev => [cleanRestored, ...prev.filter(i => i.id !== id)]);
+
+    // 4. التوثيق في سجل التدقيق
+    try {
+      const now = new Date();
+      const auditEntry: AuditLogEntry = {
+        id: 'audit-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+        action: 'restore',
+        entityType: 'invoice',
+        invoiceId: id,
+        invoiceNumber: target.invoiceNumber,
+        user: currentUser?.fullName || currentUser?.username || 'مستخدم النظام',
+        userId: currentUser?.id,
+        timestamp: now.toLocaleDateString('ar-EG') + ' ' + now.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }),
+        reason: 'استعادة الفاتورة المحذوفة إلى النظام وإلغاء حذفها',
+        details: {
+          customerName: target.customerName,
+          totalAmount: target.totalAmount,
+          itemsCount: target.items?.length || 0
+        },
+        createdAt: now.toISOString()
+      };
+      setDoc(doc(db, 'auditLog', auditEntry.id), cleanDocForFirestore(auditEntry)).catch(() => {});
+    } catch {}
+
+    return cleanRestored;
+  };
+
+  const permanentlyDeleteInvoice = async (id: string): Promise<void> => {
+    deleteDoc(doc(db, 'deletedInvoices', id)).catch(() => {});
+    setDeletedInvoices(prev => prev.filter(d => d.id !== id));
+  };
+
+  const getInvoiceDeleteAuditLogs = async (invoiceId: string = '29'): Promise<AuditLogEntry[]> => {
+    const searchTarget = (invoiceId || '').trim();
+    try {
+      const snapshot = await getDocs(collection(db, 'auditLog'));
+      const rawLogs = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as AuditLogEntry));
+
+      const filtered = rawLogs.filter(log => {
+        if (!searchTarget) return true;
+        const logInvId = String(log.invoiceId || '').toLowerCase();
+        const logInvNum = String(log.invoiceNumber || '').toLowerCase();
+        const targetClean = searchTarget.toLowerCase();
+        const targetDigits = targetClean.replace(/\D/g, '');
+
+        const matchesExact = logInvId === targetClean || logInvNum === targetClean;
+        const matchesContains = logInvId.includes(targetClean) || logInvNum.includes(targetClean);
+        const matchesDigits = targetDigits && (logInvId.includes(targetDigits) || logInvNum.includes(targetDigits));
+
+        return matchesExact || matchesContains || matchesDigits;
+      });
+
+      filtered.sort((a, b) => {
+        const timeA = new Date(a.createdAt || a.timestamp).getTime() || 0;
+        const timeB = new Date(b.createdAt || b.timestamp).getTime() || 0;
+        return timeB - timeA;
+      });
+
+      return filtered;
+    } catch (err) {
+      console.warn('Error querying auditLog collection from Firestore:', err);
+      return [];
+    }
   };
 
   const addInvoiceTechnicalNote = (invoiceId: string, text: string) => {
@@ -7623,6 +7815,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         createPosSale,
         updateInvoice,
         deleteInvoice,
+        deletedInvoices,
+        restoreDeletedInvoice,
+        permanentlyDeleteInvoice,
+        getInvoiceDeleteAuditLogs,
         addInvoiceTechnicalNote,
         addInvoiceItemAttachment,
         removeInvoiceItemAttachment,
