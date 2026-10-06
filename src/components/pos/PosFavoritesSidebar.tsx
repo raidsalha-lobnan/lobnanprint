@@ -63,31 +63,32 @@ export const PosFavoritesSidebar: React.FC<PosFavoritesSidebarProps> = ({
     });
   };
 
-  // 1. استخراج التصنيفات ديناميكياً: كل تصنيف مضاف في الأصناف يتواجد له زر في المفضلة
+  // 1. استخراج التصنيفات ديناميكياً من التصنيفات المضافة فعلياً في الأصناف بالمخزون
   const categories = useMemo(() => {
-    // جميع التصنيفات المتواجدة فعلياً في الأصناف بالمخزون
-    const inventoryCats = Array.from(
-      new Set((inventory || []).map(i => i.category).filter(Boolean))
-    ) as string[];
+    const categoryNameMap: Record<string, string> = {
+      print_raw: 'خامات ومواد الطباعة',
+      stationery: 'قرطاسية ومكتبية',
+      books: 'كتب وروايات وملازم',
+      print_service: 'خدمات الطباعة',
+      copy_scan: 'تصوير ومستندات',
+      shields_gifts: 'دروع وهدايا'
+    };
 
-    // التصنيفات الأساسية المعرفة بالنظام
-    const standardKeys = [
-      'stationery',
-      'books',
-      'print_raw',
-      'print_service',
-      'copy_scan',
-      'shields_gifts'
-    ];
+    // استخراج كافة التصنيفات الموجودة فعلياً في أصناف المخزون
+    const rawCategories = (Array.from(
+      new Set(
+        (inventory || [])
+          .map(i => (i.category || '').trim())
+          .filter(Boolean)
+      )
+    ) as string[]).filter(cat => !/^\d{5,}$/.test(cat));
 
-    // دمج التصنيفات الأساسية أولاً ثم أي تصنيف مضاف جديد
-    const allKeys = Array.from(new Set([...standardKeys, ...inventoryCats]));
-
-    return allKeys
+    // بناء قائمة التصنيفات التي تحتوي على أصناف
+    const catList = rawCategories
       .map(catKey => {
         const def = CATEGORY_DEFINITIONS[catKey as ItemCategory];
-        const name = def?.name || catKey;
-        const catItems = (inventory || []).filter(i => i.category === catKey);
+        const name = categoryNameMap[catKey] || def?.name || catKey;
+        const catItems = (inventory || []).filter(i => (i.category || '').trim() === catKey);
         const favItems = catItems.filter(i => i.isFavorite === true);
 
         return {
@@ -98,16 +99,49 @@ export const PosFavoritesSidebar: React.FC<PosFavoritesSidebarProps> = ({
           prefix: def?.prefix || 'ITM'
         };
       })
-      // إظهار التصنيف إذا كان به أصناف أو ضمن التصنيفات الأساسية
-      .filter(c => c.totalCount > 0 || standardKeys.includes(c.id));
+      .filter(c => c.totalCount > 0);
+
+    // حساب إجمالي كافة الأصناف المفضلة في المخزون
+    const allFavCount = (inventory || []).filter(i => i.isFavorite === true).length;
+    const allItemsCount = (inventory || []).length;
+
+    const allFavCategory = {
+      id: 'all_favorites',
+      name: '⭐ كافة المفضلة',
+      totalCount: allItemsCount,
+      favCount: allFavCount,
+      prefix: 'FAV'
+    };
+
+    if (catList.length === 0) {
+      const defaults = Object.entries(categoryNameMap).map(([id, name]) => {
+        const cItems = (inventory || []).filter(i => (i.category || '').trim() === id);
+        return {
+          id,
+          name,
+          totalCount: cItems.length,
+          favCount: cItems.filter(i => i.isFavorite === true).length,
+          prefix: CATEGORY_DEFINITIONS[id as ItemCategory]?.prefix || 'ITM'
+        };
+      });
+      return [allFavCategory, ...defaults];
+    }
+
+    // ترتيب التصنيفات: التصنيفات التي بها مفضلات أكثر تظهر أولاً
+    const sorted = [...catList].sort((a, b) => {
+      if (b.favCount !== a.favCount) return b.favCount - a.favCount;
+      return b.totalCount - a.totalCount;
+    });
+
+    return [allFavCategory, ...sorted];
   }, [inventory]);
 
   // 2. أول تصنيف يكون هو الظاهر مجرد فتح الكاشير تلقائياً
   const [selectedCategory, setSelectedCategory] = useState<string>(() => {
-    return categories[0]?.id || 'stationery';
+    return categories[0]?.id || 'all_favorites';
   });
 
-  // التأكد من أن التصنيف المختار صالح وموجود دائماً (أول تصنيف افتراضياً)
+  // التأكد من أن التصنيف المختار صالح وموجود دائماً
   useEffect(() => {
     if (categories.length > 0 && !categories.some(c => c.id === selectedCategory)) {
       setSelectedCategory(categories[0].id);
@@ -116,17 +150,20 @@ export const PosFavoritesSidebar: React.FC<PosFavoritesSidebarProps> = ({
 
   const activeCategoryObj = categories.find(c => c.id === selectedCategory) || categories[0];
 
-  // 3. كل تصنيف يتضمن الأصناف التي تم اختيارها لتكون ضمن المفضلة
+  // 3. الأصناف التابعة للتصنيف المختار
   const categoryItems = useMemo(() => {
-    return (inventory || []).filter(item => item.category === selectedCategory);
+    if (selectedCategory === 'all_favorites') {
+      return (inventory || []).filter(i => i.isFavorite === true);
+    }
+    return (inventory || []).filter(item => (item.category || '').trim() === selectedCategory);
   }, [inventory, selectedCategory]);
 
   const displayedItems = useMemo(() => {
     return categoryItems.filter(item => {
       if (!item) return false;
 
-      // فلترة المفضلة فقط حسب طلب المستخدم (مع إمكانية عرض جميع أصناف التصنيف لاختيار المفضلة)
-      if (showOnlyFavorites && !item.isFavorite) {
+      // فلترة المفضلة فقط إذا لم نكن في تبويب كافة المفضلة
+      if (selectedCategory !== 'all_favorites' && showOnlyFavorites && !item.isFavorite) {
         return false;
       }
 
@@ -142,7 +179,7 @@ export const PosFavoritesSidebar: React.FC<PosFavoritesSidebarProps> = ({
 
       return true;
     });
-  }, [categoryItems, showOnlyFavorites, searchQuery]);
+  }, [categoryItems, selectedCategory, showOnlyFavorites, searchQuery]);
 
   // إضافة الصنف لجدول الفاتورة فور النقر عليه
   const handlePickItem = (item: InventoryItem) => {
@@ -188,11 +225,12 @@ export const PosFavoritesSidebar: React.FC<PosFavoritesSidebarProps> = ({
       id="pos-favorites-sidebar"
       className={`bg-white rounded-xl border border-slate-300 shadow-sm flex flex-col overflow-hidden shrink-0 select-none ${className}`}
     >
-      {/* 2. أزرار التصنيفات */}
-      <div className="bg-[#f0f4f9] p-1.5 sm:p-2 border-b border-slate-200">
+      {/* 2. أزرار التصنيفات المأخوذة من الأصناف */}
+      <div className="bg-[#f0f4f9] p-1.5 border-b border-slate-200">
         <div className="flex items-center justify-between mb-1 px-1">
-          <div className="flex items-center gap-1.5 text-blue-700">
-            <Layers className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-1.5 text-blue-800 font-bold text-xs">
+            <Layers className="w-3.5 h-3.5 text-blue-600" />
+            <span>تصنيفات الأصناف ({categories.length})</span>
           </div>
           <button
             type="button"
@@ -204,8 +242,8 @@ export const PosFavoritesSidebar: React.FC<PosFavoritesSidebarProps> = ({
           </button>
         </div>
 
-        {/* شبكة أزرار التصنيفات */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 max-h-28 overflow-y-auto pr-0.5 custom-scrollbar">
+        {/* شبكة أزرار التصنيفات المنبثقة من الأصناف المخزنة */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 max-h-24 overflow-y-auto pr-0.5 custom-scrollbar">
           {categories.map(cat => {
             const isActive = selectedCategory === cat.id;
             return (
@@ -231,7 +269,7 @@ export const PosFavoritesSidebar: React.FC<PosFavoritesSidebarProps> = ({
                       : 'bg-slate-100 text-slate-600'
                   }`}
                 >
-                  {cat.favCount}
+                  {cat.id === 'all_favorites' ? cat.favCount : (showOnlyFavorites ? cat.favCount : cat.totalCount)}
                 </span>
               </button>
             );
@@ -240,14 +278,14 @@ export const PosFavoritesSidebar: React.FC<PosFavoritesSidebarProps> = ({
       </div>
 
       {/* 3. شريط البحث السريع والتبديل بين المفضلة وكل أصناف التصنيف */}
-      <div className="p-2 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
+      <div className="p-1.5 bg-slate-50 border-b border-slate-200 flex items-center gap-1.5">
         <div className="relative flex-1">
           <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2" />
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder={`بحث في أصناف "${activeCategoryObj?.name || 'التصنيف'}"...`}
+            placeholder={`بحث في "${activeCategoryObj?.name || 'الأصناف'}"...`}
             className="w-full bg-white border border-slate-300 rounded-lg pr-7 pl-6 py-1 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-hidden"
           />
           {searchQuery && (
@@ -260,75 +298,76 @@ export const PosFavoritesSidebar: React.FC<PosFavoritesSidebarProps> = ({
           )}
         </div>
 
-        {/* زر التبديل بين المفضلة فقط أو جميع أصناف التصنيف لتحديد المفضلة */}
-        <button
-          type="button"
-          onClick={handleToggleShowOnlyFavorites}
-          className={`px-2 py-1 rounded-lg text-[11px] font-bold shrink-0 flex items-center gap-1 border cursor-pointer transition-colors ${
-            showOnlyFavorites
-              ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
-              : 'bg-blue-50 text-blue-900 border-blue-300 hover:bg-blue-100'
-          }`}
-          title={
-            showOnlyFavorites
-              ? 'عرض الأصناف المفضلة فقط بهذا التصنيف (انقر لعرض كل أصناف التصنيف لاختيار المفضلة)'
-              : 'عرض كل أصناف التصنيف لتحديد المفضلة بالنجمة ⭐'
-          }
-        >
-          <Star
-            className={`w-3 h-3 ${
-              showOnlyFavorites ? 'fill-amber-500 text-amber-500' : 'text-slate-400'
+        {/* زر التبديل بين المفضلة فقط أو جميع أصناف التصنيف */}
+        {selectedCategory !== 'all_favorites' && (
+          <button
+            type="button"
+            onClick={handleToggleShowOnlyFavorites}
+            className={`px-2 py-1 rounded-lg text-[10.5px] font-bold shrink-0 flex items-center gap-1 border cursor-pointer transition-colors ${
+              showOnlyFavorites
+                ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                : 'bg-blue-50 text-blue-900 border-blue-300 hover:bg-blue-100'
             }`}
-          />
-          <span>{showOnlyFavorites ? 'المفضلة ⭐' : 'كل الأصناف'}</span>
-        </button>
+            title={
+              showOnlyFavorites
+                ? 'عرض الأصناف المفضلة فقط (انقر لعرض كل أصناف التصنيف)'
+                : 'عرض كل أصناف التصنيف لتحديد المفضلة بالنجمة ⭐'
+            }
+          >
+            <Star
+              className={`w-3 h-3 ${
+                showOnlyFavorites ? 'fill-amber-500 text-amber-500' : 'text-slate-400'
+              }`}
+            />
+            <span>{showOnlyFavorites ? 'المفضلة ⭐' : 'الكل'}</span>
+          </button>
+        )}
       </div>
 
-      {/* 4. شبكة الأصناف المفضلة التابعة للتصنيف المختار مع إظهار صورة الصنف */}
-      <div className="flex-1 overflow-y-auto p-2 bg-slate-100/60 custom-scrollbar">
+      {/* 4. شبكة الأصناف المصغرة عالية الكثافة - لتسمح بظهور عدد أكبر بكثير في الشاشة */}
+      <div className="flex-1 overflow-y-auto p-1.5 bg-slate-100/70 custom-scrollbar">
         {displayedItems.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center p-4 text-slate-400 space-y-2">
-            <div className="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center text-slate-400 shadow-inner">
-              <Star className="w-6 h-6 text-amber-400 fill-amber-300/40" />
+          <div className="h-full flex flex-col items-center justify-center text-center p-3 text-slate-400 space-y-1.5">
+            <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-400 shadow-inner">
+              <Star className="w-5 h-5 text-amber-400 fill-amber-300/40" />
             </div>
             <div>
               <p className="text-xs font-bold text-slate-700">
-                {showOnlyFavorites
-                  ? `لا توجد أصناف مفضلة محددة في تصنيف "${activeCategoryObj?.name || ''}"`
-                  : 'لا توجد أصناف تطابق البحث في هذا التصنيف'}
+                {selectedCategory === 'all_favorites'
+                  ? 'لا توجد أصناف مميزة بنجمة المفضلة ⭐ حتى الآن'
+                  : showOnlyFavorites
+                  ? `لا توجد أصناف مفضلة في تصنيف "${activeCategoryObj?.name || ''}"`
+                  : 'لا توجد أصناف تطابق البحث'}
               </p>
-              <p className="text-[9px] text-slate-400 font-light mt-1 max-w-[220px]">
-                {showOnlyFavorites
-                  ? 'يمكنك استعراض كل أصناف التصنيف والضغط على النجمة ⭐ لإضافتها لمفضلتك فوراً.'
-                  : 'جرب كلمة بحث أخرى أو أضف صنفاً جديداً لهذا التصنيف.'}
+              <p className="text-[9.5px] text-slate-400 font-light mt-0.5 max-w-[200px]">
+                انقر على رمز النجمة ⭐ بجانب أي صنف في شاشة الأصناف أو من خيار "الكل" ليظهر في المفضلة فوراً.
               </p>
             </div>
 
-            {showOnlyFavorites && categoryItems.length > 0 && (
+            {selectedCategory !== 'all_favorites' && showOnlyFavorites && categoryItems.length > 0 && (
               <button
                 type="button"
                 onClick={() => setShowOnlyFavorites(false)}
-                className="mt-2 px-3 py-1.5 bg-[#1f4a7c] hover:bg-[#183a62] text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
+                className="mt-1 px-2.5 py-1 bg-[#1f4a7c] hover:bg-[#183a62] text-white rounded-lg text-[11px] font-bold shadow-xs cursor-pointer flex items-center gap-1"
               >
-                <Plus className="w-3.5 h-3.5 text-amber-300" />
-                <span>عرض أصناف التصنيف لاختيار المفضلة ({categoryItems.length} صنف)</span>
+                <Plus className="w-3 h-3 text-amber-300" />
+                <span>عرض كل أصناف التصنيف ({categoryItems.length})</span>
               </button>
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-1.5">
             {displayedItems.map(item => {
               const isFav = item.isFavorite === true;
               return (
                 <div
                   key={item.id}
                   onClick={() => handlePickItem(item)}
-                  className="bg-white border border-slate-200 hover:border-blue-500 hover:shadow-md rounded-xl p-2 flex flex-col justify-between cursor-pointer transition-all group relative overflow-hidden active:scale-98"
-                  title={`${item.name} - ${item.sellingPrice.toFixed(2)} ₪ (انقر للإضافة إلى الفاتورة)`}
+                  className="bg-white border border-slate-200 hover:border-blue-500 hover:shadow-sm rounded-lg p-1 flex flex-col justify-between cursor-pointer transition-all group relative overflow-hidden active:scale-97"
+                  title={`${item.name}\nالسعر: ${item.sellingPrice.toFixed(2)} ₪\nالمتوفر: ${item.stockQuantity} ${item.unit || 'حبة'}\n(انقر للإدراج في الفاتورة)`}
                 >
-                  {/* حاوية صورة الصنف مع تظهير النجمة وحالة المخزون */}
-                  <div className="relative w-full h-22 sm:h-24 bg-slate-50 rounded-lg overflow-hidden border border-slate-200 mb-1.5 flex items-center justify-center">
-                    {/* و تظهر صورة الصنف إذا كانت موجودة ضمن الصنف */}
+                  {/* حاوية صورة الصنف المصغرة بحجم مدمج */}
+                  <div className="relative w-full h-14 bg-slate-50 rounded overflow-hidden border border-slate-200 mb-1 flex items-center justify-center">
                     {item.imageUrl ? (
                       <img
                         src={item.imageUrl}
@@ -336,57 +375,57 @@ export const PosFavoritesSidebar: React.FC<PosFavoritesSidebarProps> = ({
                         referrerPolicy="no-referrer"
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                         onError={(e) => {
-                          // إخفاء الصورة المعطوبة واستبدالها بالرمز التعبيري الافتراضي
                           e.currentTarget.style.display = 'none';
                         }}
                       />
                     ) : (
-                      <div className="flex flex-col items-center justify-center text-slate-300 p-2">
-                        <ImageIcon className="w-6 h-6 mb-1 text-slate-400" />
-                        <span className="text-[9px] font-mono text-slate-400 font-bold">
+                      <div className="flex flex-col items-center justify-center text-slate-300 p-0.5">
+                        <Package className="w-4 h-4 text-slate-400" />
+                        <span className="text-[7.5px] font-mono text-slate-400 font-bold truncate max-w-full">
                           {item.code}
                         </span>
                       </div>
                     )}
 
-                    {/* زر النجمة لتحديد / إلغاء المفضلة بالصنف */}
+                    {/* زر النجمة لتحديد / إلغاء المفضلة */}
                     <button
                       type="button"
                       onClick={e => handleToggleFavorite(e, item)}
                       title={isFav ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة'}
-                      className={`absolute top-1 right-1 p-1 rounded-full shadow-xs transition-all cursor-pointer ${
+                      className={`absolute top-0.5 right-0.5 p-0.5 rounded-full shadow-2xs transition-all cursor-pointer ${
                         isFav
-                          ? 'bg-amber-400 text-amber-950 hover:bg-amber-300 hover:scale-110 ring-1 ring-amber-500/50'
-                          : 'bg-black/45 text-white hover:bg-amber-400 hover:text-amber-950'
+                          ? 'bg-amber-400 text-amber-950 hover:bg-amber-300 ring-1 ring-amber-500/50'
+                          : 'bg-black/40 text-white hover:bg-amber-400 hover:text-amber-950'
                       }`}
                     >
-                      <Star className={`w-3 h-3 ${isFav ? 'fill-amber-950' : ''}`} />
+                      <Star className={`w-2.5 h-2.5 ${isFav ? 'fill-amber-950' : ''}`} />
                     </button>
 
-                    {/* رصيد المخزون */}
+                    {/* رصيد المخزون المصغر */}
                     <span
-                      className={`absolute bottom-1 left-1 text-[9px] font-mono px-1.5 py-0.2 rounded font-bold ${
+                      className={`absolute bottom-0.5 left-0.5 text-[7.5px] font-mono px-1 py-0 rounded font-bold ${
                         item.stockQuantity <= item.minAlertQuantity
                           ? 'bg-rose-600 text-white'
-                          : 'bg-slate-900/75 text-white'
+                          : 'bg-slate-900/80 text-white'
                       }`}
                     >
-                      {item.stockQuantity} {item.unit || 'حبة'}
+                      {item.stockQuantity}
                     </span>
                   </div>
 
-                  {/* تفاصيل الصنف: الاسم والسعر وزر الإضافة */}
+                  {/* تفاصيل الصنف: الاسم بحجم مضغوط والسعر وزر الإضافة */}
                   <div className="flex-1 flex flex-col justify-between">
-                    <h4 className="font-bold text-[11px] text-slate-900 line-clamp-2 leading-tight group-hover:text-blue-700 transition-colors mb-1">
+                    <h4 className="font-bold text-[9.5px] sm:text-[10px] text-slate-800 line-clamp-2 leading-tight group-hover:text-blue-700 transition-colors h-6 mb-0.5">
                       {item.name}
                     </h4>
 
-                    <div className="pt-1 border-t border-slate-100 flex items-center justify-between">
-                      <span className="font-mono font-black text-blue-700 text-xs sm:text-sm">
-                        {item.sellingPrice.toFixed(2)} ₪
+                    <div className="pt-0.5 border-t border-slate-100 flex items-center justify-between">
+                      <span className="font-mono font-black text-blue-700 text-[10px] sm:text-[10.5px]">
+                        {item.sellingPrice.toFixed(2)}
+                        <span className="text-[8px] font-normal text-slate-500 mr-0.5">₪</span>
                       </span>
-                      <span className="p-1 bg-blue-50 text-blue-700 rounded-md group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                        <Plus className="w-3.5 h-3.5" />
+                      <span className="p-0.5 bg-blue-50 text-blue-700 rounded group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                        <Plus className="w-2.5 h-2.5" />
                       </span>
                     </div>
                   </div>
@@ -397,15 +436,15 @@ export const PosFavoritesSidebar: React.FC<PosFavoritesSidebarProps> = ({
         )}
       </div>
 
-      {/* 5. Footer: معلومات سريعة */}
-      <div className="p-2 bg-slate-100 border-t border-slate-200 text-[10px] text-slate-600 flex items-center justify-between">
-        <span className="flex items-center gap-1 font-semibold">
-          <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
-          <span>
-            {activeCategoryObj?.name}: {activeCategoryObj?.favCount || 0} مفضل
+      {/* 5. Footer: معلومات سريعة ومختصرة */}
+      <div className="p-1.5 bg-slate-100 border-t border-slate-200 text-[9.5px] text-slate-600 flex items-center justify-between">
+        <span className="flex items-center gap-1 font-semibold truncate">
+          <Star className="w-2.5 h-2.5 text-amber-500 fill-amber-500 shrink-0" />
+          <span className="truncate">
+            {activeCategoryObj?.name}: {displayedItems.length} صنف
           </span>
         </span>
-        <span className="text-slate-500">انقر على الصنف لإضافته للفاتورة</span>
+        <span className="text-slate-400 text-[9px] shrink-0">نقر = إدراج</span>
       </div>
     </div>
   );
