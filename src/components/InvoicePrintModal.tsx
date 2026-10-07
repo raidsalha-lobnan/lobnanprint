@@ -172,7 +172,7 @@ export const InvoicePrintModal: React.FC = () => {
             <table className="w-full text-right text-xs border border-slate-200 rounded-lg overflow-hidden">
               <thead className="bg-slate-100 text-slate-800 font-black border-b border-slate-300">
                 <tr>
-                  <th className="p-2 w-7 text-center">#</th>
+                  <th className="p-2 w-8 text-center font-bold text-slate-900">م</th>
                   <th className="p-2 min-w-[120px]">الصنف</th>
                   <th className="p-2 min-w-[120px]">البيان</th>
                   <th className="p-2 w-14 text-center">الطول</th>

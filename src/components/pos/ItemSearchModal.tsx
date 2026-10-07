@@ -90,9 +90,9 @@ export const ItemSearchModal: React.FC<ItemSearchModalProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-mono">
-                  {filtered.map(it => (
+                  {filtered.map((it, idx) => (
                     <tr
-                      key={it.id}
+                      key={`search-it-${it.id || idx}-${idx}`}
                       onDoubleClick={() => {
                         onSelectItem(it);
                         onClose();

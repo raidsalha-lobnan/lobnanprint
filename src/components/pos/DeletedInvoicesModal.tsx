@@ -185,12 +185,12 @@ export const DeletedInvoicesModal: React.FC<DeletedInvoicesModalProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filtered.map(inv => {
+                  {filtered.map((inv, idx) => {
                     const isRestoring = isRestoringId === inv.id;
 
                     return (
                       <tr
-                        key={inv.id}
+                        key={`del-inv-${inv.id || idx}-${idx}`}
                         className="hover:bg-amber-50/50 transition-colors"
                       >
                         {/* 1. رقم الفاتورة */}

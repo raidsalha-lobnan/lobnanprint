@@ -960,7 +960,7 @@ export const InventoryView: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
-            {filteredItems.map(item => {
+            {filteredItems.map((item, idx) => {
               const badge = getCategoryBadge(item.category);
               const isService = item.category === 'copy_scan';
               const isLow = !isService && item.stockQuantity <= item.minAlertQuantity;
@@ -970,7 +970,7 @@ export const InventoryView: React.FC = () => {
 
               return (
                 <div
-                  key={item.id}
+                  key={`inv-card-${item.id || idx}-${idx}`}
                   className="bg-white rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-md transition-all flex flex-col justify-between overflow-hidden group"
                 >
                   {/* Card Top: Category & Favorite */}
@@ -1149,14 +1149,14 @@ export const InventoryView: React.FC = () => {
                     </td>
                   </tr>
                 ) : (
-                  filteredItems.map(item => {
+                  filteredItems.map((item, idx) => {
                     const badge = getCategoryBadge(item.category);
                     const isService = item.category === 'copy_scan';
                     const isLow = !isService && item.stockQuantity <= item.minAlertQuantity;
                     const lineTotalCost = item.stockQuantity * item.purchasePrice;
 
                     return (
-                      <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                      <tr key={`inv-row-${item.id || idx}-${idx}`} className="hover:bg-slate-50 transition-colors">
                         <td className="p-2.5 font-mono">
                           <div className="font-bold text-blue-600">{item.code}</div>
                           <div className="text-[9px] text-slate-400 font-light">{item.barcode || '—'}</div>

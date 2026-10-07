@@ -396,8 +396,8 @@ export const SalesReturnsView: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredReturns.map(ret => (
-                  <tr key={ret.id} className="hover:bg-slate-50/70 transition-colors">
+                filteredReturns.map((ret, idx) => (
+                  <tr key={`sret-${ret.id || idx}-${idx}`} className="hover:bg-slate-50/70 transition-colors">
                     <td className="p-3 font-mono font-bold text-rose-600">
                       {ret.returnNumber}
                     </td>
@@ -507,8 +507,8 @@ export const SalesReturnsView: React.FC = () => {
                     className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:ring-1 focus:ring-rose-500 disabled:bg-slate-100"
                   >
                     <option value="">-- مرتجع بضاعة مباشر بدون فاتورة --</option>
-                    {customerInvoices.map(inv => (
-                      <option key={inv.id} value={inv.id}>
+                    {customerInvoices.map((inv, idx) => (
+                      <option key={`ret-inv-opt-${inv.id || idx}-${idx}`} value={inv.id}>
                         فاتورة #{inv.invoiceNumber} بتاريخ {inv.date} (إجمالي: {inv.totalAmount || (inv as any).total} {settings.currency})
                       </option>
                     ))}
@@ -542,6 +542,7 @@ export const SalesReturnsView: React.FC = () => {
                     <table className="w-full text-right text-xs">
                       <thead className="bg-slate-100/70 border-b border-slate-200 text-slate-600">
                         <tr>
+                          <th className="p-2.5 w-10 text-center font-bold text-slate-800">م</th>
                           <th className="p-2.5">اسم الصنف</th>
                           <th className="p-2.5 w-24">الكمية المرتجعة</th>
                           <th className="p-2.5 w-24">سعر الوحدة</th>
@@ -553,6 +554,7 @@ export const SalesReturnsView: React.FC = () => {
                       <tbody className="divide-y divide-slate-100">
                         {itemsToReturn.map((item, idx) => (
                           <tr key={idx} className="hover:bg-slate-50">
+                            <td className="p-2.5 text-center font-mono font-bold text-slate-700">{idx + 1}</td>
                             <td className="p-2.5 font-semibold text-slate-800">{item.itemName}</td>
                             <td className="p-2.5">
                               <input

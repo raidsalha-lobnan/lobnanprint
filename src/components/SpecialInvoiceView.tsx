@@ -572,7 +572,7 @@ export const SpecialInvoiceView: React.FC<SpecialInvoiceViewProps> = ({ onClose 
                   {items.map((item, idx) => {
                     const itemResults = inventory.filter(i => i.name.includes(item.name) && item.name.trim() !== '');
                     return (
-                      <tr key={idx} className="group">
+                      <tr key={`spec-item-${item.id || idx}-${idx}`} className="group">
                         <td className="py-1 border-b border-l border-[#1f375b] font-bold text-sm bg-slate-50/50">{idx + 1}</td>
                         {/* عمود الصنف المستقل */}
                         <td className="border-b border-l border-[#1f375b] p-0 relative bg-white">
@@ -592,9 +592,9 @@ export const SpecialInvoiceView: React.FC<SpecialInvoiceViewProps> = ({ onClose 
                           {/* Item Dropdown */}
                           {activeItemIndex === idx && itemResults.length > 0 && (
                             <div className="absolute top-full right-0 w-full mt-1 bg-white border border-slate-200 rounded shadow-lg z-50 max-h-48 overflow-y-auto no-print text-right">
-                              {itemResults.map(invItem => (
+                              {itemResults.map((invItem, iIdx) => (
                                 <div 
-                                  key={invItem.id} 
+                                  key={`spec-inv-${invItem.id || iIdx}-${iIdx}`} 
                                   className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm border-b last:border-b-0 flex justify-between"
                                   onClick={() => selectInventoryItem(idx, invItem)}
                                 >

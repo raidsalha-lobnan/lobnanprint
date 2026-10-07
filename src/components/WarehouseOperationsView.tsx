@@ -1125,11 +1125,11 @@ export const WarehouseOperationsView: React.FC = () => {
                       item.category.toLowerCase().includes(searchQuery.toLowerCase())
                     );
                   })
-                  .map(item => {
+                  .map((item, idx) => {
                     const totalVal = item.stockQuantity * item.purchasePrice;
 
                     return (
-                      <tr key={item.id} className="hover:bg-slate-50/80 transition">
+                      <tr key={`wh-stock-${item.id || idx}-${idx}`} className="hover:bg-slate-50/80 transition">
                         <td className="p-3 font-mono font-bold text-indigo-700">{item.code}</td>
                         <td className="p-3">
                           <div className="font-bold text-slate-900">{item.name}</div>
@@ -1482,8 +1482,8 @@ export const WarehouseOperationsView: React.FC = () => {
                             onChange={(e) => handleUpdateItemRow(idx, 'itemId', e.target.value)}
                             className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg font-bold text-slate-800"
                           >
-                            {inventory.map(inv => (
-                              <option key={inv.id} value={inv.id}>
+                            {inventory.map((inv, iIdx) => (
+                              <option key={`wh-inv-${inv.id || iIdx}-${iIdx}`} value={inv.id}>
                                 {inv.code} - {inv.name}
                               </option>
                             ))}

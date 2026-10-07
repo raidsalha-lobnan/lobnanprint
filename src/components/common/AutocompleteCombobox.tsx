@@ -553,7 +553,7 @@ export const AutocompleteCombobox: React.FC<AutocompleteComboboxProps> = ({
 
                 return (
                   <div
-                    key={item.id}
+                    key={`ac-${item.id || idx}-${idx}`}
                     onClick={() => handleSelect(item)}
                     onMouseEnter={() => setHighlightedIndex(idx)}
                     className={`p-2 flex items-center justify-between gap-2 cursor-pointer transition-colors ${

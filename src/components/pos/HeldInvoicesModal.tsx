@@ -65,7 +65,7 @@ export const HeldInvoicesModal: React.FC<HeldInvoicesModalProps> = ({
             <div className="space-y-3">
               {heldInvoices.map((inv, idx) => (
                 <div
-                  key={inv.id}
+                  key={`held-inv-${inv.id || idx}-${idx}`}
                   className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-center justify-between hover:border-blue-400 transition-colors"
                 >
                   <div className="space-y-1">

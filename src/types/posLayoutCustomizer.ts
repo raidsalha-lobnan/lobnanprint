@@ -53,7 +53,7 @@ export const DEFAULT_POS_LAYOUT_CONFIG: PosLayoutConfig = {
 
   tableColumns: {
     showIndex: true,
-    showItemCode: true,
+    showItemCode: false,
     showBarcode: false,
     showNotes: true,
     showDimensions: true,
@@ -103,7 +103,7 @@ export function loadPosLayoutConfig(userId?: string, adminFallback?: PosLayoutCo
             ...DEFAULT_POS_LAYOUT_CONFIG.tableColumns,
             ...(baseAdmin.tableColumns || {}),
             ...(parsed.tableColumns && typeof parsed.tableColumns === 'object' ? parsed.tableColumns : {}),
-            showItemCode: parsed.tableColumns?.showItemCode !== undefined ? Boolean(parsed.tableColumns.showItemCode) : (baseAdmin.tableColumns?.showItemCode !== undefined ? Boolean(baseAdmin.tableColumns.showItemCode) : true),
+            showItemCode: parsed.tableColumns?.showItemCode !== undefined ? Boolean(parsed.tableColumns.showItemCode) : (baseAdmin.tableColumns?.showItemCode !== undefined ? Boolean(baseAdmin.tableColumns.showItemCode) : false),
             showCount: parsed.tableColumns?.showCount !== undefined ? Boolean(parsed.tableColumns.showCount) : (baseAdmin.tableColumns?.showCount !== undefined ? Boolean(baseAdmin.tableColumns.showCount) : true),
             showImageThumbnail: parsed.tableColumns?.showImageThumbnail !== undefined ? Boolean(parsed.tableColumns.showImageThumbnail) : (baseAdmin.tableColumns?.showImageThumbnail !== undefined ? Boolean(baseAdmin.tableColumns.showImageThumbnail) : true)
           }
@@ -120,7 +120,7 @@ export function loadPosLayoutConfig(userId?: string, adminFallback?: PosLayoutCo
         tableColumns: {
           ...DEFAULT_POS_LAYOUT_CONFIG.tableColumns,
           ...(adminFallback.tableColumns || {}),
-          showItemCode: adminFallback.tableColumns?.showItemCode !== undefined ? Boolean(adminFallback.tableColumns.showItemCode) : true,
+          showItemCode: adminFallback.tableColumns?.showItemCode !== undefined ? Boolean(adminFallback.tableColumns.showItemCode) : false,
           showCount: adminFallback.tableColumns?.showCount !== undefined ? Boolean(adminFallback.tableColumns.showCount) : true,
           showImageThumbnail: adminFallback.tableColumns?.showImageThumbnail !== undefined ? Boolean(adminFallback.tableColumns.showImageThumbnail) : true
         }

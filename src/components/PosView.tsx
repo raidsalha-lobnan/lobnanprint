@@ -855,7 +855,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
       if (prev.length === 1 && !(prev[0].itemName || '').trim() && prev[0].unitPrice === 0) {
         return [{ ...deliveryLine, id: prev[0].id }];
       }
-      return [deliveryLine, ...prev];
+      return [...prev, deliveryLine];
     });
     setActiveRowId(deliveryLine.id);
   }, []);
@@ -1624,7 +1624,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
       total: 0,
       attachments: []
     };
-    setTableLines(prev => [newLine, ...prev]);
+    setTableLines(prev => [...prev, newLine]);
     setActiveRowId(newLine.id);
     return newLine.id;
   };
@@ -1956,7 +1956,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
       return;
     }
 
-    setTableLines(prev => [newLine, ...prev]);
+    setTableLines(prev => [...prev, newLine]);
     setActiveRowId(newLine.id);
   }, [aggregateDuplicateItems, getItemEffectivePrice, tableLines, calculateLineValues]);
 
@@ -3961,13 +3961,13 @@ const getInitialPosDraft = (): PosFullDraftData => {
               {/* Table Header matching user specifications with Excel-like mouse drag column resize handles */}
               <thead className="bg-[#b3cbe3] text-slate-900 font-bold border-b border-slate-400 sticky top-0 z-10 select-none">
                 <tr>
-                  {posLayoutConfig.tableColumns.showIndex && (
+                  {posLayoutConfig.tableColumns.showIndex !== false && (
                     <th
                       style={{ width: `${columnWidths.index || DEFAULT_POS_COLUMN_WIDTHS.index}px` }}
                       className="relative py-1.5 px-1 text-center border-l border-b border-slate-400 group/th"
                     >
                       <div className="flex items-center justify-center gap-0.5">
-                        <span>#</span>
+                        <span className="font-bold text-slate-900">م</span>
                         <button
                           type="button"
                           onClick={handleResetAllColumns}
@@ -4165,18 +4165,24 @@ const getInitialPosDraft = (): PosFullDraftData => {
                 {[...tableLines].reverse().map((line, idx) => {
                   const isActive = activeRowId === line.id;
                   const isLineSqMeter = isSquareMeterUnit(line.unit);
+                  const entryIndex = tableLines.findIndex(l => l.id === line.id);
+                  const serialIndex = entryIndex !== -1 ? entryIndex + 1 : (tableLines.length - idx);
+
                   return (
                     <tr
-                      key={line.id}
+                      key={`pos-line-${line.id || idx}-${idx}`}
                       onClick={() => setActiveRowId(line.id)}
                       className={`transition-colors ${
                         isActive ? 'bg-[#ebf4ff] font-semibold active-row' : 'hover:bg-slate-50'
                       }`}
                     >
-                      {/* Row Index */}
-                      {posLayoutConfig.tableColumns.showIndex && (
-                        <td className="p-1 text-center font-mono text-slate-600 border-l border-b border-slate-300 bg-slate-50/70 font-bold select-none">
-                          {tableLines.length - idx}
+                      {/* Row Index - الترقيم المسلسل بناءً على الترتيب الأصلي لإدخال الفاتورة على الكاشير */}
+                      {posLayoutConfig.tableColumns.showIndex !== false && (
+                        <td
+                          className="p-1 text-center font-mono text-slate-800 border-l border-b border-slate-300 bg-slate-100/80 font-black select-none"
+                          title={`البند رقم ${serialIndex} حسب ترتيب الإدخال`}
+                        >
+                          {serialIndex}
                         </td>
                       )}
 

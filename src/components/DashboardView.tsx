@@ -181,8 +181,8 @@ export const DashboardView: React.FC = () => {
                   );
                 })}
 
-                {recentInvoices.map(inv => (
-                  <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
+                {recentInvoices.map((inv, idx) => (
+                  <tr key={`dash-inv-${inv.id || idx}-${idx}`} className="hover:bg-slate-50 transition-colors">
                     <td className="p-2.5 font-mono font-bold text-slate-600">
                       {inv.invoiceNumber}
                     </td>

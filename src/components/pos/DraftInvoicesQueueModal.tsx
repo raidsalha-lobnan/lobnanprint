@@ -159,11 +159,11 @@ const ItemNameCellInputModal: React.FC<{
               لا توجد أصناف مطابقة للبحث
             </div>
           ) : (
-            filteredItems.map(inv => {
+            filteredItems.map((inv, idx) => {
               const { price, isSpecialPrice } = getItemPriceForCustomer(inv, customerId);
               return (
                 <button
-                  key={inv.id}
+                  key={`draft-item-${inv.id || idx}-${idx}`}
                   type="button"
                   onClick={() => {
                     onSelectItem(draftId, itemId, inv);
@@ -1362,31 +1362,29 @@ export const DraftInvoicesQueueModal: React.FC<DraftInvoicesQueueModalProps> = (
                   <table className="w-full text-right border-collapse text-xs min-w-[980px]">
                     <thead>
                       <tr className="bg-gradient-to-b from-[#dbe9f6] to-[#b8d3ec] text-[#0f2744] font-black border-b border-[#94b8db] select-none text-[12px]">
-                        {/* 1. الرقم */}
-                        <th className="py-2 px-1 text-center w-8 border-l border-[#94b8db]">#</th>
-                        {/* 2. رقم الصنف */}
-                        <th className="py-2 px-2 text-center w-28 border-l border-[#94b8db]">رقم الصنف</th>
-                        {/* 3. اسم الصنف */}
+                        {/* 1. الرقم (الترقيم المسلسل م) */}
+                        <th className="py-2 px-1 text-center w-10 border-l border-[#94b8db] font-bold text-slate-900">م</th>
+                        {/* 2. اسم الصنف */}
                         <th className="py-2 px-2 border-l border-[#94b8db] w-56 sm:w-72 min-w-[220px]">اسم الصنف</th>
                         {/* صورة البند */}
                         <th className="py-2 px-1 text-center w-12 border-l border-[#94b8db]">صورة</th>
-                        {/* 4. البيان والملاحظات */}
+                        {/* 3. البيان والملاحظات */}
                         <th className="py-2 px-2 border-l border-[#94b8db] min-w-[160px]">البيان والملاحظات</th>
-                        {/* 5. طول */}
+                        {/* 4. طول */}
                         <th className="py-2 px-1 w-16 text-center border-l border-[#94b8db]">طول</th>
-                        {/* 6. عرض */}
+                        {/* 5. عرض */}
                         <th className="py-2 px-1 w-16 text-center border-l border-[#94b8db]">عرض</th>
-                        {/* 7. عدد */}
+                        {/* 6. عدد */}
                         <th className="py-2 px-1 w-16 text-center border-l border-[#94b8db]">عدد</th>
-                        {/* 8. كمية */}
+                        {/* 7. كمية */}
                         <th className="py-2 px-1 w-20 text-center border-l border-[#94b8db]">كمية</th>
-                        {/* 9. السعر */}
+                        {/* 8. السعر */}
                         <th className="py-2 px-1 w-20 text-center border-l border-[#94b8db]">السعر</th>
-                        {/* 10. الإجمالي */}
+                        {/* 9. الإجمالي */}
                         <th className="py-2 px-2 w-28 text-center border-l border-[#94b8db] bg-[#a9c9e8]">الإجمالي</th>
-                        {/* 11. مرفق */}
+                        {/* 10. مرفق */}
                         <th className="py-2 px-1 w-14 text-center border-l border-[#94b8db]">مرفق</th>
-                        {/* 12. حذف */}
+                        {/* 11. حذف */}
                         <th className="py-2 px-1 w-12 text-center">حذف</th>
                       </tr>
                     </thead>
@@ -1402,40 +1400,10 @@ export const DraftInvoicesQueueModal: React.FC<DraftInvoicesQueueModalProps> = (
                           : (item.unit ? isSquareMeterUnit(item.unit) : ((item.length && item.width && (item.length > 1 || item.width > 1)) ? true : false));
 
                         return (
-                        <tr key={item.id} className="hover:bg-blue-50/50 transition-colors">
-                          {/* 1. الرقم (#) */}
-                          <td className="p-1 text-center text-slate-600 font-mono font-bold border-l border-[#d4e4f4]">
+                        <tr key={`draft-it-${item.id || itIdx}-${itIdx}`} className="hover:bg-blue-50/50 transition-colors">
+                          {/* 1. الرقم (الترقيم المسلسل م) */}
+                          <td className="p-1 text-center text-slate-800 font-mono font-black border-l border-[#d4e4f4]">
                             {itIdx + 1}
-                          </td>
-
-                          {/* 2. رقم الصنف (Item Code) */}
-                          <td className="p-1 border-l border-[#d4e4f4]">
-                            <input
-                              type="text"
-                              value={item.itemCode || ''}
-                              onChange={e => {
-                                const newCode = e.target.value;
-                                const matched = inventory.find(
-                                  i => i.code.toLowerCase() === newCode.trim().toLowerCase()
-                                );
-                                if (matched) {
-                                  const { price } = getItemPriceForCustomer(matched, currentDraft.customerId);
-                                  handleUpdateItem(currentDraft.id, item.id, {
-                                    itemCode: newCode,
-                                    itemName: matched.name,
-                                    matchedInventoryId: matched.id,
-                                    matchedInventoryName: matched.name,
-                                    unit: matched.unit,
-                                    unitPrice: price,
-                                    imageThumbnail: matched.imageUrl || item.imageThumbnail || ''
-                                  });
-                                } else {
-                                  handleUpdateItem(currentDraft.id, item.id, { itemCode: newCode });
-                                }
-                              }}
-                              placeholder="كود..."
-                              className="w-full p-1 bg-white border border-[#b8d3ec] hover:border-blue-400 focus:border-blue-600 rounded font-mono text-xs text-center font-bold text-slate-800 outline-none"
-                            />
                           </td>
 
                           {/* 3. اسم الصنف */}
@@ -2413,7 +2381,7 @@ export const DraftInvoicesQueueModal: React.FC<DraftInvoicesQueueModalProps> = (
                     <tbody className="divide-y divide-slate-200">
                       {displayedDrafts.map((draft, idx) => (
                         <tr
-                          key={draft.id}
+                          key={`draft-queue-${draft.id || idx}-${idx}`}
                           className={`hover:bg-blue-50/40 transition-colors ${
                             draft.selected ? 'bg-blue-50/20' : idx % 2 === 1 ? 'bg-slate-50/50' : 'bg-white'
                           }`}

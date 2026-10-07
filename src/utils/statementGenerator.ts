@@ -754,6 +754,8 @@ export function generateEmployeeStatement(params: {
     paymentMethod?: string;
     period?: string;
     notes?: string;
+    invoiceNotes?: string;
+    items?: StatementItemDetail[];
   }
 
   const allTx: RawEmpTx[] = [];
@@ -1075,16 +1077,16 @@ export function generateEmployeeStatement(params: {
     const itemsList = (p.items || []).map(it => it.itemName).slice(0, 3).join('، ');
     const desc = `فاتورة مشتريات رقم ${p.invoiceNumber}${itemsList ? ` (${itemsList})` : ''} - إجمالي ${p.totalAmount.toFixed(2)}${p.notes ? ` [${p.notes}]` : ''}`;
 
-    const mappedItems: StatementItemDetail[] = (p.items || []).map(it => ({
-      itemId: it.itemId,
-      itemCode: it.itemCode,
+    const mappedItems: StatementItemDetail[] = (p.items || []).map((it: any) => ({
+      itemId: it.itemId || it.id || '',
+      itemCode: it.itemCode || '',
       itemName: it.itemName,
       quantity: it.quantity,
       unitPrice: it.unitPrice,
       total: it.total,
-      unit: it.unit,
-      notes: it.notes,
-      imageThumbnail: it.imageThumbnail
+      unit: it.unit || '',
+      notes: it.notes || '',
+      imageThumbnail: it.imageThumbnail || ''
     }));
 
     // Employee supplied goods/materials (Credit / Entitlement to employee)

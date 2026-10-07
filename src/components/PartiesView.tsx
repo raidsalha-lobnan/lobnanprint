@@ -306,11 +306,11 @@ export const PartiesView: React.FC = () => {
     .reduce((acc, p) => acc + (p.balance > 0 ? p.balance : 0), 0);
 
   const totalPayables = parties
-    .filter(p => p.type === 'supplier' || p.type === 'both')
+    .filter(p => (p.type === 'supplier' || p.type === 'both') && !p.isSubCustomer)
     .reduce((acc, p) => acc + (p.balance < 0 ? Math.abs(p.balance) : 0), 0);
 
   const exceededCount = parties.filter(
-    p => p.type !== 'supplier' && p.creditLimit && p.balance > p.creditLimit
+    p => p.type !== 'supplier' && p.creditLimit && p.balance > p.creditLimit && !p.isSubCustomer
   ).length;
 
   return (

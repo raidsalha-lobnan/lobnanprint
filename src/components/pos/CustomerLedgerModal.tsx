@@ -224,8 +224,8 @@ export const CustomerLedgerModal: React.FC<CustomerLedgerModalProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-mono">
-                  {customerInvoices.map(inv => (
-                    <React.Fragment key={inv.id}>
+                  {customerInvoices.map((inv, idx) => (
+                    <React.Fragment key={`${inv.id || 'cust-ledger'}-${idx}`}>
                       <tr className="hover:bg-slate-50 transition-colors">
                         <td className="p-2.5 font-bold text-blue-700">{inv.invoiceNumber}</td>
                         <td className="p-2.5 text-slate-600 font-sans text-[11px]">{formatDateDisplay(inv.date)}</td>

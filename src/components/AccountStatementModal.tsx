@@ -876,6 +876,7 @@ export const AccountStatementModal: React.FC = () => {
                                   <table className="w-full text-right report-sub-table border-collapse">
                                     <thead>
                                       <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
+                                        <th className="text-center w-8 min-w-8 border-l border-slate-200">م</th>
                                         <th className="text-center w-12 min-w-12 border-l border-slate-200">صورة</th>
                                         <th className="border-l border-slate-200">الصنف والبيان</th>
                                         <th className="text-center w-12 min-w-12 border-l border-slate-200">الطول</th>
@@ -889,6 +890,7 @@ export const AccountStatementModal: React.FC = () => {
                                     <tbody className="divide-y divide-slate-200">
                                       {row.items.map((it, iIdx) => (
                                         <tr key={iIdx} className="hover:bg-slate-50">
+                                          <td className="text-center font-mono font-bold text-slate-700 border-l border-slate-200 py-1">{iIdx + 1}</td>
                                           <td className="text-center border-l border-slate-200 py-1">
                                             {it.imageThumbnail ? (
                                               <div className="flex items-center justify-center gap-1 flex-wrap max-w-[120px] mx-auto">
@@ -911,7 +913,7 @@ export const AccountStatementModal: React.FC = () => {
                                               {(it.notes || it.description) && (it.notes !== it.itemName) && (
                                                 <span className="text-slate-600 font-medium"> / {it.notes || it.description}</span>
                                               )}
-                                              {it.itemCode && <span className="text-[10px] text-slate-400 mr-1.5 font-mono font-normal">({it.itemCode})</span>}
+                                              
                                             </div>
                                           </td>
                                           <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.length != null && it.length !== 0 ? it.length : '-'}</td>
@@ -928,7 +930,7 @@ export const AccountStatementModal: React.FC = () => {
                                     {Boolean((row.discountTotal && row.discountTotal > 0) || (row.taxAmount && row.taxAmount > 0)) && (
                                       <tfoot className="bg-slate-50 border-t border-slate-300 font-bold">
                                         <tr>
-                                          <td colSpan={8} className="py-1 px-1.5 text-left font-mono">
+                                          <td colSpan={9} className="py-1 px-1.5 text-left font-mono">
                                             <div className="flex items-center justify-end gap-3 text-slate-800">
                                               {row.discountTotal !== undefined && row.discountTotal > 0 && (
                                                 <span className="text-rose-600 font-bold">خصم الفاتورة: -{row.discountTotal.toFixed(2)}</span>
@@ -958,56 +960,57 @@ export const AccountStatementModal: React.FC = () => {
                                         </span>
                                       </div>
                                       <div className="grid grid-cols-7 gap-2.5 w-full print:grid-cols-7">
-                                        {row.items.flatMap(it => {
-                                          const thumbs = parseThumbnails(it.imageThumbnail);
-                                          const attImgs = (it.attachments || [])
-                                            .filter(a => a.data || a.type?.startsWith('image/'))
-                                            .map(a => a.data || '');
-                                          const allImgs = Array.from(new Set([...thumbs, ...attImgs].filter(Boolean)));
-                                          return allImgs.map(imgStr => ({
-                                            imgStr,
-                                            itemName: it.itemName,
-                                            itemCode: it.itemCode,
-                                            unitPrice: it.unitPrice,
-                                            quantity: it.quantity,
-                                            unit: it.unit
-                                          }));
-                                        }).map((imgObj, idx) => (
-                                          <div
-                                            key={idx}
-                                            onClick={() => setPreviewModalImage({ url: imgObj.imgStr, name: imgObj.itemName })}
-                                            className="flex flex-col items-center bg-white border border-slate-200 hover:border-purple-500 hover:shadow-md rounded-lg p-1.5 shadow-2xs w-full cursor-pointer transition-all group"
-                                            title={`معاينة وتكبير صورة "${imgObj.itemName}"`}
-                                          >
-                                            <div className="relative w-full aspect-square rounded-md overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center p-0.5">
-                                              <img
-                                                src={imgObj.imgStr}
-                                                alt={imgObj.itemName}
-                                                className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-200"
-                                                onError={(e) => {
-                                                  e.currentTarget.style.display = 'none';
-                                                }}
-                                              />
-                                              <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center print:hidden">
-                                                <Eye className="w-4 h-4 text-white" />
-                                              </div>
-                                            </div>
-                                            <div className="text-[7.5px] sm:text-[8px] text-slate-800 font-bold text-center leading-tight break-words w-full mt-1 group-hover:text-purple-700" title={imgObj.itemName}>
-                                              {imgObj.itemName}
-                                            </div>
-                                            
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    }))}
+                                        {row.items.flatMap((it, itemIdx) => {
+                                           const thumbs = parseThumbnails(it.imageThumbnail);
+                                           const attImgs = (it.attachments || [])
+                                             .filter(a => a.data || a.type?.startsWith('image/'))
+                                             .map(a => a.data || '');
+                                           const allImgs = Array.from(new Set([...thumbs, ...attImgs].filter(Boolean)));
+                                           return allImgs.map(imgStr => ({
+                                             imgStr,
+                                             itemName: it.itemName,
+                                             itemCode: it.itemCode,
+                                             itemSeq: itemIdx + 1
+                                           }));
+                                         }).map((imgObj, idx) => (
+                                           <div
+                                             key={idx}
+                                             onClick={() => setPreviewModalImage({ url: imgObj.imgStr, name: imgObj.itemName })}
+                                             className="flex flex-col items-center bg-white border border-slate-200 hover:border-purple-500 hover:shadow-md rounded-lg p-1.5 shadow-2xs w-full cursor-pointer transition-all group"
+                                             title={`معاينة وتكبير صورة "${imgObj.itemName}" (بند #${imgObj.itemSeq})`}
+                                           >
+                                             <div className="relative w-full aspect-square rounded-md overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center p-0.5">
+                                               <span className="absolute top-0.5 right-0.5 bg-slate-900/80 text-white text-[8px] font-mono font-black px-1 rounded-xs z-10 print:bg-slate-800">
+                                                 #{imgObj.itemSeq}
+                                               </span>
+                                               <img
+                                                 src={imgObj.imgStr}
+                                                 alt={imgObj.itemName}
+                                                 className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-200"
+                                                 onError={(e) => {
+                                                   e.currentTarget.style.display = 'none';
+                                                 }}
+                                               />
+                                               <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center print:hidden">
+                                                 <Eye className="w-4 h-4 text-white" />
+                                               </div>
+                                             </div>
+                                             <div className="text-[8px] sm:text-[8.5px] text-slate-900 font-bold text-center leading-none truncate w-full mt-1 group-hover:text-purple-700 px-0.5" title={`بند #${imgObj.itemSeq}: ${imgObj.itemName}`}>
+                                               #{imgObj.itemSeq} {imgObj.itemName}
+                                             </div>
+                                           </div>
+                                         ))}
+                                       </div>
+                                     </div>
+                                   )}
+                                 </div>
+                               </td>
+                             </tr>
+                           )}
+                         </React.Fragment>
+                       );
+                      })
+                    )}
                   </tbody>
                   <tfoot>
                     <tr className="bg-slate-100 font-bold border-t border-slate-300 text-slate-900">
@@ -1305,6 +1308,7 @@ export const AccountStatementModal: React.FC = () => {
                                     <table className="w-full text-right report-sub-table border-collapse">
                                       <thead>
                                         <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
+                                          <th className="text-center w-8 min-w-8 border-l border-slate-200">م</th>
                                           <th className="text-center w-12 min-w-12 border-l border-slate-200">صورة</th>
                                           <th className="border-l border-slate-200">الصنف والبيان</th>
                                           <th className="text-center w-12 min-w-12 border-l border-slate-200">الطول</th>
@@ -1318,6 +1322,7 @@ export const AccountStatementModal: React.FC = () => {
                                       <tbody className="divide-y divide-slate-200">
                                         {row.items.map((it, iIdx) => (
                                           <tr key={iIdx} className="hover:bg-slate-50">
+                                            <td className="text-center font-mono font-bold text-slate-700 border-l border-slate-200 py-1">{iIdx + 1}</td>
                                             <td className="text-center border-l border-slate-200 py-1">
                                               {it.imageThumbnail ? (
                                                 <div className="flex items-center justify-center gap-1 flex-wrap max-w-[120px] mx-auto">
@@ -1340,7 +1345,7 @@ export const AccountStatementModal: React.FC = () => {
                                                 {(it.notes || it.description) && (it.notes !== it.itemName) && (
                                                   <span className="text-slate-600 font-medium"> / {it.notes || it.description}</span>
                                                 )}
-                                                {it.itemCode && <span className="text-[10px] text-slate-400 mr-1.5 font-mono font-normal">({it.itemCode})</span>}
+                                                
                                               </div>
                                             </td>
                                             <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.length != null && it.length !== 0 ? it.length : '-'}</td>
@@ -1369,7 +1374,7 @@ export const AccountStatementModal: React.FC = () => {
                                           </span>
                                         </div>
                                         <div className="grid grid-cols-7 gap-2.5 w-full print:grid-cols-7">
-                                          {row.items.flatMap(it => {
+                                          {row.items.flatMap((it, itemIdx) => {
                                             const thumbs = parseThumbnails(it.imageThumbnail);
                                             const attImgs = (it.attachments || [])
                                               .filter(a => a.data || a.type?.startsWith('image/'))
@@ -1379,18 +1384,19 @@ export const AccountStatementModal: React.FC = () => {
                                               imgStr,
                                               itemName: it.itemName,
                                               itemCode: it.itemCode,
-                                              unitPrice: it.unitPrice,
-                                              quantity: it.quantity,
-                                              unit: it.unit
+                                              itemSeq: itemIdx + 1
                                             }));
                                           }).map((imgObj, idx) => (
                                             <div
                                               key={idx}
                                               onClick={() => setPreviewModalImage({ url: imgObj.imgStr, name: imgObj.itemName })}
                                               className="flex flex-col items-center bg-white border border-slate-200 hover:border-purple-500 hover:shadow-md rounded-lg p-1.5 shadow-2xs w-full cursor-pointer transition-all group"
-                                              title={`معاينة وتكبير صورة "${imgObj.itemName}"`}
+                                              title={`معاينة وتكبير صورة "${imgObj.itemName}" (بند #${imgObj.itemSeq})`}
                                             >
                                               <div className="relative w-full aspect-square rounded-md overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center p-0.5">
+                                                <span className="absolute top-0.5 right-0.5 bg-slate-900/80 text-white text-[8px] font-mono font-black px-1 rounded-xs z-10 print:bg-slate-800">
+                                                  #{imgObj.itemSeq}
+                                                </span>
                                                 <img
                                                   src={imgObj.imgStr}
                                                   alt={imgObj.itemName}
@@ -1403,11 +1409,9 @@ export const AccountStatementModal: React.FC = () => {
                                                   <Eye className="w-4 h-4 text-white" />
                                                 </div>
                                               </div>
-                                              <div className="text-[7.5px] sm:text-[8px] text-slate-800 font-bold text-center leading-tight break-words w-full mt-1 group-hover:text-purple-700" title={imgObj.itemName}>
-                                                {imgObj.itemName}
+                                              <div className="text-[8px] sm:text-[8.5px] text-slate-900 font-bold text-center leading-none truncate w-full mt-1 group-hover:text-purple-700 px-0.5" title={`بند #${imgObj.itemSeq}: ${imgObj.itemName}`}>
+                                                #{imgObj.itemSeq} {imgObj.itemName}
                                               </div>
-                                              <div className="text-center w-full text-[8.5px] font-mono text-slate-600 mt-0.5 border-t border-slate-100 pt-0.5 truncate">
-                                             </div>
                                             </div>
                                           ))}
                                         </div>
@@ -1421,7 +1425,7 @@ export const AccountStatementModal: React.FC = () => {
                         );
                       })
                     )}
-                  </tbody>
+                   </tbody>
                   <tfoot>
                     <tr className="bg-slate-100 font-bold border-t border-slate-300 text-slate-900">
                       <td colSpan={3} className="text-left font-sans">الإجمالي العام للحركات بالفترة:</td>

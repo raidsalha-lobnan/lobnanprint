@@ -582,7 +582,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {filteredInvoices.map((inv) => {
+                  {filteredInvoices.map((inv, idx) => {
                     const pMeta = getInvoicePaymentStatusMeta(
                       inv.paymentStatus ||
                         computeInvoicePaymentStatus({
@@ -609,7 +609,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
 
                     return (
                       <tr
-                        key={inv.id}
+                        key={`sidebar-table-${inv.id || idx}-${idx}`}
                         className="hover:bg-blue-50/70 transition-colors group cursor-pointer odd:bg-white even:bg-slate-50/60"
                         onClick={() => onSelectInvoiceToLoad(inv)}
                         title="انقر لتحميل الفاتورة مباشرة إلى شاشة الكاشير"
@@ -793,7 +793,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
         ) : (
           /* Cards View fallback */
           <div className="flex flex-col gap-2 p-2 pb-10">
-            {filteredInvoices.map((inv) => {
+            {filteredInvoices.map((inv, idx) => {
               const pMeta = getInvoicePaymentStatusMeta(
                 inv.paymentStatus ||
                   computeInvoicePaymentStatus({
@@ -820,7 +820,7 @@ export const PosDailyInvoicesSidebar: React.FC<PosDailyInvoicesSidebarProps> = (
 
               return (
                 <div
-                  key={inv.id}
+                  key={`sidebar-card-${inv.id || idx}-${idx}`}
                   className="bg-white border border-slate-200 hover:border-blue-400 transition-colors rounded-lg p-2 shadow-xs flex flex-col gap-1.5 group"
                 >
                   <div className="flex items-center justify-between gap-2">

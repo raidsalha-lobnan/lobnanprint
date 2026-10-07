@@ -200,11 +200,11 @@ const ItemNameCellInput: React.FC<{
               لا توجد أصناف مطابقة للبحث
             </div>
           ) : (
-            filteredItems.map(inv => {
+            filteredItems.map((inv, idx) => {
               const { price, isSpecialPrice } = getItemPriceForCustomer(inv, customerId);
               return (
                 <button
-                  key={inv.id}
+                  key={`onedrive-inv-${inv.id || idx}-${idx}`}
                   type="button"
                   onClick={() => {
                     onSelectItem(draftId, itemId, inv);
@@ -1614,8 +1614,7 @@ export const ExcelOneDriveDraftsView: React.FC = () => {
               <table className="w-full text-right border-collapse text-xs min-w-[980px]">
                 <thead>
                   <tr className="bg-gradient-to-b from-[#dbe9f6] to-[#b8d3ec] text-[#0f2744] font-black border-b border-[#94b8db] select-none text-[12px]">
-                    <th className="py-2 px-1 text-center w-8 border-l border-[#94b8db]">#</th>
-                    <th className="py-2 px-2 text-center w-28 border-l border-[#94b8db]">رقم الصنف</th>
+                    <th className="py-2 px-1 text-center w-10 border-l border-[#94b8db] font-bold text-slate-900">م</th>
                     <th className="py-2 px-2 border-l border-[#94b8db] w-56 sm:w-72 min-w-[220px]">اسم الصنف</th>
                     <th className="py-2 px-2 border-l border-[#94b8db] min-w-[160px]">البيان والملاحظات</th>
                     <th className="py-2 px-1 w-16 text-center border-l border-[#94b8db]">طول</th>
@@ -1640,38 +1639,9 @@ export const ExcelOneDriveDraftsView: React.FC = () => {
                       : (item.unit ? isSquareMeterUnit(item.unit) : ((item.length && item.width && (item.length > 1 || item.width > 1)) ? true : false));
 
                     return (
-                    <tr key={item.id} className="hover:bg-blue-50/50 transition-colors">
-                      <td className="p-1 text-center text-slate-600 font-mono font-bold border-l border-[#d4e4f4]">
+                    <tr key={`excel-it-${item.id || itIdx}-${itIdx}`} className="hover:bg-blue-50/50 transition-colors">
+                      <td className="p-1 text-center text-slate-800 font-mono font-black border-l border-[#d4e4f4]">
                         {itIdx + 1}
-                      </td>
-
-                      {/* Item Code */}
-                      <td className="p-1 border-l border-[#d4e4f4]">
-                        <input
-                          type="text"
-                          value={item.itemCode || ''}
-                          onChange={e => {
-                            const newCode = e.target.value;
-                            const matched = inventory.find(
-                              i => i.code.toLowerCase() === newCode.trim().toLowerCase()
-                            );
-                            if (matched) {
-                              const { price } = getItemPriceForCustomer(matched, currentDraft.customerId);
-                              handleUpdateItem(currentDraft.id, item.id, {
-                                itemCode: newCode,
-                                itemName: matched.name,
-                                matchedInventoryId: matched.id,
-                                matchedInventoryName: matched.name,
-                                unit: matched.unit,
-                                unitPrice: price
-                              });
-                            } else {
-                              handleUpdateItem(currentDraft.id, item.id, { itemCode: newCode });
-                            }
-                          }}
-                          placeholder="كود..."
-                          className="w-full p-1 bg-white border border-[#b8d3ec] hover:border-blue-400 focus:border-blue-600 rounded font-mono text-xs text-center font-bold text-slate-800 outline-none"
-                        />
                       </td>
 
                       {/* Item Name Autocomplete */}
@@ -2259,7 +2229,7 @@ export const ExcelOneDriveDraftsView: React.FC = () => {
 
                 return (
                   <div
-                    key={draft.id}
+                    key={`excel-draft-${draft.id || dIdx}-${dIdx}`}
                     className={`bg-white rounded-2xl border transition-all overflow-hidden ${theme.cardBorder} ${
                       draft.selected ? 'ring-2 ring-blue-500' : ''
                     }`}
@@ -2283,8 +2253,7 @@ export const ExcelOneDriveDraftsView: React.FC = () => {
                             <table className="w-full text-right border-collapse text-xs min-w-[900px]">
                               <thead>
                                 <tr className="bg-gradient-to-b from-[#dbe9f6] to-[#b8d3ec] text-[#0f2744] font-black border-b border-[#94b8db] select-none text-[11px]">
-                                  <th className="py-2 px-1 text-center w-8 border-l border-[#94b8db]">#</th>
-                                  <th className="py-2 px-2 text-center w-28 border-l border-[#94b8db]">رقم الصنف</th>
+                                  <th className="py-2 px-1 text-center w-10 border-l border-[#94b8db] font-bold text-slate-900">م</th>
                                   <th className="py-2 px-2 border-l border-[#94b8db] w-56 sm:w-72 min-w-[220px]">اسم الصنف</th>
                                   <th className="py-2 px-2 border-l border-[#94b8db] min-w-[140px]">البيان والملاحظات</th>
                                   <th className="py-2 px-1 w-16 text-center border-l border-[#94b8db]">طول</th>
@@ -2299,19 +2268,10 @@ export const ExcelOneDriveDraftsView: React.FC = () => {
                               </thead>
                               <tbody className="divide-y divide-[#d4e4f4]">
                                 {draft.items.map((item, itIdx) => (
-                                  <React.Fragment key={item.id}>
+                                  <React.Fragment key={`excel-item-${item.id || itIdx}-${itIdx}`}>
                                     <tr className="hover:bg-blue-50/50">
-                                      <td className="p-1 text-center text-slate-600 font-mono font-bold border-l border-[#d4e4f4]">
+                                      <td className="p-1 text-center text-slate-800 font-mono font-black border-l border-[#d4e4f4]">
                                         {itIdx + 1}
-                                      </td>
-                                      <td className="p-1 border-l border-[#d4e4f4]">
-                                        <input
-                                          type="text"
-                                          value={item.itemCode || ''}
-                                          onChange={e => handleUpdateItem(draft.id, item.id, { itemCode: e.target.value })}
-                                          placeholder="كود..."
-                                          className="w-full p-1 bg-white border border-[#b8d3ec] rounded font-mono text-xs text-center font-bold text-slate-800 outline-none"
-                                        />
                                       </td>
                                       <td className="p-1 border-l border-[#d4e4f4]">
                                         <ItemNameCellInput

@@ -248,13 +248,13 @@ export const ReceiptVouchersView: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                filteredVouchers.map(v => {
+                filteredVouchers.map((v, idx) => {
                   const party = parties.find(p => p.id === v.partyId);
                   const treasury = treasuries.find(t => t.accountCode === v.accountCode || t.accountCode === v.treasuryAccountCode);
                   const treasuryName = treasury?.name || (v.paymentMethod === 'cash' ? 'الصندوق الرئيسي (الكاشير)' : 'الحساب البنكي');
 
                   return (
-                    <tr key={v.id} className="hover:bg-slate-50/70 transition-colors">
+                    <tr key={`${v.id || 'rec-v'}-${idx}`} className="hover:bg-slate-50/70 transition-colors">
                       <td className="p-3 font-mono font-bold text-emerald-600">
                         {v.voucherNumber}
                       </td>

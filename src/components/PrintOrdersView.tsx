@@ -320,7 +320,7 @@ export const PrintOrdersView: React.FC = () => {
   // - ملاحظات الفاتورة
   // - جدول الفاتورة (مع فتح/تنزيل الملفات والتعديل وإعادة إرفاق)
   // Actions: بدء الطباعة، إنهاء الطباعة، إضافة ملاحظة فنية، تغيير الحالة حسب الصلاحية
-  const renderInvoiceCard = (invoice: Invoice, isListView = false) => {
+  const renderInvoiceCard = (invoice: Invoice, isListView = false, index = 0) => {
     const normalizedStatus = normalizeWorkflowStatus(invoice.workflowStatus) || 'design';
     const statusMeta = ALL_STATUSES.find((s) => s.id === normalizedStatus)!;
     const isPrintingNow = normalizedStatus === 'print_internal';
@@ -328,7 +328,7 @@ export const PrintOrdersView: React.FC = () => {
 
     return (
       <div
-        key={invoice.id}
+        key={`po-card-${invoice.id || index}-${index}`}
         className={`bg-white rounded-xl border transition-all duration-200 shadow-xs hover:shadow-md flex flex-col justify-between ${
           isListView ? 'p-4 md:p-5' : 'p-3.5 sm:p-4'
         } ${
@@ -861,7 +861,7 @@ export const PrintOrdersView: React.FC = () => {
                       <p className="text-[11px]">لا توجد طلبيات في هذه المرحلة</p>
                     </div>
                   ) : (
-                    colInvoices.map((inv) => renderInvoiceCard(inv, false))
+                    colInvoices.map((inv, idx) => renderInvoiceCard(inv, false, idx))
                   )}
                 </div>
               </div>
@@ -871,7 +871,7 @@ export const PrintOrdersView: React.FC = () => {
       ) : (
         /* DETAILED LIST / CARD VIEW */
         <div className="space-y-3">
-          {workshopInvoices.map((inv) => renderInvoiceCard(inv, true))}
+          {workshopInvoices.map((inv, idx) => renderInvoiceCard(inv, true, idx))}
         </div>
       )}
 

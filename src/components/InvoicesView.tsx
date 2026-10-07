@@ -219,8 +219,8 @@ export const InvoicesView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredInvoices.map(inv => (
-                <tr key={inv.id} className="hover:bg-slate-50/80 whitespace-nowrap transition-colors h-11">
+              {filteredInvoices.map((inv, idx) => (
+                <tr key={`${inv.id || 'inv'}-${idx}`} className="hover:bg-slate-50/80 whitespace-nowrap transition-colors h-11">
                   <td className="py-2 px-3 whitespace-nowrap align-middle">
                     <button
                       onClick={() => {

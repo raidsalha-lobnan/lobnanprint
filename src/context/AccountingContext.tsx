@@ -694,7 +694,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const [inventory, setInventory] = useState<InventoryItem[]>(() => {
     const loaded = safeLoadArray(`${STORAGE_KEY}_inventory`, initialInventory);
-    return loaded.map(it => {
+    const mapped = loaded.map(it => {
       if (!it) return it;
       if (
         it.code === 'PRI-0009' ||
@@ -705,6 +705,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       return it;
     });
+    return deduplicateById(mapped, 'inv');
   });
 
   const [parties, setParties] = useState<Party[]>(() => {
@@ -1484,8 +1485,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           if (invCmp !== 0) return invCmp;
           return (b.createdAt || '').localeCompare(a.createdAt || '');
         });
-        setInvoices(docs);
-        try { localStorage.setItem(`${STORAGE_KEY}_invoices`, JSON.stringify(docs)); } catch {}
+        const dedupedInvoices = deduplicateById(docs, 'inv');
+        setInvoices(dedupedInvoices);
+        try { localStorage.setItem(`${STORAGE_KEY}_invoices`, JSON.stringify(dedupedInvoices)); } catch {}
       }, (e) => console.debug('Live invoices sync:', e));
       unsubs.push(unsubInvoices);
 
@@ -1498,8 +1500,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const timeB = new Date(b.deletedAt || b.date || 0).getTime() || 0;
           return timeB - timeA;
         });
-        setDeletedInvoices(docs);
-        try { localStorage.setItem(`${STORAGE_KEY}_deleted_invoices`, JSON.stringify(docs)); } catch {}
+        const dedupedDel = deduplicateById(docs, 'inv');
+        setDeletedInvoices(dedupedDel);
+        try { localStorage.setItem(`${STORAGE_KEY}_deleted_invoices`, JSON.stringify(dedupedDel)); } catch {}
       }, (e) => console.debug('Live deleted invoices sync:', e));
       unsubs.push(unsubDeletedInvoices);
 
@@ -1529,8 +1532,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           });
         if (docs.length === 0 && isPendingUnsynced()) return;
         docs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '') || (b.id || '').localeCompare(a.id || ''));
-        setPrintOrders(docs);
-        try { localStorage.setItem(`${STORAGE_KEY}_printOrders`, JSON.stringify(docs)); } catch {}
+        const dedupedPrn = deduplicateById(docs, 'prn');
+        setPrintOrders(dedupedPrn);
+        try { localStorage.setItem(`${STORAGE_KEY}_printOrders`, JSON.stringify(dedupedPrn)); } catch {}
       }, (e) => console.debug('Live printOrders sync:', e));
       unsubs.push(unsubPrintOrders);
 
@@ -1543,8 +1547,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           .filter(p => p && p.id && p.name && p.name.trim() && !p.id.startsWith('emp-') && !delSet.has(`parties_${p.id}`));
         if (docs.length === 0 && isPendingUnsynced()) return;
         docs.sort((a, b) => (a.code || '').localeCompare(b.code || '') || (a.name || '').localeCompare(b.name || ''));
-        setParties(docs);
-        try { localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(docs)); } catch {}
+        const dedupedParties = deduplicateById(docs, 'party');
+        setParties(dedupedParties);
+        try { localStorage.setItem(`${STORAGE_KEY}_parties`, JSON.stringify(dedupedParties)); } catch {}
       }, (e) => console.debug('Live parties sync:', e));
       unsubs.push(unsubParties);
 
@@ -1571,8 +1576,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           });
         if (docs.length === 0 && isPendingUnsynced()) return;
         docs.sort((a, b) => (a.code || '').localeCompare(b.code || '') || (a.name || '').localeCompare(b.name || ''));
-        setInventory(docs);
-        try { localStorage.setItem(`${STORAGE_KEY}_inventory`, JSON.stringify(docs)); } catch {}
+        const dedupedInventory = deduplicateById(docs, 'inv');
+        setInventory(dedupedInventory);
+        try { localStorage.setItem(`${STORAGE_KEY}_inventory`, JSON.stringify(dedupedInventory)); } catch {}
       }, (e) => console.debug('Live inventory sync:', e));
       unsubs.push(unsubInventory);
 
@@ -3979,7 +3985,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const addInventoryItem = (item: Omit<InventoryItem, 'id'>) => {
-    const id = 'inv-' + Date.now();
+    const id = 'inv-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
     const today = new Date().toISOString().split('T')[0];
     const time = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
 

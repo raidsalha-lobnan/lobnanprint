@@ -181,10 +181,10 @@ export const InvoicesReviewModal: React.FC<InvoicesReviewModalProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-mono">
-                  {filtered.map(inv => {
+                  {filtered.map((inv, idx) => {
                     const wfMeta = getInvoiceWorkflowStatusMeta(inv.workflowStatus);
                     return (
-                      <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
+                      <tr key={`rev-inv-${inv.id || idx}-${idx}`} className="hover:bg-slate-50 transition-colors">
                         <td className="p-2.5 font-bold text-blue-700">{inv.invoiceNumber}</td>
                         <td className="p-2.5 text-slate-600 font-sans text-[11px]">{formatDateDisplay(inv.date)}</td>
                         <td className="p-2.5 font-sans font-semibold text-slate-800">{inv.customerName}</td>

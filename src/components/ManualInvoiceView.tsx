@@ -349,7 +349,7 @@ export const ManualInvoiceView: React.FC = () => {
             </thead>
             <tbody className="divide-y-[1.5px] divide-[#1e3a8a]">
               {items.map((item, idx) => (
-                <tr key={item.id} className="h-[4%]">
+                <tr key={`man-item-${item.id || idx}-${idx}`} className="h-[4%]">
                   <td className="border-l-[1.5px] border-[#1e3a8a] font-bold text-sm text-slate-700">{idx + 1}</td>
                   {/* عمود الصنف المستقل */}
                   <td className="border-l-[1.5px] border-[#1e3a8a] p-0 relative">
@@ -370,9 +370,9 @@ export const ManualInvoiceView: React.FC = () => {
                       if (itemResults.length > 0) {
                         return (
                           <div className="absolute top-full right-0 w-full mt-1 bg-white border border-slate-200 rounded shadow-lg z-50 max-h-48 overflow-y-auto no-print text-right">
-                            {itemResults.map(invItem => (
+                            {itemResults.map((invItem, iIdx) => (
                               <div 
-                                key={invItem.id} 
+                                key={`man-inv-${invItem.id || iIdx}-${iIdx}`} 
                                 className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm border-b last:border-b-0 flex justify-between"
                                 onClick={() => selectInventoryItem(idx, invItem)}
                               >

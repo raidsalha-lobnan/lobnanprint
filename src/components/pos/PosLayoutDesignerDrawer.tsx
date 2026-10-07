@@ -350,7 +350,17 @@ export const PosLayoutDesignerDrawer: React.FC<PosLayoutDesignerDrawerProps> = (
               <label className="flex items-center gap-2 p-2 rounded-xl bg-white border border-slate-200 hover:bg-emerald-50/50 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={localConfig.tableColumns.showItemCode !== false}
+                  checked={localConfig.tableColumns.showIndex !== false}
+                  onChange={() => handleToggleColumn('showIndex')}
+                  className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
+                />
+                <span className="font-bold text-slate-800">عمود الترقيم المسلسل (م)</span>
+              </label>
+
+              <label className="flex items-center gap-2 p-2 rounded-xl bg-white border border-slate-200 hover:bg-emerald-50/50 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(localConfig.tableColumns.showItemCode)}
                   onChange={() => handleToggleColumn('showItemCode')}
                   className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
                 />
