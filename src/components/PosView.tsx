@@ -2468,6 +2468,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
       subCustomerName: subCustomerName || undefined,
       subCustomerPhone: subCustomerPhone || undefined,
       representative: representative,
+      employeeId: posTargetType === 'employee' ? selectedCustomerId : undefined,
       branch: branch,
       branchId: branches.find(b => b.name === branch)?.id || activeBranchId,
       warehouse: warehouse,
@@ -5121,7 +5122,28 @@ const getInitialPosDraft = (): PosFullDraftData => {
               <Users className="w-4 h-4 text-blue-600" />
               <span>اختيار مندوب المبيعات</span>
             </h3>
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {employees.length > 0 && (
+                <>
+                  <div className="text-[11px] font-bold text-slate-500 mb-1">الموظفون وكادر العمل:</div>
+                  {employees.map(emp => (
+                    <div
+                      key={emp.id}
+                      onClick={() => {
+                        setRepresentative(emp.name);
+                        setActiveHeaderSubModal(null);
+                      }}
+                      className={`p-2 rounded-xl border cursor-pointer font-semibold text-xs transition-colors flex items-center justify-between ${
+                        representative === emp.name ? 'bg-blue-50 border-blue-500 text-blue-800' : 'border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>{emp.name}</span>
+                      <span className="text-[10px] text-slate-500 font-mono">[{emp.code || emp.id.slice(-4)}]</span>
+                    </div>
+                  ))}
+                  <div className="text-[11px] font-bold text-slate-500 mt-2 mb-1">الأدوار الافتراضية:</div>
+                </>
+              )}
               {['مندوب المبيعات الرئيسي', 'كاشير الصالة', 'مندوب التوصيل', 'مسؤول التعاقدات الخارجية'].map(rep => (
                 <div
                   key={rep}
@@ -5129,7 +5151,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
                     setRepresentative(rep);
                     setActiveHeaderSubModal(null);
                   }}
-                  className={`p-2.5 rounded-xl border cursor-pointer font-semibold text-xs transition-colors ${
+                  className={`p-2 rounded-xl border cursor-pointer font-semibold text-xs transition-colors ${
                     representative === rep ? 'bg-blue-50 border-blue-500 text-blue-800' : 'border-slate-200 hover:bg-slate-50'
                   }`}
                 >

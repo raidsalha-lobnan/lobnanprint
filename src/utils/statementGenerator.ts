@@ -676,17 +676,19 @@ export interface EmployeeStatementRow {
   id: string;
   date: string;
   referenceNumber: string;
-  type: 'opening' | 'salary_accrual' | 'advance' | 'deduction' | 'incentive' | 'payment_disbursement';
+  type: 'opening' | 'salary_accrual' | 'advance' | 'deduction' | 'incentive' | 'payment_disbursement' | 'invoice' | 'purchase' | 'receipt' | 'payment' | 'payroll_sheet' | 'debt_clearing' | 'journal_entry' | 'other';
   typeLabel: string;
   description: string;
-  entitlement: number;   // دائن للموظف: راتب مستحق، حافز، مكافأة، بدل
-  advance: number;       // مدين على الموظف: سلفة نقدية مسحوبة
-  deduction: number;     // مدين على الموظف: خصم أو جزاء
-  disbursement: number;  // مدين على الموظف: صرف فعلي مسدد له نقدياً أو بنكياً
+  entitlement: number;   // استحقاق للموظف (+)
+  advance: number;       // سلفة مسحوبة (-)
+  deduction: number;     // استقطاع / جزاء (-)
+  disbursement: number;  // صرف فعلي / مشتريات شخصية / مسحوبات (-)
   runningBalance: number;// الرصيد التراكمي المتبقي للموظف (موجب = مستحق له، سالب = سلف عليه)
   paymentMethod?: string;
   period?: string;
   notes?: string;
+  invoiceNotes?: string;
+  items?: StatementItemDetail[];
 }
 
 export interface EmployeeStatementResult {
@@ -695,10 +697,12 @@ export interface EmployeeStatementResult {
   toDate?: string;
   openingBalance: number;
   rows: EmployeeStatementRow[];
-  totalEntitlements: number;   // إجمالي المستحقات (رواتب ومكافآت)
+  totalEntitlements: number;   // إجمالي المستحقات (رواتب ومكافآت وتوريدات)
   totalAdvances: number;       // إجمالي السلف
   totalDeductions: number;     // إجمالي الخصومات
-  totalDisbursements: number;  // إجمالي الصرف الفعلي
+  totalDisbursements: number;  // إجمالي الصرف الفعلي والمسحوبات
+  totalDue: number;            // إجمالي ما له
+  totalPaid: number;           // إجمالي ما عليه
   closingBalance: number;      // صافي الرصيد الختامي المتبقي للموظف
   statementDate: string;
 }
@@ -711,6 +715,13 @@ export function generateEmployeeStatement(params: {
   advances?: EmployeeAdvance[];
   deductions?: EmployeeDeduction[];
   incentives?: EmployeeIncentive[];
+  invoices?: Invoice[];
+  purchases?: PurchaseInvoice[];
+  purchaseReturns?: PurchaseReturn[];
+  salesReturns?: SalesReturn[];
+  payrollSheets?: any[];
+  journalEntries?: JournalEntry[];
+  debtClearings?: DebtClearingRecord[];
 }): EmployeeStatementResult {
   const {
     employee,
@@ -719,7 +730,14 @@ export function generateEmployeeStatement(params: {
     vouchers = [],
     advances = [],
     deductions = [],
-    incentives = []
+    incentives = [],
+    invoices = [],
+    purchases = [],
+    purchaseReturns = [],
+    salesReturns = [],
+    payrollSheets = [],
+    journalEntries = [],
+    debtClearings = []
   } = params;
 
   interface RawEmpTx {
@@ -740,27 +758,67 @@ export function generateEmployeeStatement(params: {
 
   const allTx: RawEmpTx[] = [];
 
-  // 1. Payment history from Employee record
+  const empId = (employee.id || '').trim();
+  const empCode = (employee.code || '').trim();
+  const empName = (employee.name || '').trim();
+  const empPhone = (employee.phone || '').trim();
+
+  // Helper to determine if an entity is linked to this employee
+  const isMatched = (
+    targetId?: string,
+    targetName?: string,
+    targetText?: string,
+    targetEmpId?: string
+  ): boolean => {
+    if (targetId) {
+      const tid = targetId.trim();
+      if (tid === empId) return true;
+      if (empCode && tid.toLowerCase() === empCode.toLowerCase()) return true;
+    }
+    if (targetEmpId) {
+      const teid = targetEmpId.trim();
+      if (teid === empId) return true;
+      if (empCode && teid.toLowerCase() === empCode.toLowerCase()) return true;
+    }
+    if (targetName && empName) {
+      const tname = targetName.trim().toLowerCase();
+      const ename = empName.toLowerCase();
+      if (tname === ename) return true;
+      if (tname.includes(ename) || ename.includes(tname)) return true;
+    }
+    if (empPhone && targetText && targetText.includes(empPhone)) return true;
+    if (targetText) {
+      const textLower = targetText.toLowerCase();
+      if (empCode && empCode.length >= 2) {
+        const re = new RegExp(`(^|[^a-zA-Z0-9\u0600-\u06FF])${empCode}([^a-zA-Z0-9\u0600-\u06FF]|$)`, 'i');
+        if (re.test(textLower)) return true;
+      }
+      if (empName && empName.length >= 3 && textLower.includes(empName.toLowerCase())) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // 1. Employee Payment History (سجل المدفوعات في ملف الموظف)
   (employee.paymentHistory || []).forEach(record => {
     if (record.type === 'advance') {
-      // Advance paid to employee
       allTx.push({
         id: record.id,
         date: record.date,
         refNum: record.voucherNumber || `ADV-${record.id.slice(0, 6)}`,
         type: 'advance',
-        typeLabel: 'سلفة',
+        typeLabel: 'سلفة نقدية',
         description: record.notes || `سلفة نقدية مستلمة (${record.paymentMethod === 'cash' ? 'نقداً' : 'تحويل'})`,
         entitlement: 0,
         advance: record.amount,
         deduction: 0,
-        disbursement: record.amount,
+        disbursement: 0,
         paymentMethod: record.paymentMethod,
         period: record.period,
         notes: record.notes
       });
     } else {
-      // Salary payment / disbursement
       allTx.push({
         id: record.id,
         date: record.date,
@@ -779,56 +837,63 @@ export function generateEmployeeStatement(params: {
     }
   });
 
-  // 2. Employee Advances from Context
+  // 2. Employee Advances from Context (سلف الموظفين)
   advances.forEach(adv => {
-    if (adv.employeeId === employee.id && adv.status !== 'cancelled') {
-      const exists = allTx.some(t => t.id === adv.id || (t.date === adv.date && t.advance === adv.amount));
-      if (!exists) {
-        allTx.push({
-          id: adv.id,
-          date: adv.date,
-          refNum: adv.voucherNumber || `ADV-${adv.id.slice(0, 6)}`,
-          type: 'advance',
-          typeLabel: 'سلفة',
-          description: adv.reason || 'طلب سلفة نقدية معتمدة',
-          entitlement: 0,
-          advance: adv.amount,
-          deduction: 0,
-          disbursement: adv.amount,
-          notes: adv.reason
-        });
+    if (adv.status !== 'cancelled') {
+      const matches = isMatched(adv.employeeId, adv.employeeName, adv.reason) || adv.employeeId === empId;
+      if (matches) {
+        const exists = allTx.some(t => t.id === adv.id || (t.date === adv.date && t.advance === adv.amount));
+        if (!exists) {
+          allTx.push({
+            id: adv.id,
+            date: adv.date,
+            refNum: adv.voucherNumber || `ADV-${adv.id.slice(0, 6)}`,
+            type: 'advance',
+            typeLabel: 'سلفة نقدية',
+            description: adv.reason || 'طلب سلفة نقدية معتمدة',
+            entitlement: 0,
+            advance: adv.amount,
+            deduction: 0,
+            disbursement: 0,
+            notes: adv.reason
+          });
+        }
       }
     }
   });
 
   // 3. Employee Deductions (الخصومات والجزاءات)
   deductions.forEach(ded => {
-    if (ded.employeeId === employee.id && ded.status !== 'cancelled') {
-      allTx.push({
-        id: ded.id,
-        date: ded.date,
-        refNum: `DED-${ded.id.slice(0, 6)}`,
-        type: 'deduction',
-        typeLabel: 'خصم',
-        description: ded.reason || 'خصم إداري',
-        entitlement: 0,
-        advance: 0,
-        deduction: ded.amount,
-        disbursement: 0,
-        notes: ded.reason
-      });
+    if (ded.status !== 'cancelled') {
+      const matches = isMatched(ded.employeeId, ded.employeeName, ded.reason) || ded.employeeId === empId;
+      if (matches) {
+        allTx.push({
+          id: ded.id,
+          date: ded.date,
+          refNum: `DED-${ded.id.slice(0, 6)}`,
+          type: 'deduction',
+          typeLabel: 'خصم / استقطاع',
+          description: ded.reason || 'خصم إداري أو استقطاع غياب',
+          entitlement: 0,
+          advance: 0,
+          deduction: ded.amount,
+          disbursement: 0,
+          notes: ded.reason
+        });
+      }
     }
   });
 
   // 4. Employee Incentives (المكافآت والحوافز)
   incentives.forEach(inc => {
-    if (inc.employeeId === employee.id) {
+    const matches = isMatched(inc.employeeId, inc.employeeName, inc.reason) || inc.employeeId === empId;
+    if (matches) {
       allTx.push({
         id: inc.id,
         date: inc.date,
         refNum: `INC-${inc.id.slice(0, 6)}`,
         type: 'incentive',
-        typeLabel: 'مكافأة',
+        typeLabel: 'مكافأة وحافز',
         description: inc.reason || 'مكافأة تميز وحافز أداء',
         entitlement: inc.amount,
         advance: 0,
@@ -839,31 +904,317 @@ export function generateEmployeeStatement(params: {
     }
   });
 
-  // 5. Payment Vouchers linked to employee
+  // 5. Payment & Receipt Vouchers (سندات الصرف والقبض المرتبطة برقم الموظف)
   vouchers.forEach(vch => {
-    const isTarget = vch.partyId === employee.id ||
-      (vch.description && vch.description.includes(employee.name));
+    const matches = isMatched(vch.partyId, vch.partyName, vch.description, vch.employeeId);
+    if (!matches) return;
 
-    if (isTarget && vch.type === 'payment') {
-      const alreadyLogged = allTx.some(t => t.id === vch.id || t.refNum === vch.voucherNumber);
-      if (!alreadyLogged) {
+    const alreadyLogged = allTx.some(t => t.id === vch.id || (t.refNum && t.refNum === vch.voucherNumber));
+    if (alreadyLogged) return;
+
+    if (vch.type === 'payment') {
+      const isAdvance = vch.description?.includes('سلفة') || vch.voucherNumber?.includes('ADV');
+      if (isAdvance) {
+        allTx.push({
+          id: vch.id,
+          date: vch.date,
+          refNum: vch.voucherNumber,
+          type: 'advance',
+          typeLabel: 'سلفة نقدية (سند صرف)',
+          description: vch.description || `سند صرف سلفة للموظف ${empName}`,
+          entitlement: 0,
+          advance: vch.amount,
+          deduction: 0,
+          disbursement: 0
+        });
+      } else {
         allTx.push({
           id: vch.id,
           date: vch.date,
           refNum: vch.voucherNumber,
           type: 'payment_disbursement',
           typeLabel: 'سند صرف',
-          description: vch.description || `سند صرف للموظف ${employee.name}`,
+          description: vch.description || `سند صرف للموظف ${empName}`,
           entitlement: 0,
           advance: 0,
           deduction: 0,
           disbursement: vch.amount
         });
       }
+    } else if (vch.type === 'receipt') {
+      // Receipt voucher: Employee repaid an advance or deposited cash
+      allTx.push({
+        id: vch.id,
+        date: vch.date,
+        refNum: vch.voucherNumber,
+        type: 'receipt',
+        typeLabel: 'سند قبض (تسديد/إيداع)',
+        description: vch.description || `سند قبض استلام مالي من الموظف ${empName}`,
+        entitlement: vch.amount,
+        advance: 0,
+        deduction: 0,
+        disbursement: 0
+      });
     }
   });
 
-  // 6. Base Monthly Salary Entitlements (Generate monthly accrual if active)
+  // 6. Sales Invoices (فواتير المبيعات المرتبطة برقم أو اسم الموظف)
+  invoices.forEach(inv => {
+    if (!isInvoiceAccountingEligible(inv.workflowStatus)) return;
+
+    const isDirectEmployeeCust =
+      (inv.customerId === empId) ||
+      (empCode && inv.customerId?.toLowerCase() === empCode.toLowerCase()) ||
+      (inv.employeeId === empId) ||
+      (empCode && inv.employeeId?.toLowerCase() === empCode.toLowerCase()) ||
+      (inv.customerName && empName && inv.customerName.trim().toLowerCase() === empName.toLowerCase());
+
+    const isLinkedByRepOrNote = !isDirectEmployeeCust && (
+      (inv.representative && isMatched(undefined, inv.representative, undefined)) ||
+      isMatched(undefined, undefined, `${inv.notes || ''} ${inv.customCustomerText || ''}`)
+    );
+
+    if (isDirectEmployeeCust) {
+      // Sale to employee (goods taken / withdrawal on employee account)
+      const itemsList = (inv.items || []).map(it => it.itemName).slice(0, 3).join('، ');
+      const desc = `فاتورة مبيعات رقم ${inv.invoiceNumber}${itemsList ? ` (${itemsList})` : ''} - إجمالي ${inv.totalAmount.toFixed(2)}${inv.notes ? ` [${inv.notes}]` : ''}`;
+
+      const mappedItems: StatementItemDetail[] = (inv.items || []).map(it => ({
+        itemId: it.itemId,
+        itemCode: it.itemCode,
+        itemName: it.itemName,
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
+        total: it.total,
+        length: it.length,
+        width: it.width,
+        count: it.count,
+        discount: it.discount,
+        unit: it.unit,
+        notes: it.notes,
+        description: it.description,
+        imageThumbnail: it.imageThumbnail,
+        attachments: it.attachments
+      }));
+
+      allTx.push({
+        id: inv.id,
+        date: inv.date,
+        refNum: inv.invoiceNumber,
+        type: 'invoice',
+        typeLabel: 'فاتورة مبيعات (مسحوبات أصناف)',
+        description: desc,
+        entitlement: 0,
+        advance: 0,
+        deduction: 0,
+        disbursement: inv.totalAmount,
+        notes: inv.notes,
+        invoiceNotes: inv.notes,
+        items: mappedItems
+      });
+
+      // If immediate payment was made on this invoice at checkout, credit the employee
+      const paidVal = inv.paidAmount || 0;
+      if (paidVal > 0) {
+        allTx.push({
+          id: `${inv.id}-pmt`,
+          date: inv.date,
+          refNum: `PAY-${inv.invoiceNumber}`,
+          type: 'receipt',
+          typeLabel: 'سداد فاتورة مبيعات',
+          description: `سداد فوري على فاتورة مبيعات ${inv.invoiceNumber} (${inv.paymentMethod === 'cash' ? 'نقداً' : 'تحويل'})`,
+          entitlement: paidVal,
+          advance: 0,
+          deduction: 0,
+          disbursement: 0
+        });
+      }
+    } else if (isLinkedByRepOrNote) {
+      // Invoice executed by employee as sales rep / cashier
+      const mappedItems: StatementItemDetail[] = (inv.items || []).map(it => ({
+        itemId: it.itemId,
+        itemCode: it.itemCode,
+        itemName: it.itemName,
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
+        total: it.total,
+        length: it.length,
+        width: it.width,
+        count: it.count,
+        discount: it.discount,
+        unit: it.unit,
+        notes: it.notes,
+        description: it.description,
+        imageThumbnail: it.imageThumbnail,
+        attachments: it.attachments
+      }));
+
+      allTx.push({
+        id: inv.id,
+        date: inv.date,
+        refNum: inv.invoiceNumber,
+        type: 'invoice',
+        typeLabel: 'عملية مبيعات (مندوب/كاشير)',
+        description: `فاتورة مبيعات ${inv.invoiceNumber} للعميل ${inv.customerName || 'نقدي'} - الإجمالي: ${inv.totalAmount.toFixed(2)}${inv.representative ? ` (المندوب: ${inv.representative})` : ''}`,
+        entitlement: 0,
+        advance: 0,
+        deduction: 0,
+        disbursement: 0,
+        notes: inv.notes,
+        invoiceNotes: inv.notes,
+        items: mappedItems
+      });
+    }
+  });
+
+  // 7. Purchase Invoices (فواتير المشتريات والتوريدات المرتبطة برقم الموظف)
+  purchases.forEach(p => {
+    const isLinked = isMatched(p.supplierId, p.supplierName, p.notes, p.employeeId);
+    if (!isLinked) return;
+
+    const itemsList = (p.items || []).map(it => it.itemName).slice(0, 3).join('، ');
+    const desc = `فاتورة مشتريات رقم ${p.invoiceNumber}${itemsList ? ` (${itemsList})` : ''} - إجمالي ${p.totalAmount.toFixed(2)}${p.notes ? ` [${p.notes}]` : ''}`;
+
+    const mappedItems: StatementItemDetail[] = (p.items || []).map(it => ({
+      itemId: it.itemId,
+      itemCode: it.itemCode,
+      itemName: it.itemName,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      total: it.total,
+      unit: it.unit,
+      notes: it.notes,
+      imageThumbnail: it.imageThumbnail
+    }));
+
+    // Employee supplied goods/materials (Credit / Entitlement to employee)
+    allTx.push({
+      id: p.id,
+      date: p.date,
+      refNum: p.invoiceNumber,
+      type: 'purchase',
+      typeLabel: 'فاتورة مشتريات / توريد',
+      description: desc,
+      entitlement: p.totalAmount,
+      advance: 0,
+      deduction: 0,
+      disbursement: 0,
+      notes: p.notes,
+      invoiceNotes: p.notes,
+      items: mappedItems
+    });
+
+    // Immediate payment reimbursed to employee
+    if ((p.paidAmount || 0) > 0) {
+      allTx.push({
+        id: `${p.id}-pmt`,
+        date: p.date,
+        refNum: `PAY-${p.invoiceNumber}`,
+        type: 'payment_disbursement',
+        typeLabel: 'سداد قيمة مشتريات للموظف',
+        description: `سداد وصرف قيمة مشتريات ${p.invoiceNumber}`,
+        entitlement: 0,
+        advance: 0,
+        deduction: 0,
+        disbursement: p.paidAmount
+      });
+    }
+  });
+
+  // 8. Purchase Returns (مردودات المشتريات)
+  purchaseReturns.forEach(pr => {
+    const isLinked = isMatched(pr.supplierId, pr.supplierName, pr.notes, (pr as any).employeeId);
+    if (!isLinked) return;
+
+    allTx.push({
+      id: pr.id,
+      date: pr.date,
+      refNum: pr.returnNumber,
+      type: 'purchase',
+      typeLabel: 'مردودات مشتريات',
+      description: `مردودات مشتريات رقم ${pr.returnNumber} - إجمالي ${pr.totalAmount.toFixed(2)}`,
+      entitlement: 0,
+      advance: 0,
+      deduction: pr.totalAmount,
+      disbursement: 0
+    });
+  });
+
+  // 9. Payroll Sheets (مسيرات الرواتب)
+  (payrollSheets || []).forEach(sheet => {
+    const sheetItems = (sheet as any).items || (sheet as any).lines || [];
+    const line = sheetItems.find((l: any) =>
+      isMatched(l.employeeId, l.employeeName, l.notes) || (empCode && l.employeeCode?.toLowerCase() === empCode.toLowerCase())
+    );
+
+    if (line) {
+      const sheetDate = sheet.createdAt || sheet.disbursedAt || (sheet as any).periodMonth || '2026-09-01';
+      const isApproved = sheet.status === 'approved';
+      const basic = Number(line.basicSalary || 0);
+      const allowances = Number(line.allowances || line.allowancesTotal || 0);
+      const deduct = Number(line.deductions || line.deductionsTotal || 0);
+      const net = Number(line.netSalary || (basic + allowances - deduct));
+
+      allTx.push({
+        id: `payroll-${sheet.id}-${empId}`,
+        date: sheetDate,
+        refNum: sheet.sheetNumber || `SHT-${sheet.id.slice(0, 6)}`,
+        type: 'payroll_sheet',
+        typeLabel: isApproved ? 'مسير راتب معتمد' : 'مسودة مسير راتب',
+        description: `مسير راتب شهر ${sheet.period || (sheet as any).periodMonth || ''} (أساسي: ${basic.toFixed(2)} + بدلات: ${allowances.toFixed(2)}${deduct > 0 ? ` - استقطاعات: ${deduct.toFixed(2)}` : ''})`,
+        entitlement: basic + allowances,
+        advance: 0,
+        deduction: deduct,
+        disbursement: isApproved ? net : 0,
+        period: sheet.period
+      });
+    }
+  });
+
+  // 10. Debt Clearings (تسويات الديون ومقاصة الحسابات)
+  (debtClearings || []).forEach(dc => {
+    if (isMatched(dc.customerId, dc.customerName, dc.reason) || isMatched(dc.supplierId, dc.supplierName, dc.reason)) {
+      allTx.push({
+        id: dc.id,
+        date: dc.date,
+        refNum: dc.clearingNumber || `DC-${dc.id.slice(0, 6)}`,
+        type: 'debt_clearing',
+        typeLabel: 'تسوية / مقاصة حساب',
+        description: dc.reason || 'تسوية حساب مالي ومقاصة',
+        entitlement: dc.amount > 0 ? dc.amount : 0,
+        advance: 0,
+        deduction: 0,
+        disbursement: dc.amount < 0 ? Math.abs(dc.amount) : 0
+      });
+    }
+  });
+
+  // 11. Journal Entries (قيود اليومية العامة المرتبطة بالموظف)
+  (journalEntries || []).forEach(entry => {
+    const empLines = (entry.lines || []).filter(l =>
+      isMatched(undefined, l.accountName, `${l.description || ''} ${entry.description || ''}`)
+    );
+
+    empLines.forEach((line, idx) => {
+      // Ensure we don't duplicate lines already created via payment voucher or advance
+      if (entry.referenceId && allTx.some(t => t.id === entry.referenceId)) return;
+
+      allTx.push({
+        id: `${entry.id}-${idx}`,
+        date: entry.date,
+        refNum: entry.entryNumber || `JV-${entry.id.slice(0, 6)}`,
+        type: 'journal_entry',
+        typeLabel: 'قيد يومية تسوية',
+        description: line.description || entry.description || 'قيد محاسبي مسجل على حساب الموظف',
+        entitlement: line.credit || 0,
+        advance: 0,
+        deduction: 0,
+        disbursement: line.debit || 0
+      });
+    });
+  });
+
+  // 12. Contractual Monthly Salary Entitlements (لو لم يوجد مسير راتب مسجل لهذا الشهر)
   const hireYear = Math.max(2023, parseInt((employee.hireDate || '2024-01-01').split('-')[0], 10) || 2024);
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
@@ -873,19 +1224,22 @@ export function generateEmployeeStatement(params: {
     for (let m = 1; m <= maxM; m++) {
       const monthStr = `${y}-${String(m).padStart(2, '0')}`;
       const accrualDate = `${monthStr}-28`;
-      
-      if (accrualDate >= (employee.hireDate || '2020-01-01')) {
+
+      // Check if a payroll sheet already covers this period
+      const hasPayrollForMonth = allTx.some(t => t.type === 'payroll_sheet' && t.period && t.period.includes(monthStr));
+
+      if (!hasPayrollForMonth && accrualDate >= (employee.hireDate || '2020-01-01')) {
         const salaryBase = Number(employee.salaryAmount || 0);
         const allowances = Number(employee.allowances || 0);
         const totalMonthSalary = salaryBase + allowances;
 
         if (totalMonthSalary > 0) {
           allTx.push({
-            id: `accrual-${employee.id}-${monthStr}`,
+            id: `accrual-${empId}-${monthStr}`,
             date: accrualDate,
             refNum: `SAL-${monthStr}`,
             type: 'salary_accrual',
-            typeLabel: 'راتب شهري',
+            typeLabel: 'راتب شهري تعاقدي',
             description: `استحقاق راتب شهر ${monthStr} (أساسي: ${salaryBase.toFixed(2)}${allowances > 0 ? ` + بدلات: ${allowances.toFixed(2)}` : ''})`,
             entitlement: totalMonthSalary,
             advance: 0,
@@ -949,6 +1303,9 @@ export function generateEmployeeStatement(params: {
     });
   });
 
+  const totalDue = totalEntitlements;
+  const totalPaid = totalAdvances + totalDeductions + totalDisbursements;
+
   return {
     employee,
     fromDate,
@@ -959,6 +1316,8 @@ export function generateEmployeeStatement(params: {
     totalAdvances,
     totalDeductions,
     totalDisbursements,
+    totalDue,
+    totalPaid,
     closingBalance: running,
     statementDate: new Date().toISOString().split('T')[0]
   };

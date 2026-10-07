@@ -67,6 +67,7 @@ export const AccountStatementModal: React.FC = () => {
     employeeAdvances,
     employeeDeductions,
     employeeIncentives,
+    payrollSheets,
     debtClearings,
     settings
   } = useAccounting();
@@ -195,9 +196,15 @@ export const AccountStatementModal: React.FC = () => {
       vouchers,
       advances: employeeAdvances,
       deductions: employeeDeductions,
-      incentives: employeeIncentives
+      incentives: employeeIncentives,
+      invoices,
+      purchases,
+      purchaseReturns,
+      payrollSheets,
+      journalEntries,
+      debtClearings
     });
-  }, [statementMode, currentEmployee, fromDate, toDate, vouchers, employeeAdvances, employeeDeductions, employeeIncentives]);
+  }, [statementMode, currentEmployee, fromDate, toDate, vouchers, employeeAdvances, employeeDeductions, employeeIncentives, invoices, purchases, purchaseReturns, payrollSheets, journalEntries, debtClearings]);
 
   const isOpen = Boolean(selectedPartyForStatement || selectedEmployeeForStatement);
 
@@ -260,6 +267,13 @@ export const AccountStatementModal: React.FC = () => {
   const displayedPartyRows = partyStatement ? partyStatement.rows.filter(r => {
     if (filterType === 'debit') return r.debit > 0;
     if (filterType === 'credit') return r.credit > 0;
+    return true;
+  }) : [];
+
+  // Filtered rows for employee
+  const displayedEmployeeRows = employeeStatement ? employeeStatement.rows.filter(r => {
+    if (filterType === 'debit') return (r.advance > 0 || r.deduction > 0 || r.disbursement > 0);
+    if (filterType === 'credit') return r.entitlement > 0;
     return true;
   }) : [];
 
@@ -504,23 +518,21 @@ export const AccountStatementModal: React.FC = () => {
                 </button>
               )}
 
-              {statementMode === 'party' && (
-                <div className="flex items-center gap-1">
-                  <span className="font-semibold text-slate-600 flex items-center gap-1">
-                    <Filter className="w-3.5 h-3.5 text-slate-400" />
-                    <span>تصفية:</span>
-                  </span>
-                  <select
-                    value={filterType}
-                    onChange={e => setFilterType(e.target.value as any)}
-                    className="bg-white border border-slate-300 rounded-md px-2 py-1 text-xs text-slate-700 focus:ring-1 focus:ring-blue-500"
-                  >
-                    <option value="all">كافة الحركات (الكل)</option>
-                    <option value="debit">الحركات المدينة فقط (مدين / سحوبات)</option>
-                    <option value="credit">الحركات الدائنة فقط (دائن / مقبوضات)</option>
-                  </select>
-                </div>
-              )}
+              <div className="flex items-center gap-1">
+                <span className="font-semibold text-slate-600 flex items-center gap-1">
+                  <Filter className="w-3.5 h-3.5 text-slate-400" />
+                  <span>تصفية:</span>
+                </span>
+                <select
+                  value={filterType}
+                  onChange={e => setFilterType(e.target.value as any)}
+                  className="bg-white border border-slate-300 rounded-md px-2 py-1 text-xs text-slate-700 focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="all">كافة الحركات (الكل)</option>
+                  <option value="debit">{statementMode === 'employee' ? 'سلف ومنصرفات (مدين -)' : 'الحركات المدينة فقط (مدين / سحوبات)'}</option>
+                  <option value="credit">{statementMode === 'employee' ? 'رواتب واستحقاقات (دائن +)' : 'الحركات الدائنة فقط (دائن / مقبوضات)'}</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
@@ -885,7 +897,7 @@ export const AccountStatementModal: React.FC = () => {
                                                     key={imgIdx}
                                                     src={imgStr}
                                                     alt={it.itemName}
-                                                    className="w-10 h-10 rounded-md object-cover border border-slate-200"
+                                                    className="w-10 h-10 rounded-md object-contain bg-white border border-slate-200"
                                                   />
                                                 ))}
                                               </div>
@@ -945,7 +957,7 @@ export const AccountStatementModal: React.FC = () => {
                                           (انقر على أي صورة لتكبيرها والمعاينة)
                                         </span>
                                       </div>
-                                      <div className="flex flex-wrap gap-2.5">
+                                      <div className="grid grid-cols-7 gap-2.5 w-full print:grid-cols-7">
                                         {row.items.flatMap(it => {
                                           const thumbs = parseThumbnails(it.imageThumbnail);
                                           const attImgs = (it.attachments || [])
@@ -964,14 +976,14 @@ export const AccountStatementModal: React.FC = () => {
                                           <div
                                             key={idx}
                                             onClick={() => setPreviewModalImage({ url: imgObj.imgStr, name: imgObj.itemName })}
-                                            className="flex flex-col items-center bg-white border border-slate-200 hover:border-purple-400 hover:shadow-sm rounded-lg p-1.5 shadow-2xs w-[90px] print:w-[82px] cursor-pointer transition-all group"
+                                            className="flex flex-col items-center bg-white border border-slate-200 hover:border-purple-500 hover:shadow-md rounded-lg p-1.5 shadow-2xs w-full cursor-pointer transition-all group"
                                             title={`معاينة وتكبير صورة "${imgObj.itemName}"\nالسعر: ${imgObj.unitPrice.toFixed(2)} ${settings.currency || '₪'}`}
                                           >
-                                            <div className="relative w-[78px] h-[78px] print:w-[72px] print:h-[72px] rounded-md overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
+                                            <div className="relative w-full aspect-square rounded-md overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center p-0.5">
                                               <img
                                                 src={imgObj.imgStr}
                                                 alt={imgObj.itemName}
-                                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                                className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-200"
                                                 onError={(e) => {
                                                   e.currentTarget.style.display = 'none';
                                                 }}
@@ -980,10 +992,10 @@ export const AccountStatementModal: React.FC = () => {
                                                 <Eye className="w-4 h-4 text-white" />
                                               </div>
                                             </div>
-                                            <div className="text-[9.5px] text-slate-800 font-bold text-center truncate w-full mt-1 group-hover:text-purple-700" title={imgObj.itemName}>
+                                            <div className="text-[10px] text-slate-800 font-bold text-center line-clamp-2 w-full mt-1.5 group-hover:text-purple-700 leading-tight" title={imgObj.itemName}>
                                               {imgObj.itemName}
                                             </div>
-                                            <div className="flex items-center justify-between w-full text-[8.5px] font-mono text-slate-500 mt-0.5 border-t border-slate-100 pt-0.5">
+                                            <div className="flex items-center justify-between w-full text-[8.5px] font-mono text-slate-500 mt-1 border-t border-slate-100 pt-0.5">
                                               <span>{imgObj.quantity} {imgObj.unit || 'حبة'}</span>
                                               <span className="font-bold text-purple-700">{imgObj.unitPrice.toFixed(2)}</span>
                                             </div>
@@ -1112,6 +1124,416 @@ export const AccountStatementModal: React.FC = () => {
                     )}
                   </div>
                   
+                  <span className="text-[11px] text-slate-400 block font-mono mt-2">الختم والتوقيع المعتمد</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================= */}
+          {/* SECTION 2: EMPLOYEE FINANCIAL STATEMENT                   */}
+          {/* ========================================================= */}
+          {statementMode === 'employee' && employeeStatement && (
+            <div className="space-y-3">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                <div className="bg-slate-50 p-2 rounded-lg border border-slate-200">
+                  <span className="text-[10px] text-slate-500 font-semibold block">رصيد أول المدة / سابق:</span>
+                  <span className="text-xs font-black font-mono text-slate-800">
+                    {formatNumber(employeeStatement.openingBalance, 2)} {settings.currency}
+                  </span>
+                  <span className="text-[9.5px] text-slate-400 block mt-0.5">قبل تاريخ {fromDate || 'البدء'}</span>
+                </div>
+
+                <div className="bg-purple-50/70 p-2 rounded-lg border border-purple-200/80">
+                  <span className="text-[10px] text-purple-700 font-semibold block">
+                    إجمالي المستحقات (دائن له):
+                  </span>
+                  <span className="text-xs font-black font-mono text-purple-800">
+                    {formatNumber(employeeStatement.totalEntitlements, 2)} {settings.currency}
+                  </span>
+                  <span className="text-[9.5px] text-purple-600 block mt-0.5">
+                    رواتب ومكافآت وتوريدات
+                  </span>
+                </div>
+
+                <div className="bg-amber-50/70 p-2 rounded-lg border border-amber-200/80">
+                  <span className="text-[10px] text-amber-700 font-semibold block">
+                    إجمالي السلف والمسحوبات:
+                  </span>
+                  <span className="text-xs font-black font-mono text-amber-800">
+                    {formatNumber(employeeStatement.totalAdvances + employeeStatement.rows.filter(r => r.type === 'invoice').reduce((s, r) => s + r.disbursement, 0), 2)} {settings.currency}
+                  </span>
+                  <span className="text-[9.5px] text-amber-600 block mt-0.5">
+                    سلف نقدية وفواتير مسحوبات
+                  </span>
+                </div>
+
+                <div className="bg-rose-50/70 p-2 rounded-lg border border-rose-200/80">
+                  <span className="text-[10px] text-rose-700 font-semibold block">
+                    إجمالي المنصرف والخصومات:
+                  </span>
+                  <span className="text-xs font-black font-mono text-rose-800">
+                    {formatNumber(employeeStatement.totalDeductions + employeeStatement.rows.filter(r => r.type !== 'invoice').reduce((s, r) => s + r.disbursement, 0), 2)} {settings.currency}
+                  </span>
+                  <span className="text-[9.5px] text-rose-600 block mt-0.5">
+                    سندات صرف وجزاءات
+                  </span>
+                </div>
+
+                <div className={`p-2 rounded-lg border ${
+                  employeeStatement.closingBalance > 0
+                    ? 'bg-purple-50 border-purple-300 text-purple-900'
+                    : employeeStatement.closingBalance < 0
+                    ? 'bg-rose-50 border-rose-300 text-rose-900'
+                    : 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                }`}>
+                  <span className="text-[10px] font-semibold block">
+                    {employeeStatement.closingBalance > 0
+                      ? 'صافي مستحق للموظف (دائن له):'
+                      : employeeStatement.closingBalance < 0
+                      ? 'صافي مستحق على الموظف (مدين عليه):'
+                      : 'الحساب متطابق وخالص:'}
+                  </span>
+                  <span className="text-xs font-black font-mono">
+                    {formatNumber(Math.abs(employeeStatement.closingBalance), 2)} {settings.currency}
+                  </span>
+                  <span className="text-[9.5px] font-bold block mt-0.5">
+                    {employeeStatement.closingBalance > 0 ? 'مستحق له في ذمة المنشأة' : employeeStatement.closingBalance < 0 ? 'سلف ومسحوبات مطلوبة منه' : 'تمت التسوية تماماً'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Transactions Table */}
+              <div className="border border-slate-400 rounded-md overflow-x-auto shadow-2xs min-h-[440px] print:min-h-[720px] flex flex-col justify-between bg-white">
+                <table className="w-full text-right report-table border-collapse h-full">
+                  <thead>
+                    <tr className="bg-slate-800 text-white font-bold border-b border-slate-900 print:bg-slate-200 print:text-slate-900">
+                      <th className="w-8 min-w-8 text-center border-l border-slate-600 print:border-slate-400">م</th>
+                      <th className="w-24 min-w-24 text-center border-l border-slate-600 print:border-slate-400">التاريخ</th>
+                      <th className="border-l border-slate-600 print:border-slate-400">البيان والشرح والتفاصيل الكاملة</th>
+                      <th className="w-28 min-w-28 text-left bg-purple-950/40 print:bg-purple-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">
+                        استحقاق (له +)
+                      </th>
+                      <th className="w-28 min-w-28 text-left bg-rose-950/40 print:bg-rose-50 border-l border-slate-600 print:border-slate-400 whitespace-nowrap">
+                        منصرف / سلف (عليه -)
+                      </th>
+                      <th className="w-32 min-w-32 text-left bg-slate-700 print:bg-slate-300 whitespace-nowrap">
+                        الرصيد التراكمي
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 font-mono">
+                    {/* Opening Balance Row */}
+                    <tr className="bg-slate-100/90 font-bold border-b border-slate-300 text-slate-800">
+                      <td className="text-center text-slate-400 font-sans border-l border-slate-300">-</td>
+                      <td className="text-center text-slate-600 font-mono border-l border-slate-300">{fromDate || 'الرصيد السابق'}</td>
+                      <td className="font-sans text-slate-700 font-semibold border-l border-slate-300">
+                        رصيد سابق - رصيد الحساب الافتتاحي السابق (ما قبل تاريخ {fromDate || 'بدء الحركة'})
+                      </td>
+                      <td className="text-left font-bold text-slate-700 font-mono whitespace-nowrap border-l border-slate-300">
+                        {employeeStatement.openingBalance > 0 ? employeeStatement.openingBalance.toFixed(2) : '-'}
+                      </td>
+                      <td className="text-left font-bold text-slate-700 font-mono whitespace-nowrap border-l border-slate-300">
+                        {employeeStatement.openingBalance < 0 ? Math.abs(employeeStatement.openingBalance).toFixed(2) : '-'}
+                      </td>
+                      <td className="text-left font-black text-slate-950 bg-slate-100 font-mono whitespace-nowrap">
+                        {employeeStatement.openingBalance.toFixed(2)}
+                      </td>
+                    </tr>
+
+                    {displayedEmployeeRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-400 font-sans font-bold">
+                          لا توجد حركات مالية مسجلة لهذا الموظف خلال هذه الفترة المحددة.
+                        </td>
+                      </tr>
+                    ) : (
+                      displayedEmployeeRows.map((row, idx) => {
+                        const totalDebitAmount = row.advance + row.deduction + row.disbursement;
+                        return (
+                          <React.Fragment key={`${row.id || 'emp-row'}-${idx}`}>
+                            <tr
+                              className={`hover:bg-slate-50/90 transition-colors ${
+                                idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
+                              }`}
+                            >
+                              <td className="text-center text-slate-400 font-sans align-middle border-l border-slate-300">{idx + 1}</td>
+                              <td className="text-slate-700 whitespace-nowrap text-center align-middle font-mono border-l border-slate-300">{formatDateDisplay(row.date)}</td>
+                              <td className="font-sans text-slate-800 align-middle space-y-1 border-l border-slate-300">
+                                <div className="font-bold text-slate-900 leading-tight flex flex-wrap items-center gap-1">
+                                  <span className={`px-1.5 py-0.5 rounded text-[10.5px] font-bold ${
+                                    row.type === 'salary_accrual' || row.type === 'incentive' ? 'bg-purple-100 text-purple-800' :
+                                    row.type === 'advance' ? 'bg-amber-100 text-amber-800' :
+                                    row.type === 'deduction' ? 'bg-rose-100 text-rose-800' :
+                                    row.type === 'invoice' ? 'bg-blue-100 text-blue-800' :
+                                    row.type === 'purchase' ? 'bg-emerald-100 text-emerald-800' :
+                                    row.type === 'receipt' ? 'bg-teal-100 text-teal-800' :
+                                    'bg-slate-100 text-slate-800'
+                                  }`}>
+                                    {row.typeLabel}
+                                  </span>
+                                  {row.referenceNumber && (
+                                    <>
+                                      <span className="text-slate-400 font-normal">-</span>
+                                      <span className="font-mono font-bold text-slate-800">{row.referenceNumber}</span>
+                                    </>
+                                  )}
+                                  {row.description && (
+                                    <>
+                                      <span className="text-slate-400 font-normal">-</span>
+                                      <span className="text-slate-700 font-normal text-xs">{row.description}</span>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="text-left font-bold text-purple-700 align-middle border-l border-slate-300 whitespace-nowrap">
+                                {row.entitlement > 0 ? row.entitlement.toFixed(2) : '-'}
+                              </td>
+                              <td className="text-left font-bold text-rose-700 align-middle border-l border-slate-300 whitespace-nowrap">
+                                {totalDebitAmount > 0 ? totalDebitAmount.toFixed(2) : '-'}
+                              </td>
+                              <td className="text-left font-black text-slate-900 align-middle bg-slate-50/50 whitespace-nowrap">
+                                <span className={row.runningBalance > 0 ? 'text-purple-800' : row.runningBalance < 0 ? 'text-rose-800' : 'text-slate-800'}>
+                                  {row.runningBalance.toFixed(2)}
+                                </span>
+                              </td>
+                            </tr>
+
+                            {/* تفاصيل الأصناف الممتدة بالكامل للموظف */}
+                            {showItemDetails && row.items && row.items.length > 0 && (
+                              <tr className="bg-slate-50/60 print:bg-transparent">
+                                <td colSpan={6} className="p-1 px-1.5 sm:px-2 border-b border-slate-300">
+                                  <div className="border border-slate-300 rounded overflow-hidden shadow-2xs bg-white w-full">
+                                    <table className="w-full text-right report-sub-table border-collapse">
+                                      <thead>
+                                        <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
+                                          <th className="text-center w-12 min-w-12 border-l border-slate-200">صورة</th>
+                                          <th className="border-l border-slate-200">الصنف والبيان</th>
+                                          <th className="text-center w-12 min-w-12 border-l border-slate-200">الطول</th>
+                                          <th className="text-center w-12 min-w-12 border-l border-slate-200">العرض</th>
+                                          <th className="text-center w-10 min-w-10 border-l border-slate-200">العدد</th>
+                                          <th className="text-center w-12 min-w-12 border-l border-slate-200">الكمية</th>
+                                          <th className="text-left w-16 min-w-16 border-l border-slate-200">السعر</th>
+                                          <th className="text-left w-18 min-w-18">الإجمالي</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-200">
+                                        {row.items.map((it, iIdx) => (
+                                          <tr key={iIdx} className="hover:bg-slate-50">
+                                            <td className="text-center border-l border-slate-200 py-1">
+                                              {it.imageThumbnail ? (
+                                                <div className="flex items-center justify-center gap-1 flex-wrap max-w-[120px] mx-auto">
+                                                  {parseThumbnails(it.imageThumbnail).map((imgStr, imgIdx) => (
+                                                    <img
+                                                      key={imgIdx}
+                                                      src={imgStr}
+                                                      alt={it.itemName}
+                                                      className="w-10 h-10 rounded-md object-contain bg-white border border-slate-200"
+                                                    />
+                                                  ))}
+                                                </div>
+                                              ) : (
+                                                <span className="text-slate-300 font-mono">-</span>
+                                              )}
+                                            </td>
+                                            <td className="font-bold text-slate-900 border-l border-slate-200">
+                                              <div>
+                                                <span>{it.itemName}</span>
+                                                {(it.notes || it.description) && (it.notes !== it.itemName) && (it.notes !== row.invoiceNotes) && (it.description !== row.invoiceNotes) && (
+                                                  <span className="text-slate-600 font-medium"> / {it.notes || it.description}</span>
+                                                )}
+                                                {it.itemCode && <span className="text-[10px] text-slate-400 mr-1.5 font-mono font-normal">({it.itemCode})</span>}
+                                              </div>
+                                            </td>
+                                            <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.length != null && it.length !== 0 ? it.length : '-'}</td>
+                                            <td className="text-center font-mono text-slate-800 border-l border-slate-200">{it.width != null && it.width !== 0 ? it.width : '-'}</td>
+                                            <td className="text-center font-mono font-bold text-slate-800 border-l border-slate-200">{it.count || 1}</td>
+                                            <td className="text-center font-mono font-bold text-slate-900 border-l border-slate-200">{it.quantity}</td>
+                                            <td className="text-left font-mono text-slate-800 border-l border-slate-200">{it.unitPrice.toFixed(2)}</td>
+                                            <td className="text-left font-mono font-bold text-slate-900">{it.total.toFixed(2)}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+
+                                    {/* مصغرات صور الأصناف 7 بالسطر */}
+                                    {showImageThumbnailsInStatement && row.items && row.items.some(it => 
+                                      it.imageThumbnail || (it.attachments && it.attachments.some(a => a.data || a.type?.startsWith('image/')))
+                                    ) && (
+                                      <div className="bg-slate-50/70 p-2.5 border-t border-slate-200">
+                                        <div className="text-[11px] font-bold text-slate-700 mb-2 flex items-center justify-between select-none">
+                                          <div className="flex items-center gap-1.5 text-purple-900 font-bold">
+                                            <ImageIcon className="w-3.5 h-3.5 text-purple-600" />
+                                            <span>مصغرات صور الأصناف المرفقة بالحركة:</span>
+                                          </div>
+                                          <span className="text-[9.5px] text-slate-400 font-normal print:hidden">
+                                            (انقر على أي صورة لتكبيرها والمعاينة)
+                                          </span>
+                                        </div>
+                                        <div className="grid grid-cols-7 gap-2.5 w-full print:grid-cols-7">
+                                          {row.items.flatMap(it => {
+                                            const thumbs = parseThumbnails(it.imageThumbnail);
+                                            const attImgs = (it.attachments || [])
+                                              .filter(a => a.data || a.type?.startsWith('image/'))
+                                              .map(a => a.data || '');
+                                            const allImgs = Array.from(new Set([...thumbs, ...attImgs].filter(Boolean)));
+                                            return allImgs.map(imgStr => ({
+                                              imgStr,
+                                              itemName: it.itemName,
+                                              itemCode: it.itemCode,
+                                              unitPrice: it.unitPrice,
+                                              quantity: it.quantity,
+                                              unit: it.unit
+                                            }));
+                                          }).map((imgObj, idx) => (
+                                            <div
+                                              key={idx}
+                                              onClick={() => setPreviewModalImage({ url: imgObj.imgStr, name: imgObj.itemName })}
+                                              className="flex flex-col items-center bg-white border border-slate-200 hover:border-purple-500 hover:shadow-md rounded-lg p-1.5 shadow-2xs w-full cursor-pointer transition-all group"
+                                              title={`معاينة وتكبير صورة "${imgObj.itemName}"\nالسعر: ${imgObj.unitPrice.toFixed(2)} ${settings.currency || '₪'}`}
+                                            >
+                                              <div className="relative w-full aspect-square rounded-md overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center p-0.5">
+                                                <img
+                                                  src={imgObj.imgStr}
+                                                  alt={imgObj.itemName}
+                                                  className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-200"
+                                                  onError={(e) => {
+                                                    e.currentTarget.style.display = 'none';
+                                                  }}
+                                                />
+                                                <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center print:hidden">
+                                                  <Eye className="w-4 h-4 text-white" />
+                                                </div>
+                                              </div>
+                                              <div className="text-[10px] text-slate-800 font-bold text-center line-clamp-2 w-full mt-1.5 group-hover:text-purple-700 leading-tight" title={imgObj.itemName}>
+                                                {imgObj.itemName}
+                                              </div>
+                                              <div className="flex items-center justify-between w-full text-[8.5px] font-mono text-slate-500 mt-1 border-t border-slate-100 pt-0.5">
+                                                <span>{imgObj.quantity} {imgObj.unit || 'حبة'}</span>
+                                                <span className="font-bold text-purple-700">{imgObj.unitPrice.toFixed(2)}</span>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })
+                    )}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-slate-100 font-bold border-t border-slate-300 text-slate-900">
+                      <td colSpan={3} className="text-left font-sans">الإجمالي العام للحركات بالفترة:</td>
+                      <td className="text-left font-mono text-purple-800 font-black whitespace-nowrap">
+                        {employeeStatement.totalEntitlements.toFixed(2)}
+                      </td>
+                      <td className="text-left font-mono text-rose-800 font-black whitespace-nowrap">
+                        {employeeStatement.totalPaid.toFixed(2)}
+                      </td>
+                      <td className="text-left font-mono text-slate-900 font-black bg-slate-200/80 whitespace-nowrap">
+                        {employeeStatement.closingBalance.toFixed(2)} {settings.currency}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* ملخص نهاية الكشف بعد الجدول */}
+              <div className="mt-2 p-1.5 bg-slate-50 border border-slate-400 rounded-md space-y-1.5 shadow-2xs print:border-slate-300">
+                <div className="grid grid-cols-4 gap-1.5 text-[10px]">
+                  <div className="bg-white border border-slate-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
+                    <span className="font-bold text-slate-700 text-[10px] whitespace-nowrap">رصيد سابق:</span>
+                    <div className="font-black font-mono text-slate-900 text-[11px] flex items-center gap-1 whitespace-nowrap">
+                      <span>{employeeStatement.openingBalance.toFixed(2)}</span>
+                      <span className="text-[9px] font-sans font-bold text-slate-500">{settings.currency}</span>
+                    </div>
+                  </div>
+                  <div className="bg-white border border-purple-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
+                    <span className="font-bold text-purple-900 text-[10px] whitespace-nowrap">إجمالي المستحقات:</span>
+                    <div className="font-black font-mono text-purple-700 text-[11px] flex items-center gap-1 whitespace-nowrap">
+                      <span>{employeeStatement.totalEntitlements.toFixed(2)}</span>
+                      <span className="text-[9px] font-sans font-bold opacity-75">{settings.currency}</span>
+                    </div>
+                  </div>
+                  <div className="bg-white border border-rose-300 rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs">
+                    <span className="font-bold text-rose-900 text-[10px] whitespace-nowrap">إجمالي المنصرف والسلف:</span>
+                    <div className="font-black font-mono text-rose-700 text-[11px] flex items-center gap-1 whitespace-nowrap">
+                      <span>{employeeStatement.totalPaid.toFixed(2)}</span>
+                      <span className="text-[9px] font-sans font-bold opacity-75">{settings.currency}</span>
+                    </div>
+                  </div>
+                  <div className={`bg-white border rounded p-1 sm:p-1.5 flex items-center justify-center gap-1.5 shadow-2xs ${employeeStatement.closingBalance > 0 ? 'border-purple-400 bg-purple-50/20' : employeeStatement.closingBalance < 0 ? 'border-rose-400 bg-rose-50/20' : 'border-slate-300'}`}>
+                    <span className="font-bold text-slate-900 text-[10px] whitespace-nowrap">
+                      الإجمالي:
+                    </span>
+                    <div className={`font-black font-mono text-[11px] flex items-center gap-1 whitespace-nowrap ${employeeStatement.closingBalance > 0 ? 'text-purple-700' : employeeStatement.closingBalance < 0 ? 'text-rose-700' : 'text-slate-800'}`}>
+                      <span>{Math.abs(employeeStatement.closingBalance).toFixed(2)}</span>
+                      <span className="text-[9px] font-sans font-bold opacity-75">{settings.currency}</span>
+                      <span className="text-[9.5px] font-sans font-bold">
+                        ({employeeStatement.closingBalance > 0 ? 'دائن له' : employeeStatement.closingBalance < 0 ? 'مدين عليه' : 'متزن'})
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tafqeet & Closing Balance */}
+                <div className="bg-white p-1.5 rounded border border-slate-200">
+                  <div className="flex items-center justify-between text-[10.5px] mb-0.5">
+                    <span className="font-bold text-slate-700">المبلغ كتابة وتفقيطاً:</span>
+                    <span className="font-bold text-slate-900 font-mono text-[11px]">
+                      صافي رصيد الموظف ({employeeStatement.closingBalance > 0 ? 'دائن له' : employeeStatement.closingBalance < 0 ? 'مدين عليه' : 'متزن'}): {Math.abs(employeeStatement.closingBalance).toFixed(2)} {settings.currency}
+                    </span>
+                  </div>
+                  <div className="text-[10.5px] font-semibold text-slate-800 bg-slate-50 p-1 rounded border border-slate-200 font-arabic">
+                    {empTafqeet}
+                  </div>
+                </div>
+              </div>
+
+              {/* Official Signatures Section */}
+              <div className="pt-4 border-t border-slate-300 grid grid-cols-3 gap-4 text-center text-[10px] mt-4">
+                <div className="space-y-4 flex flex-col items-center justify-end">
+                  <span className="font-bold text-slate-700 block mb-auto">إعداد وتدقيق المحاسب</span>
+                  <div className="border-b border-dashed border-slate-400 w-28 mx-auto mt-6"></div>
+                  <span className="text-[10px] text-slate-400 block font-mono">التوقيع والتاريخ</span>
+                </div>
+
+                <div className="space-y-4 flex flex-col items-center justify-end">
+                  <span className="font-bold text-slate-700 block mb-auto">توقيع واستلام الموظف</span>
+                  <div className="border-b border-dashed border-slate-400 w-28 mx-auto mt-6"></div>
+                  <span className="text-[10px] text-slate-400 block font-mono">{currentEmployee?.name}</span>
+                </div>
+
+                <div className="space-y-2 flex flex-col items-center justify-end">
+                  <span className="font-bold text-slate-700 block mb-auto">اعتماد الإدارة / التوقيع والختم</span>
+                  <div className="min-h-[4.2cm] flex items-center justify-center relative">
+                    {settings.stampUrl ? (
+                      <div className="relative flex items-center justify-center">
+                        <OfficialStamp size="3.5cm" />
+                        {settings.signatureUrl && (
+                          <img
+                            src={settings.signatureUrl}
+                            alt="Signature"
+                            className="absolute bottom-1 max-h-12 max-w-[120px] object-contain mix-blend-multiply opacity-85 pointer-events-none"
+                          />
+                        )}
+                      </div>
+                    ) : settings.signatureUrl ? (
+                      <img
+                        src={settings.signatureUrl}
+                        alt="Signature"
+                        className="max-h-16 max-w-[140px] object-contain mix-blend-multiply opacity-90"
+                      />
+                    ) : (
+                      <div className="border-b border-dashed border-slate-400 w-36 mx-auto mt-10"></div>
+                    )}
+                  </div>
                   <span className="text-[11px] text-slate-400 block font-mono mt-2">الختم والتوقيع المعتمد</span>
                 </div>
               </div>

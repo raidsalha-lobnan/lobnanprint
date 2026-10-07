@@ -339,6 +339,7 @@ export interface Invoice {
   printJobId?: string;
   additionalCharges?: number;
   representative?: string;
+  employeeId?: string; // معرف الموظف المرتبط بالفاتورة
   branch?: string;
   branchId?: string;
   userId?: string;
@@ -414,6 +415,7 @@ export interface PurchaseInvoice {
   paymentDueDate?: string;
   warehouse?: string;
   notes?: string;
+  employeeId?: string; // معرف الموظف المرتبط بعملية الشراء
   currency?: string;
   currencySymbol?: string;
   exchangeRate?: number;
@@ -519,6 +521,7 @@ export interface PaymentVoucher {
   accountCode: string; // الحساب المقابل (الصندوق / البنك)
   description: string;
   referenceInvoiceId?: string;
+  employeeId?: string; // معرف الموظف المرتبط بالسند
   currency?: string;          // e.g. 'ILS', 'USD', 'JOD', 'EUR'
   currencySymbol?: string;    // e.g. '₪', '$', 'د.أ', '€'
   exchangeRate?: number;      // e.g. 3.70 for USD, 1.0 for ILS

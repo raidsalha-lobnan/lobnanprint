@@ -85,7 +85,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
     currencies,
     employeeAdvances,
     employeeDeductions,
-    employeeIncentives
+    employeeIncentives,
+    debtClearings
   } = useAccounting();
 
   const [activeReport, setActiveReport] = useState<ReportType>(initialReport || 'customer_statement');
@@ -172,6 +173,19 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
         };
       });
   }, [parties, settings.currency]);
+
+  // خيارات قائمة الموظفين المنسدلة للبحث والمطابقة الفورية برقم أو اسم الموظف
+  const employeeComboboxOptions: ComboboxOption[] = useMemo(() => {
+    return employees.map(emp => ({
+      id: emp.id,
+      name: emp.name,
+      code: emp.code || emp.id.slice(-4),
+      subText: `${emp.jobTitle || 'موظف'}${emp.phone ? ' | هاتف: ' + emp.phone : ''}`,
+      badge: emp.department || 'عام',
+      extraSearchCorpus: `${emp.name} ${emp.code || ''} ${emp.jobTitle || ''} ${emp.phone || ''} ${emp.department || ''}`,
+      raw: emp
+    }));
+  }, [employees]);
 
   // 5: Receipt vouchers treasury filter
   const [receiptTreasuryFilter, setReceiptTreasuryFilter] = useState<string>('all');
@@ -500,95 +514,56 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
     const emp = employees.find(e => e.id === selectedEmpId);
     if (!emp) return { employee: null, rows: [], totalDue: 0, totalPaid: 0, netBalance: 0 };
 
-    interface EmpRow {
-      date: string;
-      type: string;
-      refNumber: string;
-      description: string;
-      dueAmount: number; // استحقاق للموظف (راتب / حافز / بدلات)
-      paidAmount: number; // منصرف له أو مخصوم (سلف / خصومات / صرف رواتب)
-    }
-
-    const rows: EmpRow[] = [];
-
-    // Advances
-    employeeAdvances.filter(a => a.employeeId === emp.id && !a.isCarryOver).forEach(adv => {
-      rows.push({
-        date: adv.date,
-        type: 'سلفة نقدية منصرفة',
-        refNumber: `ADV-${adv.id.slice(-4)}`,
-        description: `سلفة على الراتب (${adv.reason || 'سلفة عاجلة'})`,
-        dueAmount: 0,
-        paidAmount: adv.amount
-      });
+    const statement = generateEmployeeStatement({
+      employee: emp,
+      fromDate: fromDate || undefined,
+      toDate: toDate || undefined,
+      vouchers,
+      advances: employeeAdvances,
+      deductions: employeeDeductions,
+      incentives: employeeIncentives,
+      invoices,
+      purchases,
+      purchaseReturns,
+      payrollSheets,
+      journalEntries,
+      debtClearings
     });
 
-    // Deductions
-    employeeDeductions.filter(d => d.employeeId === emp.id).forEach(ded => {
-      rows.push({
-        date: ded.date,
-        type: 'استقطاع / غياب / جزاء',
-        refNumber: `DED-${ded.id.slice(-4)}`,
-        description: `${ded.reason} (${ded.notes || ''})`,
-        dueAmount: 0,
-        paidAmount: ded.amount
-      });
-    });
-
-    // Incentives / Bonuses
-    employeeIncentives.filter(inc => inc.employeeId === emp.id).forEach(inc => {
-      rows.push({
-        date: inc.date,
-        type: 'مكافأة وحافز إنجاز',
-        refNumber: `INC-${inc.id.slice(-4)}`,
-        description: `${inc.reason} (${inc.notes || ''})`,
-        dueAmount: inc.amount,
-        paidAmount: 0
-      });
-    });
-
-    // Payroll sheet line
-    (payrollSheets || []).forEach(sheet => {
-      const sheetItems = (sheet as any).items || (sheet as any).lines || [];
-      const line = sheetItems.find((l: any) => l.employeeId === emp.id);
-      if (line) {
-        rows.push({
-          date: sheet.createdAt || sheet.disbursedAt || (sheet as any).periodMonth || '2026-09-01',
-          type: sheet.status === 'approved' ? 'مسير راتب معتمد' : 'مسودة مسير راتب',
-          refNumber: sheet.sheetNumber,
-          description: `راتب شهر ${sheet.period || (sheet as any).periodMonth || ''} (أساسي: ${line.basicSalary || 0}، بدلات: ${line.allowances || line.allowancesTotal || 0}، استقطاعات: ${line.deductions || line.deductionsTotal || 0})`,
-          dueAmount: (line.basicSalary || 0) + (line.allowances || line.allowancesTotal || 0),
-          paidAmount: sheet.status === 'approved' ? line.netSalary : 0
-        });
-      }
-    });
-
-    const filtered = rows.filter(r => {
-      if (fromDate && r.date < fromDate) return false;
-      if (toDate && r.date > toDate) return false;
-      return true;
-    }).sort((a, b) => a.date.localeCompare(b.date));
-
-    let running = 0;
-    const computedRows = filtered.map(r => {
-      running += (r.dueAmount - r.paidAmount);
-      return {
-        ...r,
-        runningBalance: running
-      };
-    });
-
-    const totalDue = computedRows.reduce((s, r) => s + r.dueAmount, 0);
-    const totalPaid = computedRows.reduce((s, r) => s + r.paidAmount, 0);
+    const mappedRows = statement.rows.map(r => ({
+      date: r.date,
+      type: r.typeLabel,
+      refNumber: r.referenceNumber,
+      description: r.description,
+      dueAmount: r.entitlement,
+      paidAmount: r.advance + r.deduction + r.disbursement,
+      runningBalance: r.runningBalance,
+      notes: r.notes
+    }));
 
     return {
       employee: emp,
-      rows: computedRows,
-      totalDue,
-      totalPaid,
-      netBalance: totalDue - totalPaid
+      rows: mappedRows,
+      totalDue: statement.totalDue,
+      totalPaid: statement.totalPaid,
+      netBalance: statement.closingBalance
     };
-  }, [employees, selectedEmpId, employeeAdvances, employeeDeductions, employeeIncentives, payrollSheets, fromDate, toDate]);
+  }, [
+    employees,
+    selectedEmpId,
+    fromDate,
+    toDate,
+    vouchers,
+    employeeAdvances,
+    employeeDeductions,
+    employeeIncentives,
+    invoices,
+    purchases,
+    purchaseReturns,
+    payrollSheets,
+    journalEntries,
+    debtClearings
+  ]);
 
   // -------------------------------------------------------------
   // REPORT 8: Payroll Sheets Report (كشف رواتب الموظفين)
@@ -990,19 +965,21 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
 
           {/* Employee Selector if activeReport is employee_statement */}
           {activeReport === 'employee_statement' && (
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-slate-700">الموظف:</span>
-              <select
-                value={selectedEmpId}
-                onChange={e => setSelectedEmpId(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-800"
-              >
-                {employees.map(emp => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.name} - {emp.jobTitle}
-                  </option>
-                ))}
-              </select>
+            <div className="flex items-center gap-2 flex-wrap min-w-[280px]">
+              <div className="flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap text-xs">
+                <UserCheck className="w-4 h-4 text-purple-600" />
+                <span>اختيار الموظف:</span>
+              </div>
+              <div className="w-64">
+                <AutocompleteCombobox
+                  options={employeeComboboxOptions}
+                  value={selectedEmpId}
+                  onChange={(val) => setSelectedEmpId(val)}
+                  placeholder="ابحث بالاسم أو رقم الموظف..."
+                  searchPlaceholder="اكتب اسم أو كود الموظف..."
+                  emptyMessage="لا يوجد موظف مطابق"
+                />
+              </div>
             </div>
           )}
 
@@ -1395,7 +1372,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                                     (انقر على أي صورة لتكبيرها والمعاينة)
                                   </span>
                                 </div>
-                                <div className="flex flex-wrap gap-2.5">
+                                <div className="grid grid-cols-7 gap-2.5 w-full print:grid-cols-7">
                                   {row.items.flatMap(it => {
                                     const thumbs = parseThumbnails(it.imageThumbnail);
                                     const attImgs = (it.attachments || [])
@@ -1414,14 +1391,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                                     <div
                                       key={idx}
                                       onClick={() => setPreviewModalImage({ url: imgObj.imgStr, name: imgObj.itemName })}
-                                      className="flex flex-col items-center bg-white border border-slate-200 hover:border-purple-400 hover:shadow-sm rounded-lg p-1.5 shadow-2xs w-[90px] print:w-[82px] cursor-pointer transition-all group"
+                                      className="flex flex-col items-center bg-white border border-slate-200 hover:border-purple-500 hover:shadow-md rounded-lg p-1.5 shadow-2xs w-full cursor-pointer transition-all group"
                                       title={`معاينة وتكبير صورة "${imgObj.itemName}"\nالسعر: ${imgObj.unitPrice.toFixed(2)} ${settings.currency || '₪'}`}
                                     >
-                                      <div className="relative w-[78px] h-[78px] print:w-[72px] print:h-[72px] rounded-md overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
+                                      <div className="relative w-full aspect-square rounded-md overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center p-0.5">
                                         <img
                                           src={imgObj.imgStr}
                                           alt={imgObj.itemName}
-                                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                          className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-200"
                                           onError={(e) => {
                                             e.currentTarget.style.display = 'none';
                                           }}
@@ -1430,7 +1407,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                                           <Eye className="w-4 h-4 text-white" />
                                         </div>
                                       </div>
-                                      <div className="text-[9.5px] text-slate-800 font-bold text-center truncate w-full mt-1 group-hover:text-purple-700" title={imgObj.itemName}>
+                                      <div className="text-[10px] text-slate-800 font-bold text-center line-clamp-2 w-full mt-1.5 group-hover:text-purple-700 leading-tight" title={imgObj.itemName}>
                                         {imgObj.itemName}
                                       </div>
                                       <div className="flex items-center justify-between w-full text-[8.5px] font-mono text-slate-500 mt-0.5 border-t border-slate-100 pt-0.5">
