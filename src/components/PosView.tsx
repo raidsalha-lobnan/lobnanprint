@@ -356,7 +356,6 @@ export const PosView: React.FC = () => {
     updateParty,
     invoices,
     updateInvoice,
-    createPrintOrder,
     settings,
     createPosSale,
     deleteInvoice,
@@ -2281,41 +2280,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
       }
     }
 
-    // Automatically link with Workshop and Print Job Orders
-    if (savedInvoice) {
-      const hasPrintSpecs = tableLines.some(l => (l.length > 1 || l.width > 1 || l.description || l.unitPrice > 0));
-      if (hasPrintSpecs) {
-        const firstLine = tableLines.find(l => l.description || l.length > 1 || l.width > 1) || tableLines[0];
-        const linkedJobId = createPrintOrder({
-          customerName: customerName || customCustomerText || 'عميل كاشير نقدي',
-          customerPhone: subCustomerPhone || selectedCustomerObj?.phone || '',
-          customerId: selectedCustomerId || undefined,
-          title: firstLine.description || firstLine.itemName || `طلبية فاتورة #${savedInvoice.invoiceNumber}`,
-          serviceType: 'custom_print',
-          paperType: 'حسب مواصفات الفاتورة',
-          dimensions: `${firstLine.length} × ${firstLine.width} سم`,
-          quantity: firstLine.quantity,
-          colorType: 'ألوان كاملة',
-          finishingOptions: [],
-          unitCost: Number((firstLine.unitPrice * 0.7).toFixed(2)),
-          totalPrice: savedInvoice.totalAmount,
-          depositPaid: savedInvoice.paidAmount,
-          remainingBalance: savedInvoice.remainingAmount,
-          status: invoiceWorkflowStatus === 'design' || invoiceWorkflowStatus === 'designing' ? 'design'
-            : invoiceWorkflowStatus === 'pending_approval' ? 'pending_approval'
-            : invoiceWorkflowStatus === 'print_external' || invoiceWorkflowStatus === 'in_progress_external' ? 'in_progress_external'
-            : invoiceWorkflowStatus === 'print_internal' || invoiceWorkflowStatus === 'in_progress_internal' ? 'in_progress_internal'
-            : invoiceWorkflowStatus === 'ready' ? 'ready'
-            : invoiceWorkflowStatus === 'delivered' ? 'delivered'
-            : 'new',
-          notes: invoiceNotes || firstLine.description,
-          deliveryDate: invoiceDate,
-          associatedInvoiceId: savedInvoice.id
-        });
-        updateInvoice(savedInvoice.id, { printJobId: linkedJobId });
-      }
-    }
-
+    // POS Sale is a direct sales invoice - no duplicate print orders or deposits are created
     if (printMode !== 'none') {
       if (printMode === 'thermal-direct') {
         setDirectPrintOptions({ format: 'thermal', autoPrint: true });

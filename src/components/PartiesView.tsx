@@ -156,8 +156,7 @@ export const PartiesView: React.FC = () => {
     setAddress(party.address || '');
     setCommercialRegister(party.commercialRegister || '');
     setTaxNumber(party.taxNumber || '');
-    setCreditLimit(party.creditLimit !== undefined ? party.creditLimit : 0);
-    const manualOpeningBal = party.openingBalance !== undefined ? party.openingBalance : (party.initialBalance !== undefined ? party.initialBalance : 0);
+    const manualOpeningBal = party.openingBalance !== undefined ? party.openingBalance : ((party as any).initialBalance !== undefined ? (party as any).initialBalance : 0);
     setOpeningBalance(manualOpeningBal);
     setOpeningBalanceType(party.openingBalanceType || (party.type === 'supplier' ? 'credit' : 'debit'));
     setOpeningBalanceDate(party.openingBalanceDate || new Date().toISOString().split('T')[0]);

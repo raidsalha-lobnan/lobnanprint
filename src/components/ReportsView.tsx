@@ -36,6 +36,7 @@ import { tafqeetArabic } from '../utils/tafqeet';
 import { PrintHeader } from './common/PrintHeader';
 import { OfficialStamp } from './common/OfficialStamp';
 import { ReportSignatures } from './common/ReportSignatures';
+import { AutocompleteCombobox, ComboboxOption } from './common/AutocompleteCombobox';
 
 const parseThumbnails = (val?: string): string[] => {
   if (!val) return [];
@@ -125,6 +126,52 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
     if (!selectedSupplierId) return [];
     return parties.filter(p => p.parentPartyId === selectedSupplierId);
   }, [parties, selectedSupplierId]);
+
+  // خيارات قائمة الزبائن المنسدلة للبحث والمطابقة الفورية
+  const customerComboboxOptions: ComboboxOption[] = useMemo(() => {
+    return parties
+      .filter(p => p.type === 'customer' || p.type === 'both')
+      .map(p => {
+        let badge = p.isSubCustomer ? 'زبون فرعي' : 'عميل';
+        let subText = p.phone || '';
+        if (p.parentCustomerName) {
+          subText = `تابع لـ: ${p.parentCustomerName}${p.phone ? ' | ' + p.phone : ''}`;
+        } else if (p.currentBalance !== undefined) {
+          subText = `الرصيد: ${p.currentBalance.toFixed(2)} ${settings.currency || '₪'}${p.phone ? ' | ' + p.phone : ''}`;
+        }
+        return {
+          id: p.id,
+          name: p.name,
+          code: p.code,
+          subText,
+          badge,
+          extraSearchCorpus: `${p.name} ${p.code || ''} ${p.phone || ''} ${p.parentCustomerName || ''} ${p.city || ''}`,
+          raw: p
+        };
+      });
+  }, [parties, settings.currency]);
+
+  // خيارات قائمة الموردين المنسدلة للبحث والمطابقة الفورية
+  const supplierComboboxOptions: ComboboxOption[] = useMemo(() => {
+    return parties
+      .filter(p => p.type === 'supplier' || p.type === 'both')
+      .map(p => {
+        let badge = 'مورد';
+        let subText = p.phone || '';
+        if (p.currentBalance !== undefined) {
+          subText = `المستحق: ${p.currentBalance.toFixed(2)} ${settings.currency || '₪'}${p.phone ? ' | ' + p.phone : ''}`;
+        }
+        return {
+          id: p.id,
+          name: p.name,
+          code: p.code,
+          subText,
+          badge,
+          extraSearchCorpus: `${p.name} ${p.code || ''} ${p.phone || ''} ${p.city || ''}`,
+          raw: p
+        };
+      });
+  }, [parties, settings.currency]);
 
   // 5: Receipt vouchers treasury filter
   const [receiptTreasuryFilter, setReceiptTreasuryFilter] = useState<string>('all');
@@ -839,30 +886,43 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
         <div className="flex flex-wrap items-center gap-3">
           {/* Customer Selector if activeReport is customer_statement or customer_items */}
           {(activeReport === 'customer_statement' || activeReport === 'customer_items') && (
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-slate-700">العميل الرئيسي:</span>
-              <select
-                value={selectedCustomerId}
-                onChange={e => {
-                  setSelectedCustomerId(e.target.value);
-                  setSelectedSubCustomerId('all');
-                }}
-                className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-800"
-              >
-                {mainCustomers.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.code})
-                  </option>
-                ))}
-              </select>
+            <div className="flex items-center gap-2 flex-wrap min-w-[280px]">
+              <div className="flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap text-xs">
+                <div className="p-1 rounded bg-blue-100 text-blue-700">
+                  <Users className="w-3.5 h-3.5" />
+                </div>
+                <span>الزبون / العميل:</span>
+              </div>
+              <div className="w-64 sm:w-72">
+                <AutocompleteCombobox
+                  items={customerComboboxOptions}
+                  selectedId={selectedSubCustomerId !== 'all' ? selectedSubCustomerId : selectedCustomerId}
+                  value={parties.find(p => p.id === (selectedSubCustomerId !== 'all' ? selectedSubCustomerId : selectedCustomerId))?.name || ''}
+                  onSelect={(opt) => {
+                    if (opt.raw) {
+                      if (opt.raw.parentPartyId) {
+                        setSelectedCustomerId(opt.raw.parentPartyId);
+                        setSelectedSubCustomerId(opt.raw.id);
+                      } else {
+                        setSelectedCustomerId(opt.raw.id);
+                        setSelectedSubCustomerId('all');
+                      }
+                    }
+                  }}
+                  entityType="customer"
+                  placeholder="ابحث واكتب اسم الزبون للمطابقة..."
+                  className="w-full text-xs"
+                  inputClassName="py-1 px-2.5 text-xs font-bold bg-slate-50 border-slate-200"
+                />
+              </div>
 
               {subCustomersForSelected.length > 0 && (
                 <div className="flex items-center gap-1.5">
-                  <span className="font-bold text-slate-500">الفرعي:</span>
+                  <span className="font-bold text-slate-500">الزبون الفرعي:</span>
                   <select
                     value={selectedSubCustomerId}
                     onChange={e => setSelectedSubCustomerId(e.target.value)}
-                    className="bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1.5 text-xs text-blue-900 font-semibold"
+                    className="bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1 text-xs text-blue-900 font-semibold"
                   >
                     <option value="all">كل الزبائن الفرعيين والتابعِين</option>
                     {subCustomersForSelected.map(sub => (
@@ -878,22 +938,35 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
 
           {/* Supplier Selector if activeReport is supplier_statement or supplier_items */}
           {(activeReport === 'supplier_statement' || activeReport === 'supplier_items') && (
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-slate-700">المورد الرئيسي:</span>
-              <select
-                value={selectedSupplierId}
-                onChange={e => {
-                  setSelectedSupplierId(e.target.value);
-                  setSelectedSubSupplierId('all');
-                }}
-                className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-800"
-              >
-                {mainSuppliers.map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.code})
-                  </option>
-                ))}
-              </select>
+            <div className="flex items-center gap-2 flex-wrap min-w-[280px]">
+              <div className="flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap text-xs">
+                <div className="p-1 rounded bg-amber-100 text-amber-700">
+                  <Truck className="w-3.5 h-3.5" />
+                </div>
+                <span>المورد:</span>
+              </div>
+              <div className="w-64 sm:w-72">
+                <AutocompleteCombobox
+                  items={supplierComboboxOptions}
+                  selectedId={selectedSubSupplierId !== 'all' ? selectedSubSupplierId : selectedSupplierId}
+                  value={parties.find(p => p.id === (selectedSubSupplierId !== 'all' ? selectedSubSupplierId : selectedSupplierId))?.name || ''}
+                  onSelect={(opt) => {
+                    if (opt.raw) {
+                      if (opt.raw.parentPartyId) {
+                        setSelectedSupplierId(opt.raw.parentPartyId);
+                        setSelectedSubSupplierId(opt.raw.id);
+                      } else {
+                        setSelectedSupplierId(opt.raw.id);
+                        setSelectedSubSupplierId('all');
+                      }
+                    }
+                  }}
+                  entityType="supplier"
+                  placeholder="ابحث واكتب اسم المورد للمطابقة..."
+                  className="w-full text-xs"
+                  inputClassName="py-1 px-2.5 text-xs font-bold bg-slate-50 border-slate-200"
+                />
+              </div>
 
               {subSuppliersForSelected.length > 0 && (
                 <div className="flex items-center gap-1.5">
@@ -901,7 +974,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                   <select
                     value={selectedSubSupplierId}
                     onChange={e => setSelectedSubSupplierId(e.target.value)}
-                    className="bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 text-xs text-amber-900 font-semibold"
+                    className="bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 text-xs text-amber-900 font-semibold"
                   >
                     <option value="all">كل الفروع التابعة</option>
                     {subSuppliersForSelected.map(sub => (

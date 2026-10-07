@@ -35,6 +35,8 @@ import { OfficialStamp } from './common/OfficialStamp';
 import { Party, Employee } from '../types';
 import { PrintHeader } from './common/PrintHeader';
 import { formatDateDisplay } from '../utils/dateUtils';
+import { AutocompleteCombobox, ComboboxOption } from './common/AutocompleteCombobox';
+import { Search } from 'lucide-react';
 
 const parseThumbnails = (val?: string): string[] => {
   if (!val) return [];
@@ -125,6 +127,46 @@ export const AccountStatementModal: React.FC = () => {
     }
     return selectedEmployeeForStatement;
   }, [selectedEmpId, selectedEmployeeForStatement, employees]);
+
+  // خيارات القائمة المنسدلة للبحث والمطابقة للعملاء والموردين
+  const partyOptions: ComboboxOption[] = useMemo(() => {
+    return parties.map(p => {
+      const isCust = p.type === 'customer' || p.type === 'both';
+      const isSupp = p.type === 'supplier';
+      let badge = isCust ? 'عميل' : isSupp ? 'مورد' : 'طرف';
+      if (p.isSubCustomer) badge = 'زبون فرعي';
+
+      let subText = p.phone || '';
+      if (p.parentCustomerName) {
+        subText = `تابع لـ: ${p.parentCustomerName}${p.phone ? ' | ' + p.phone : ''}`;
+      } else if (p.currentBalance !== undefined) {
+        subText = `الرصيد: ${p.currentBalance.toFixed(2)} ${settings.currency || '₪'}${p.phone ? ' | ' + p.phone : ''}`;
+      }
+
+      return {
+        id: p.id,
+        name: p.name,
+        code: p.code,
+        subText,
+        badge,
+        extraSearchCorpus: `${p.name} ${p.code || ''} ${p.phone || ''} ${p.parentCustomerName || ''} ${p.city || ''}`,
+        raw: p
+      };
+    });
+  }, [parties, settings.currency]);
+
+  // خيارات القائمة المنسدلة للبحث والمطابقة للموظفين
+  const employeeOptions: ComboboxOption[] = useMemo(() => {
+    return employees.map(e => ({
+      id: e.id,
+      name: e.name,
+      code: e.code,
+      subText: `${e.jobTitle || e.position || 'موظف'}${e.phone ? ' | ' + e.phone : ''}`,
+      badge: 'موظف',
+      extraSearchCorpus: `${e.name} ${e.code || ''} ${e.phone || ''} ${e.jobTitle || ''}`,
+      raw: e
+    }));
+  }, [employees]);
 
   // Generate Party Statement
   const partyStatement = useMemo(() => {
@@ -328,39 +370,49 @@ export const AccountStatementModal: React.FC = () => {
               </div>
             </div>
 
-            {/* Quick Entity Selector Dropdown */}
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-slate-600">
-                {statementMode === 'party' ? 'اختر العميل/المورد:' : 'اختر الموظف:'}
-              </span>
-              {statementMode === 'party' ? (
-                <select
-                  value={currentParty?.id || ''}
-                  onChange={e => setSelectedPartyId(e.target.value)}
-                  className="bg-white border border-slate-300 rounded-md px-2.5 py-1 text-xs text-slate-800 font-bold focus:ring-1 focus:ring-blue-500 max-w-xs truncate"
-                >
-                  <optgroup label="العملاء">
-                    {parties.filter(p => p.type === 'customer' || p.type === 'both').map(p => (
-                      <option key={p.id} value={p.id}>{p.name} ({p.code || 'عميل'})</option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="الموردين">
-                    {parties.filter(p => p.type === 'supplier').map(p => (
-                      <option key={p.id} value={p.id}>{p.name} ({p.code || 'مورد'})</option>
-                    ))}
-                  </optgroup>
-                </select>
-              ) : (
-                <select
-                  value={currentEmployee?.id || ''}
-                  onChange={e => setSelectedEmpId(e.target.value)}
-                  className="bg-white border border-slate-300 rounded-md px-2.5 py-1 text-xs text-slate-800 font-bold focus:ring-1 focus:ring-amber-500 max-w-xs truncate"
-                >
-                  {employees.map(e => (
-                    <option key={e.id} value={e.id}>{e.name} - {e.position} ({e.code || 'موظف'})</option>
-                  ))}
-                </select>
-              )}
+            {/* Quick Entity Selector: Searchable Combobox with Icon */}
+            <div className="flex items-center gap-2 flex-1 min-w-[280px] max-w-md">
+              <div className="flex items-center gap-1.5 font-bold text-slate-700 whitespace-nowrap text-xs">
+                <div className={`p-1.5 rounded-lg ${statementMode === 'party' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                  {statementMode === 'party' ? <Users className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
+                </div>
+                <span>{statementMode === 'party' ? 'اختيار الزبون / العميل:' : 'اختيار الموظف:'}</span>
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                {statementMode === 'party' ? (
+                  <AutocompleteCombobox
+                    items={partyOptions}
+                    selectedId={currentParty?.id || ''}
+                    value={currentParty?.name || ''}
+                    onSelect={(opt) => {
+                      if (opt.raw) {
+                        setSelectedPartyId(opt.raw.id);
+                        setSelectedPartyForStatement(opt.raw);
+                      }
+                    }}
+                    entityType="customer"
+                    placeholder="ابحث واكتب اسم الزبون، الكود، أو الهاتف للمطابقة..."
+                    className="w-full text-xs"
+                    inputClassName="py-1 px-2.5 text-xs font-bold bg-white"
+                  />
+                ) : (
+                  <AutocompleteCombobox
+                    items={employeeOptions}
+                    selectedId={currentEmployee?.id || ''}
+                    value={currentEmployee?.name || ''}
+                    onSelect={(opt) => {
+                      if (opt.raw) {
+                        setSelectedEmpId(opt.raw.id);
+                        setSelectedEmployeeForStatement(opt.raw);
+                      }
+                    }}
+                    entityType="employee"
+                    placeholder="ابحث واكتب اسم الموظف للمطابقة..."
+                    className="w-full text-xs"
+                    inputClassName="py-1 px-2.5 text-xs font-bold bg-white"
+                  />
+                )}
+              </div>
             </div>
           </div>
 

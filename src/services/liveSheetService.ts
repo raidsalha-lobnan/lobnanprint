@@ -18,6 +18,7 @@ export interface DraftInvoiceItem {
   matchedInventoryId?: string;
   matchedInventoryName?: string;
   imageThumbnail?: string; // الصورة المصغرة للبند
+  hasDimensions?: boolean;
   rawCells?: (string | number)[];
 }
 
@@ -75,6 +76,10 @@ export interface SheetInvoiceRow {
   totalAmount: number;
   paymentMethod: PaymentMethod;
   notes?: string;
+  paymentNotes?: string;
+  imageThumbnail?: string;
+  attachments?: any[];
+  hasDimensions?: boolean;
   isApproved: boolean;
   selected: boolean;
   rawRowIndex?: number;

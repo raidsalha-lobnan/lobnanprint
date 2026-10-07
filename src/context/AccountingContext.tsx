@@ -6087,8 +6087,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       console.warn('Direct cloud save print order notice:', err);
     });
 
-    // If deposit was paid, record journal entry for deposit
-    if (orderData.depositPaid > 0) {
+    // If deposit was paid, record journal entry for deposit (skip if already accounted for by an invoice)
+    if (orderData.depositPaid > 0 && !orderData.associatedInvoiceId) {
       addJournalEntry({
         date: today,
         description: `عربون أمر طباعة ${orderNumber} - العميل: ${orderData.customerName}`,
@@ -6113,8 +6113,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
     }
 
-    // Update customer balance if order remaining balance exists
-    if (orderData.customerId && orderData.remainingBalance > 0) {
+    // Update customer balance if order remaining balance exists (skip if already handled by an invoice)
+    if (orderData.customerId && orderData.remainingBalance > 0 && !orderData.associatedInvoiceId) {
       setParties(prev => prev.map(p => p.id === orderData.customerId ? { ...p, balance: p.balance + orderData.remainingBalance } : p));
     }
 
