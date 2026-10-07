@@ -52,7 +52,7 @@ export const PartiesView: React.FC = () => {
   // Filters and View Mode
   const [filterCategory, setFilterCategory] = useState<'all' | 'customer' | 'supplier' | 'debtor' | 'creditor' | 'exceeded' | 'subCustomer'>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
 
   // Add / Edit Modal State
   const [showPartyModal, setShowPartyModal] = useState(false);
