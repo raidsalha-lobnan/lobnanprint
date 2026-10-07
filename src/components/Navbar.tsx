@@ -575,28 +575,15 @@ export const Navbar: React.FC = () => {
     setOpenDropdownId(null);
   };
 
-  const handleMouseEnter = (sectionId: string) => {
-    if (closeTimeoutRef.current) {
-      clearTimeout(closeTimeoutRef.current);
-      closeTimeoutRef.current = null;
-    }
-    setOpenDropdownId(sectionId);
+  const handleMouseEnter = (_sectionId: string) => {
+    // Dropdowns do not open on hover; only upon explicit user click
   };
 
   const handleMouseLeave = () => {
-    if (closeTimeoutRef.current) {
-      clearTimeout(closeTimeoutRef.current);
-    }
-    closeTimeoutRef.current = setTimeout(() => {
-      setOpenDropdownId(null);
-    }, 220);
+    // Keep open until user clicks outside or selects an option
   };
 
   const toggleDropdown = (sectionId: string) => {
-    if (closeTimeoutRef.current) {
-      clearTimeout(closeTimeoutRef.current);
-      closeTimeoutRef.current = null;
-    }
     setOpenDropdownId(prev => (prev === sectionId ? null : sectionId));
   };
 
@@ -791,8 +778,6 @@ export const Navbar: React.FC = () => {
               <div
                 key={section.id}
                 className="relative"
-                onMouseEnter={() => handleMouseEnter(section.id)}
-                onMouseLeave={handleMouseLeave}
               >
                 {/* Menu Item Button */}
                 <button
@@ -820,13 +805,6 @@ export const Navbar: React.FC = () => {
                 {/* Classic Windows Context Menu Dropdown */}
                 {isMenuOpen && (
                   <div
-                    onMouseEnter={() => {
-                      if (closeTimeoutRef.current) {
-                        clearTimeout(closeTimeoutRef.current);
-                        closeTimeoutRef.current = null;
-                      }
-                    }}
-                    onMouseLeave={handleMouseLeave}
                     className={`absolute top-full mt-0.5 w-[330px] sm:w-[380px] max-w-[95vw] bg-white text-slate-800 rounded-xs shadow-xl border border-[#7f9db9] py-1 z-50 animate-in fade-in duration-75 divide-y divide-slate-100 font-sans ${
                       isLeftAligned ? 'left-0 right-auto' : 'right-0 left-auto'
                     }`}
