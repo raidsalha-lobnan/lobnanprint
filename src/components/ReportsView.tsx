@@ -1319,7 +1319,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                                     <td className="font-bold text-slate-900 border-l border-slate-200">
                                       <div>
                                         <span>{it.itemName}</span>
-                                        {(it.notes || it.description) && (it.notes !== it.itemName) && (it.notes !== row.invoiceNotes) && (it.description !== row.invoiceNotes) && (
+                                        {(it.notes || it.description) && (it.notes !== it.itemName) && (
                                           <span className="text-slate-600 font-medium"> / {it.notes || it.description}</span>
                                         )}
                                         {it.itemCode && <span className="text-[10px] text-slate-400 mr-1.5 font-mono font-normal">({it.itemCode})</span>}
@@ -1407,12 +1407,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                                           <Eye className="w-4 h-4 text-white" />
                                         </div>
                                       </div>
-                                      <div className="text-[8.5px] sm:text-[9px] text-slate-800 font-bold text-center truncate w-full mt-1 group-hover:text-purple-700 leading-tight" title={imgObj.itemName}>
+                                      <div className="text-[7.5px] sm:text-[8px] text-slate-800 font-bold text-center leading-tight break-words w-full mt-1 group-hover:text-purple-700" title={imgObj.itemName}>
                                         {imgObj.itemName}
                                       </div>
-                                      <div className="text-center w-full text-[8.5px] font-mono text-slate-600 mt-0.5 border-t border-slate-100 pt-0.5 truncate">
-                                        {imgObj.quantity} {imgObj.unit || 'حبة'}
-                                      </div>
+                                      
                                     </div>
                                   ))}
                                 </div>
@@ -1842,7 +1840,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                                     <td className="font-bold text-slate-900 border-l border-slate-200">
                                       <div>
                                         <span>{it.itemName}</span>
-                                        {(it.notes || it.description) && (it.notes !== it.itemName) && (it.notes !== row.invoiceNotes) && (it.description !== row.invoiceNotes) && (
+                                        {(it.notes || it.description) && (it.notes !== it.itemName) && (
                                           <span className="text-slate-600 font-medium"> / {it.notes || it.description}</span>
                                         )}
                                         {it.itemCode && <span className="text-[10px] text-slate-400 mr-1.5 font-mono font-normal">({it.itemCode})</span>}
