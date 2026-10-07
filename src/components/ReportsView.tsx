@@ -1392,7 +1392,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                                       key={idx}
                                       onClick={() => setPreviewModalImage({ url: imgObj.imgStr, name: imgObj.itemName })}
                                       className="flex flex-col items-center bg-white border border-slate-200 hover:border-purple-500 hover:shadow-md rounded-lg p-1.5 shadow-2xs w-full cursor-pointer transition-all group"
-                                      title={`معاينة وتكبير صورة "${imgObj.itemName}"\nالسعر: ${imgObj.unitPrice.toFixed(2)} ${settings.currency || '₪'}`}
+                                      title={`معاينة وتكبير صورة "${imgObj.itemName}"`}
                                     >
                                       <div className="relative w-full aspect-square rounded-md overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center p-0.5">
                                         <img
@@ -1407,12 +1407,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ initialReport }) => {
                                           <Eye className="w-4 h-4 text-white" />
                                         </div>
                                       </div>
-                                      <div className="text-[10px] text-slate-800 font-bold text-center line-clamp-2 w-full mt-1.5 group-hover:text-purple-700 leading-tight" title={imgObj.itemName}>
+                                      <div className="text-[8.5px] sm:text-[9px] text-slate-800 font-bold text-center truncate w-full mt-1 group-hover:text-purple-700 leading-tight" title={imgObj.itemName}>
                                         {imgObj.itemName}
                                       </div>
-                                      <div className="flex items-center justify-between w-full text-[8.5px] font-mono text-slate-500 mt-0.5 border-t border-slate-100 pt-0.5">
-                                        <span>{imgObj.quantity} {imgObj.unit || 'حبة'}</span>
-                                        <span className="font-bold text-purple-700">{imgObj.unitPrice.toFixed(2)}</span>
+                                      <div className="text-center w-full text-[8.5px] font-mono text-slate-600 mt-0.5 border-t border-slate-100 pt-0.5 truncate">
+                                        {imgObj.quantity} {imgObj.unit || 'حبة'}
                                       </div>
                                     </div>
                                   ))}
