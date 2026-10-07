@@ -488,8 +488,61 @@ textarea::selection {
     print-color-adjust: exact !important;
   }
 
-  /* 7. Avoid awkward page breaks inside items and tables */
-  table, tr, td, th {
+  /* 7. Professional Print Pagination and Page-Break Logic */
+  table {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tfoot {
+    display: table-footer-group !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  /* Prevent split cells where text gets cut halfway */
+  td, th {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Expandable/Sub-table rows and details must break across pages if they exceed page height */
+  tr:has(table),
+  tr:has(.report-sub-table),
+  tr:has(.sub-table),
+  tr.print-allow-break,
+  .report-sub-table,
+  .report-sub-table tr,
+  .sub-table,
+  .sub-table tr {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
+  /* Re-enforce cell rules inside sub-tables to keep individual item text clean */
+  .report-sub-table td,
+  .report-sub-table th,
+  .sub-table td,
+  .sub-table th {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Keep headings attached to their succeeding content (never orphan headers) */
+  h1, h2, h3, h4, h5, h6, .print-keep-together {
+    page-break-after: avoid !important;
+    break-after: avoid-page !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
@@ -497,6 +550,32 @@ textarea::selection {
   .print-avoid-break {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+  }
+
+  .print-force-break, .print-page-break {
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+
+  /* 8. Global Reset of Scrollable Containers & Flexboxes that Clip Tables/Reports in Print */
+  div:has(table),
+  div:has(.report-table),
+  div:has(.report-sub-table),
+  div[class*="overflow-"],
+  div[class*="min-h-"],
+  div[class*="max-h-"],
+  .overflow-x-auto,
+  .overflow-y-auto {
+    display: block !important;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
   }
 
   /* Print Area Isolation Support */
