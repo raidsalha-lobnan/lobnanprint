@@ -1641,10 +1641,11 @@ const getInitialPosDraft = (): PosFullDraftData => {
   }, [selectedCustomerId, customerCode, customerName]);
 
   const effectivePricingCustomerId = useMemo(() => {
+    if (posTargetType !== 'customer') return undefined;
     if (subCustomerId) return subCustomerId;
     if (isCashCustomer) return undefined;
     return selectedCustomerId;
-  }, [subCustomerId, isCashCustomer, selectedCustomerId]);
+  }, [posTargetType, subCustomerId, isCashCustomer, selectedCustomerId]);
 
   const effectivePricingCustomerObj = useMemo(() => {
     return parties.find(p => p.id === effectivePricingCustomerId) || null;
@@ -2261,7 +2262,7 @@ const getInitialPosDraft = (): PosFullDraftData => {
     posSound.success();
 
     // Auto-save any customer modified special prices so they are permanently retained
-    if (effectivePricingCustomerId) {
+    if (effectivePricingCustomerId && parties.some(p => p.id === effectivePricingCustomerId)) {
       const updatedSpecial = { ...(effectivePricingCustomerObj?.specialPrices || {}) };
       let hasPriceChanges = false;
       tableLines.forEach(l => {

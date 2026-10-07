@@ -709,9 +709,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const [parties, setParties] = useState<Party[]>(() => {
     const raw = safeLoadArray(`${STORAGE_KEY}_parties`, initialParties);
-    // Deduplicate any accidental duplicate cash customer records
+    // Deduplicate any accidental duplicate cash customer records & purge invalid phantom records
     const seenGenericCash = new Set<string>();
     const cleanedRaw = raw.filter(p => {
+      if (!p || !p.id || !p.name || !p.name.trim() || p.id.startsWith('emp-')) return false;
       const trimmed = (p.name || '').trim();
       const isGeneric = trimmed === 'زبون نقدي' || trimmed === 'عميل نقدي' || trimmed === 'عميل كاشير نقدي' || trimmed === 'زبون عام';
       if (isGeneric) {
@@ -1539,7 +1540,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const delSet = getDeletedSet();
         const docs = snapshot.docs
           .map(d => d.data() as Party)
-          .filter(p => p && p.id && !delSet.has(`parties_${p.id}`));
+          .filter(p => p && p.id && p.name && p.name.trim() && !p.id.startsWith('emp-') && !delSet.has(`parties_${p.id}`));
         if (docs.length === 0 && isPendingUnsynced()) return;
         docs.sort((a, b) => (a.code || '').localeCompare(b.code || '') || (a.name || '').localeCompare(b.name || ''));
         setParties(docs);
@@ -4174,14 +4175,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setParties(prev => {
       // 1. Resolve existing party robustly (by id or code)
       const existing = prev.find(p => p.id === id || (p.code && p.code.toLowerCase() === id.toLowerCase()));
-      if (existing) {
-        targetId = existing.id;
+      if (!existing) {
+        console.warn(`updateParty: Target party ${id} not found in parties list. Ignored.`);
+        return prev;
       }
+      targetId = existing.id;
 
       const { code: _ignored, ...allowedUpdates } = updated;
-      const merged: Party = existing
-        ? { ...existing, ...allowedUpdates, code: existing.code }
-        : ({ ...allowedUpdates, id: targetId } as Party);
+      const merged: Party = { ...existing, ...allowedUpdates, code: existing.code };
 
       // If existing party exists, preserve existing balance unless explicitly updated.balance is passed or openingBalance is modified
       if (updated.balance !== undefined) {
@@ -4190,26 +4191,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const isCredit = merged.openingBalanceType === 'credit' || (!merged.openingBalanceType && merged.type === 'supplier');
         const nextOpeningVal = isCredit ? -Math.abs(merged.openingBalance) : Math.abs(merged.openingBalance);
         
-        if (existing) {
-          const oldIsCredit = existing.openingBalanceType === 'credit' || (!existing.openingBalanceType && existing.type === 'supplier');
-          const oldOpeningVal = oldIsCredit ? -Math.abs(existing.openingBalance || 0) : Math.abs(existing.openingBalance || 0);
-          
-          // Current balance adjusts by the difference in opening balance
-          const diff = nextOpeningVal - oldOpeningVal;
-          merged.balance = Number(((existing.balance || 0) + diff).toFixed(2));
-        } else {
-          merged.balance = nextOpeningVal;
-        }
-      } else if (existing) {
+        const oldIsCredit = existing.openingBalanceType === 'credit' || (!existing.openingBalanceType && existing.type === 'supplier');
+        const oldOpeningVal = oldIsCredit ? -Math.abs(existing.openingBalance || 0) : Math.abs(existing.openingBalance || 0);
+        
+        // Current balance adjusts by the difference in opening balance
+        const diff = nextOpeningVal - oldOpeningVal;
+        merged.balance = Number(((existing.balance || 0) + diff).toFixed(2));
+      } else {
         merged.balance = existing.balance;
       }
 
       finalMergedParty = merged;
 
       const nextParties = prev.map(p => (p.id === targetId ? merged : p));
-      if (!prev.some(p => p.id === targetId)) {
-        nextParties.push(merged);
-      }
 
       // 2. Persist to LocalStorage immediately with the updated array
       try {
